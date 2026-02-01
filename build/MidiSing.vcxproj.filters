@@ -1,0 +1,281 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\MainComponent.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Timeline\Track.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Timeline\Region.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Timeline\Timeline.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\AudioEngine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\AudioTrack.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\MIDI\MidiTrack.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\MIDI\MidiImporter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\TransportBar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\TrackHeader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\TimelineView.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\ChannelStrip.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\MixerPanel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\PianoRoll.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\SettingsPanel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\StatusBar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\SpectrumDisplay.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\SpectrumAnalyzer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\AudioRecorder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\AudioImporter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Export\MidiExporter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Export\AudioExporter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\WaveformCache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Serialization\ProjectSerializer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Effects\EffectChain.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Effects\SimpleEQEffect.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Effects\ReverbEffect.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\EffectRackUI.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_audio_basics\juce_audio_basics.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_core\juce_core.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_audio_devices\juce_audio_devices.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_events\juce_events.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_audio_formats\juce_audio_formats.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_audio_processors\juce_audio_processors.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_audio_processors\juce_audio_processors_ara.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_audio_processors\juce_audio_processors_lv2_libs.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_gui_extra\juce_gui_extra.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_gui_basics\juce_gui_basics.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_graphics\juce_graphics.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_data_structures\juce_data_structures.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_audio_utils\juce_audio_utils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src\modules\juce_dsp\juce_dsp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\MainComponent.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Utils\TimeConversion.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Timeline\Track.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Timeline\Region.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Timeline\Timeline.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\Transport.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\Mixer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\AudioEngine.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\AudioTrack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\MIDI\SimpleSynthSound.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\MIDI\SimpleSynthVoice.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\MIDI\MidiEngine.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\MIDI\MidiTrack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\MIDI\MidiImporter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\LookAndFeel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\TransportBar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\TrackHeader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\TimelineView.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\ChannelStrip.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\MixerPanel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\PianoRoll.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\SettingsPanel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\StatusBar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\SpectrumDisplay.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\SpectrumAnalyzer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\AudioRecorder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\AudioImporter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Export\MidiExporter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Export\AudioExporter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Audio\WaveformCache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Serialization\ProjectSerializer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Utils\UndoManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Actions\TrackActions.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Effects\Effect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Effects\EffectChain.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Effects\GainEffect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Effects\SimpleEQEffect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Effects\ReverbEffect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\UI\EffectRackUI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Tests\TimeConversionTest.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Tests\TimelineTest.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\Source\Tests\TestRunner.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Object Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\MidiSing_rc_lib.dir\$(Configuration)\MidiSing_resources.res">
+      <Filter>Object Libraries</Filter>
+    </Object>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{1DD2DD70-DD27-3CD5-9425-B13CD8FA6B83}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Object Libraries">
+      <UniqueIdentifier>{6FB7ED80-67CD-3831-90A6-D361250E7410}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{D9A5A5B5-4C0B-3049-9B2F-94BFB7CD4042}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -19,6 +19,7 @@
 #include "UI/StatusBar.h"
 #include "UI/SpectrumDisplay.h"
 #include "Utils/UndoManager.h"
+#include "Utils/RecentFilesManager.h"
 
 //==============================================================================
 class MainComponent : public juce::AudioAppComponent,
@@ -70,6 +71,7 @@ private:
     StatusBar statusBar;
     SpectrumDisplay spectrumDisplay;
     DAWUndoManager undoManager;
+    RecentFilesManager recentFilesManager;
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)

@@ -1,0 +1,1 @@
+C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\MidiSing_rc_lib.dir\Debug\MidiSing_rc_lib.lib

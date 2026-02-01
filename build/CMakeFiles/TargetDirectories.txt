@@ -1,0 +1,10 @@
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/CMakeFiles/MidiSing.dir
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/CMakeFiles/MidiSing_rc_lib.dir
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/CMakeFiles/INSTALL.dir
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/CMakeFiles/ZERO_CHECK.dir
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-build/CMakeFiles/INSTALL.dir
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-build/CMakeFiles/ALL_BUILD.dir
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-build/modules/CMakeFiles/INSTALL.dir
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-build/extras/Build/CMakeFiles/INSTALL.dir
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-build/extras/Build/juceaide/CMakeFiles/INSTALL.dir

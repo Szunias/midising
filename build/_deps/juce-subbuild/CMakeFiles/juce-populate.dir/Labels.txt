@@ -1,0 +1,14 @@
+# Target labels
+ juce-populate
+# Source files and their labels
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/juce-populate
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/1533a057bc5e4d6fa3f20b7c6c761006/juce-populate.rule
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/4ad8a3916c2541fb7ae5630864d2ecef/juce-populate-complete.rule
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/b73287d32f5f49c1355a686c77843473/juce-populate-build.rule
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/b73287d32f5f49c1355a686c77843473/juce-populate-configure.rule
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/b73287d32f5f49c1355a686c77843473/juce-populate-download.rule
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/b73287d32f5f49c1355a686c77843473/juce-populate-install.rule
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/b73287d32f5f49c1355a686c77843473/juce-populate-mkdir.rule
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/b73287d32f5f49c1355a686c77843473/juce-populate-patch.rule
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/b73287d32f5f49c1355a686c77843473/juce-populate-test.rule
+C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/b73287d32f5f49c1355a686c77843473/juce-populate-update.rule

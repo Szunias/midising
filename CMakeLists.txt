@@ -33,6 +33,8 @@ target_sources(MidiSing
         Source/MainComponent.h
         # Utils
         Source/Utils/TimeConversion.h
+        Source/Utils/RecentFilesManager.h
+        Source/Utils/RecentFilesManager.cpp
         # Timeline
         Source/Timeline/Track.h
         Source/Timeline/Track.cpp

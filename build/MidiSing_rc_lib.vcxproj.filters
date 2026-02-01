@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\CMakeFiles\2d29d3f6d7930a479140e8ab3cd4d492\MidiSing_resources.rc.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\MidiSing_artefacts\JuceLibraryCode\MidiSing_resources.rc">
+      <Filter>Source Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{1B0ED00B-9EC9-34AD-A00D-7986CA2597D4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{D9A5A5B5-4C0B-3049-9B2F-94BFB7CD4042}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,150 @@
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKEFILES\B73287D32F5F49C1355A686C77843473\JUCE-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/tmp/juce-populate-mkdirs.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/Debug/juce-populate-mkdir
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKEFILES\B73287D32F5F49C1355A686C77843473\JUCE-POPULATE-DOWNLOAD.RULE
+setlocal
+cd C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/tmp/juce-populate-gitclone.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/Debug/juce-populate-download
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKEFILES\B73287D32F5F49C1355A686C77843473\JUCE-POPULATE-UPDATE.RULE
+setlocal
+cd C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-src
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/tmp/juce-populate-gitupdate.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKEFILES\B73287D32F5F49C1355A686C77843473\JUCE-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/Debug/juce-populate-patch
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKEFILES\B73287D32F5F49C1355A686C77843473\JUCE-POPULATE-CONFIGURE.RULE
+setlocal
+cd C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/Debug/juce-populate-configure
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKEFILES\B73287D32F5F49C1355A686C77843473\JUCE-POPULATE-BUILD.RULE
+setlocal
+cd C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/Debug/juce-populate-build
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKEFILES\B73287D32F5F49C1355A686C77843473\JUCE-POPULATE-INSTALL.RULE
+setlocal
+cd C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/Debug/juce-populate-install
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKEFILES\B73287D32F5F49C1355A686C77843473\JUCE-POPULATE-TEST.RULE
+setlocal
+cd C:\Users\iszun\Downloads\MidiSing\midising\.auto-claude\worktrees\tasks\005-project-save-load\build\_deps\juce-build
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/Debug/juce-populate-test
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKEFILES\4AD8A3916C2541FB7AE5630864D2ECEF\JUCE-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E make_directory C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/Debug
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/Debug/juce-populate-complete
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E touch C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/juce-populate-prefix/src/juce-populate-stamp/Debug/juce-populate-done
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKEFILES\1533A057BC5E4D6FA3F20B7C6C761006\JUCE-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^C:\USERS\ISZUN\DOWNLOADS\MIDISING\MIDISING\.AUTO-CLAUDE\WORKTREES\TASKS\005-PROJECT-SAVE-LOAD\BUILD\_DEPS\JUCE-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild -BC:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild --check-stamp-file C:/Users/iszun/Downloads/MidiSing/midising/.auto-claude/worktrees/tasks/005-project-save-load/build/_deps/juce-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

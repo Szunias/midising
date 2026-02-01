@@ -185,8 +185,11 @@ void MainComponent::saveProject()
         {
             if (!file.hasFileExtension("midising"))
                 file = file.withFileExtension("midising");
-            
+
             ProjectSerializer::saveProject(audioEngine.getTimeline(), audioEngine.getTransport(), file);
+
+            // Add to recent files after successful save
+            recentFilesManager.addFile(file);
         }
     });
 }
@@ -207,18 +210,21 @@ void MainComponent::openProject()
         auto file = fc.getResult();
         if (file != juce::File())
         {
-            // Clear history 
-            undoManager.clearUndoHistory(); 
-            
-            ProjectSerializer::loadProject(audioEngine.getTimeline(), 
-                                          audioEngine.getTransport(), 
-                                          &audioEngine.getMidiEngine(), 
+            // Clear history
+            undoManager.clearUndoHistory();
+
+            ProjectSerializer::loadProject(audioEngine.getTimeline(),
+                                          audioEngine.getTransport(),
+                                          &audioEngine.getMidiEngine(),
                                           file);
-                                      
+
             // Update views
             timelineView.resized();
             timelineView.repaint();
             transportBar.repaint();
+
+            // Add to recent files after successful load
+            recentFilesManager.addFile(file);
         }
     });
 }
