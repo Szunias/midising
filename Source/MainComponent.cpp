@@ -36,6 +36,10 @@ MainComponent::MainComponent()
     setupCommands();
     addKeyListener(commandManager.getKeyMappings());
 
+    // Setup menu bar
+    menuBar.setModel(this);
+    addAndMakeVisible(menuBar);
+
     // Setup timeline view
     timelineView.setTimeline(&audioEngine.getTimeline());
     timelineView.setTransport(&audioEngine.getTransport());
@@ -140,12 +144,15 @@ void MainComponent::resized()
 {
     auto bounds = getLocalBounds();
 
-    // Transport bar at top
+    // Menu bar at top
+    menuBar.setBounds(bounds.removeFromTop(juce::LookAndFeel::getDefaultLookAndFeel().getDefaultMenuBarHeight()));
+
+    // Transport bar below menu bar
     transportBar.setBounds(bounds.removeFromTop(50));
-    
+
     // Status bar at bottom
     statusBar.setBounds(bounds.removeFromBottom(24));
-    
+
     // Spectrum Display (small strip above status bar)
     spectrumDisplay.setBounds(bounds.removeFromBottom(60));
 
@@ -483,6 +490,96 @@ bool MainComponent::perform(const InvocationInfo& info)
         return true;
     default:
         return false;
+    }
+}
+
+//==============================================================================
+// MenuBarModel implementation
+juce::StringArray MainComponent::getMenuBarNames()
+{
+    return { "File" };
+}
+
+juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName)
+{
+    juce::PopupMenu menu;
+
+    if (topLevelMenuIndex == 0)  // File menu
+    {
+        menu.addCommandItem(&commandManager, CommandIDs::projectNew);
+        menu.addCommandItem(&commandManager, CommandIDs::open);
+
+        // Open Recent submenu
+        juce::PopupMenu recentFilesMenu;
+        auto recentFiles = recentFilesManager.getRecentFiles();
+
+        if (recentFiles.size() > 0)
+        {
+            for (int i = 0; i < recentFiles.size(); ++i)
+            {
+                auto file = recentFiles[i];
+                recentFilesMenu.addItem(1000 + i, file.getFileNameWithoutExtension());
+            }
+        }
+        else
+        {
+            recentFilesMenu.addItem(-1, "No recent files", false);
+        }
+
+        menu.addSubMenu("Open Recent", recentFilesMenu);
+
+        menu.addCommandItem(&commandManager, CommandIDs::save);
+        menu.addCommandItem(&commandManager, CommandIDs::saveAs);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, juce::StandardApplicationCommandIDs::quit);
+    }
+
+    return menu;
+}
+
+void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
+{
+    // Handle recent files menu items
+    if (menuItemID >= 1000 && menuItemID < 2000)
+    {
+        auto recentFiles = recentFilesManager.getRecentFiles();
+        int recentIndex = menuItemID - 1000;
+
+        if (recentIndex < recentFiles.size())
+        {
+            auto file = recentFiles[recentIndex];
+
+            if (file.existsAsFile())
+            {
+                // Stop playback
+                audioEngine.getTransport().stop();
+
+                // Clear history
+                undoManager.clearUndoHistory();
+
+                // Load the project
+                ProjectSerializer::loadProject(audioEngine.getTimeline(),
+                                              audioEngine.getTransport(),
+                                              &audioEngine.getMidiEngine(),
+                                              file);
+
+                // Update views
+                timelineView.resized();
+                timelineView.repaint();
+                transportBar.repaint();
+
+                // Update current file and clear dirty flag after successful load
+                setCurrentProjectFile(file);
+                setHasUnsavedChanges(false);
+            }
+            else
+            {
+                // File no longer exists
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "File Not Found",
+                                                       "The file '" + file.getFileName() + "' could not be found.");
+            }
+        }
     }
 }
 

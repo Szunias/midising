@@ -24,7 +24,8 @@
 //==============================================================================
 class MainComponent : public juce::AudioAppComponent,
                       public juce::KeyListener,
-                      public juce::ApplicationCommandTarget
+                      public juce::ApplicationCommandTarget,
+                      public juce::MenuBarModel
 {
 public:
     MainComponent();
@@ -47,6 +48,11 @@ public:
     void getAllCommands(juce::Array<juce::CommandID>& commands) override;
     void getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result) override;
     bool perform(const InvocationInfo& info) override;
+
+    // MenuBarModel overrides
+    juce::StringArray getMenuBarNames() override;
+    juce::PopupMenu getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName) override;
+    void menuItemSelected(int menuItemID, int topLevelMenuIndex) override;
 
     // Access to audio engine
     AudioEngine& getAudioEngine() { return audioEngine; }
@@ -75,7 +81,7 @@ private:
     void createNewProject();
 
     juce::ApplicationCommandManager commandManager;
-
+    juce::MenuBarComponent menuBar;
 
     MidiSingLookAndFeel lookAndFeel;
     AudioEngine audioEngine;
