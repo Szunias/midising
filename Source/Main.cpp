@@ -56,7 +56,36 @@ public:
 
         void closeButtonPressed() override
         {
-            JUCEApplication::getInstance()->systemRequestedQuit();
+            auto* mainComponent = dynamic_cast<MainComponent*>(getContentComponent());
+
+            if (mainComponent != nullptr && mainComponent->hasUnsavedChanges())
+            {
+                auto options = juce::MessageBoxOptions()
+                    .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                    .withTitle("Unsaved Changes")
+                    .withMessage("Do you want to save changes before closing?")
+                    .withButton("Save")
+                    .withButton("Don't Save")
+                    .withButton("Cancel");
+
+                juce::AlertWindow::showAsync(options, [this, mainComponent](int result)
+                {
+                    if (result == 1) // Save
+                    {
+                        mainComponent->saveProject();
+                        JUCEApplication::getInstance()->systemRequestedQuit();
+                    }
+                    else if (result == 2) // Don't Save
+                    {
+                        JUCEApplication::getInstance()->systemRequestedQuit();
+                    }
+                    // result == 3 or 0 is Cancel - do nothing
+                });
+            }
+            else
+            {
+                JUCEApplication::getInstance()->systemRequestedQuit();
+            }
         }
 
     private:
