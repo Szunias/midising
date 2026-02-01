@@ -69,6 +69,45 @@ MainComponent::~MainComponent()
     shutdownAudio();
 }
 
+void MainComponent::updateWindowTitle()
+{
+    // Find the parent DocumentWindow
+    auto* window = findParentComponentOfClass<juce::DocumentWindow>();
+    if (window != nullptr)
+    {
+        juce::String title = "MidiSing";
+
+        // Add filename if we have a project open
+        if (currentProjectFile != juce::File())
+        {
+            title << " - " << currentProjectFile.getFileNameWithoutExtension();
+        }
+
+        // Add asterisk if there are unsaved changes
+        if (hasUnsavedChanges_)
+        {
+            title << " *";
+        }
+
+        window->setName(title);
+    }
+}
+
+void MainComponent::setHasUnsavedChanges(bool dirty)
+{
+    if (hasUnsavedChanges_ != dirty)
+    {
+        hasUnsavedChanges_ = dirty;
+        updateWindowTitle();
+    }
+}
+
+void MainComponent::setCurrentProjectFile(const juce::File& file)
+{
+    currentProjectFile = file;
+    updateWindowTitle();
+}
+
 bool MainComponent::keyPressed(const juce::KeyPress& key, juce::Component* originatingComponent)
 {
     return commandManager.getKeyMappings()->keyPressed(key, originatingComponent);
@@ -189,7 +228,8 @@ void MainComponent::saveProject()
 
             ProjectSerializer::saveProject(audioEngine.getTimeline(), audioEngine.getTransport(), file);
 
-            // Clear dirty flag after successful save
+            // Update current file and clear dirty flag after successful save
+            setCurrentProjectFile(file);
             setHasUnsavedChanges(false);
 
             // Add to recent files after successful save
@@ -227,7 +267,8 @@ void MainComponent::openProject()
             timelineView.repaint();
             transportBar.repaint();
 
-            // Clear dirty flag after successful load
+            // Update current file and clear dirty flag after successful load
+            setCurrentProjectFile(file);
             setHasUnsavedChanges(false);
 
             // Add to recent files after successful load

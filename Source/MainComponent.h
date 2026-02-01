@@ -55,17 +55,23 @@ public:
 
     // Unsaved changes tracking
     bool hasUnsavedChanges() const { return hasUnsavedChanges_; }
-    void setHasUnsavedChanges(bool dirty) { hasUnsavedChanges_ = dirty; }
+    void setHasUnsavedChanges(bool dirty);
+
+    // Project file tracking
+    void setCurrentProjectFile(const juce::File& file);
+    juce::File getCurrentProjectFile() const { return currentProjectFile; }
+
+    // Project management
+    void saveProject();
+    void openProject();
 
 private:
+    void updateWindowTitle();
     void setupTransportCallbacks();
     void createDemoTracks();
     void setupCommands();
 
     juce::ApplicationCommandManager commandManager;
-    
-    void saveProject();
-    void openProject();
 
 
     MidiSingLookAndFeel lookAndFeel;
@@ -78,6 +84,7 @@ private:
     RecentFilesManager recentFilesManager;
     std::unique_ptr<juce::FileChooser> fileChooser;
     bool hasUnsavedChanges_ = false;
+    juce::File currentProjectFile;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
