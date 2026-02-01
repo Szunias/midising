@@ -3,9 +3,9 @@
 #include "../MIDI/MidiTrack.h"
 #include "../Audio/AudioImporter.h"
 
-void ProjectSerializer::saveProject(const Timeline& timeline, const juce::File& file)
+void ProjectSerializer::saveProject(const Timeline& timeline, const Transport& transport, const juce::File& file)
 {
-    auto xml = createTimelineXml(timeline);
+    auto xml = createTimelineXml(timeline, transport);
     xml->writeTo(file);
 }
 
@@ -16,24 +16,40 @@ void ProjectSerializer::loadProject(Timeline& timeline, Transport& transport, Mi
     {
         transport.stop();
         timeline.clearTracks();
-        
+
         // Load global settings
         double bpm = xml->getDoubleAttribute("bpm", 120.0);
         int beatsPerBar = xml->getIntAttribute("beatsPerBar", 4);
-        
+
         timeline.setBpm(bpm);
         timeline.setBeatsPerBar(beatsPerBar);
-        
+
+        // Load transport settings
+        int64_t playheadPosition = static_cast<int64_t>(xml->getDoubleAttribute("playheadPosition", 0.0));
+        bool looping = xml->getBoolAttribute("looping", false);
+        int64_t loopStart = static_cast<int64_t>(xml->getDoubleAttribute("loopStart", 0.0));
+        int64_t loopEnd = static_cast<int64_t>(xml->getDoubleAttribute("loopEnd", 0.0));
+
+        transport.setPlayheadPosition(playheadPosition);
+        transport.setLooping(looping);
+        transport.setLoopRange(loopStart, loopEnd);
+
         restoreTimelineFromXml(timeline, *xml, midiEngine);
     }
 }
 
-std::unique_ptr<juce::XmlElement> ProjectSerializer::createTimelineXml(const Timeline& timeline)
+std::unique_ptr<juce::XmlElement> ProjectSerializer::createTimelineXml(const Timeline& timeline, const Transport& transport)
 {
     auto xml = std::make_unique<juce::XmlElement>("PROJECT");
     xml->setAttribute("version", "1.0");
     xml->setAttribute("bpm", timeline.getBpm());
     xml->setAttribute("beatsPerBar", timeline.getBeatsPerBar());
+
+    // Save transport settings
+    xml->setAttribute("playheadPosition", static_cast<double>(transport.getPlayheadPosition()));
+    xml->setAttribute("looping", transport.isLooping());
+    xml->setAttribute("loopStart", static_cast<double>(transport.getLoopStart()));
+    xml->setAttribute("loopEnd", static_cast<double>(transport.getLoopEnd()));
 
     for (int i = 0; i < timeline.getNumTracks(); ++i)
     {

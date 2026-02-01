@@ -1,0 +1,104 @@
+#pragma once
+
+#include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_core/juce_core.h>
+#include <memory>
+
+/**
+ * Type of region (Audio or MIDI)
+ */
+enum class RegionType
+{
+    Audio,
+    MIDI
+};
+
+/**
+ * Represents a clip/region on a track.
+ * Contains position, length, and content data (audio buffer or MIDI sequence).
+ */
+class Region
+{
+public:
+    Region(RegionType type, int64_t startPosition, int64_t length);
+    virtual ~Region() = default;
+
+    // Getters
+    RegionType getType() const { return type; }
+    int64_t getStartPosition() const { return startPosition; }
+    int64_t getLength() const { return length; }
+    int64_t getEndPosition() const { return startPosition + length; }
+    int64_t getOffset() const { return offset; }
+    juce::String getName() const { return name; }
+    
+    // Setters
+    void setStartPosition(int64_t newPosition) { startPosition = newPosition; }
+    void setLength(int64_t newLength) { length = juce::jmax(int64_t(0), newLength); }
+    void setOffset(int64_t newOffset) { offset = juce::jmax(int64_t(0), newOffset); }
+    void setName(const juce::String& newName) { name = newName; }
+
+    // Check if a sample position falls within this region
+    bool containsPosition(int64_t position) const
+    {
+        return position >= startPosition && position < getEndPosition();
+    }
+
+protected:
+    RegionType type;
+    int64_t startPosition;  // Start position in samples
+    int64_t length;         // Length in samples
+    int64_t offset = 0;     // Offset into source content (for trimmed regions)
+    juce::String name;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Region)
+};
+
+/**
+ * Audio region containing an audio buffer.
+ */
+class AudioRegion : public Region
+{
+public:
+    AudioRegion(int64_t startPosition, int64_t length)
+        : Region(RegionType::Audio, startPosition, length)
+    {
+    }
+
+    // Get/set the audio buffer
+    juce::AudioBuffer<float>& getAudioBuffer() { return audioBuffer; }
+    const juce::AudioBuffer<float>& getAudioBuffer() const { return audioBuffer; }
+    void setAudioBuffer(const juce::AudioBuffer<float>& buffer) { audioBuffer = buffer; }
+
+    // Thumbnail caching
+    int64_t getThumbnailHash() const { return thumbnailHash; }
+    void setThumbnailHash(int64_t hash) { thumbnailHash = hash; }
+
+    // Source file path
+    void setFilePath(const juce::String& path) { filePath = path; }
+    juce::String getFilePath() const { return filePath; }
+
+private:
+    juce::AudioBuffer<float> audioBuffer;
+    int64_t thumbnailHash = 0;
+    juce::String filePath;
+};
+
+/**
+ * MIDI region containing a MIDI message sequence.
+ */
+class MidiRegion : public Region
+{
+public:
+    MidiRegion(int64_t startPosition, int64_t length)
+        : Region(RegionType::MIDI, startPosition, length)
+    {
+    }
+
+    // Get/set the MIDI sequence
+    juce::MidiMessageSequence& getMidiSequence() { return midiSequence; }
+    const juce::MidiMessageSequence& getMidiSequence() const { return midiSequence; }
+    void setMidiSequence(const juce::MidiMessageSequence& sequence) { midiSequence = sequence; }
+
+private:
+    juce::MidiMessageSequence midiSequence;
+};
