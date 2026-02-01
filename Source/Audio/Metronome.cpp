@@ -49,6 +49,13 @@ void Metronome::processBlock(juce::AudioBuffer<float>& outputBuffer,
                              double bpm,
                              bool isPlaying)
 {
+    // Skip metronome output during export mode
+    if (exportMode.load())
+    {
+        clickPlaybackPosition = -1;
+        return;
+    }
+
     const bool countingIn = isCountingIn.load();
 
     // Metronome should play during count-in OR when enabled and playing

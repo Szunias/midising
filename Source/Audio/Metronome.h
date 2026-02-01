@@ -36,6 +36,10 @@ public:
     void setVolume(double newVolume) { volume.store(newVolume); }
     double getVolume() const { return volume.load(); }
 
+    // Export mode - disables metronome output during audio export
+    void setExportMode(bool isExporting) { exportMode.store(isExporting); }
+    bool isInExportMode() const { return exportMode.load(); }
+
     // Count-in control
     void setCountInBars(int bars); // 0 = off, 1 or 2 bars
     int getCountInBars() const { return countInBars.load(); }
@@ -56,6 +60,7 @@ private:
     // Thread-safe state
     std::atomic<bool> enabled { false };
     std::atomic<double> volume { 0.7 };
+    std::atomic<bool> exportMode { false }; // When true, metronome is muted
 
     // Count-in state
     std::atomic<int> countInBars { 1 }; // 0 = off, 1 or 2 bars
