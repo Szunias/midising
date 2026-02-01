@@ -282,9 +282,45 @@ void MainComponent::saveProject()
 {
     // Stop playback
     audioEngine.getTransport().stop();
-    
+
     fileChooser = std::make_unique<juce::FileChooser>("Save Project",
         juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+        "*.midising");
+
+    auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file != juce::File())
+        {
+            if (!file.hasFileExtension("midising"))
+                file = file.withFileExtension("midising");
+
+            ProjectSerializer::saveProject(audioEngine.getTimeline(), audioEngine.getTransport(), file);
+
+            // Update current file and clear dirty flag after successful save
+            setCurrentProjectFile(file);
+            setHasUnsavedChanges(false);
+
+            // Add to recent files after successful save
+            recentFilesManager.addFile(file);
+        }
+    });
+}
+
+void MainComponent::saveProjectAs()
+{
+    // Stop playback
+    audioEngine.getTransport().stop();
+
+    // Start with current file location if we have one, otherwise use Documents
+    auto initialLocation = currentProjectFile != juce::File()
+        ? currentProjectFile.getParentDirectory()
+        : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+
+    fileChooser = std::make_unique<juce::FileChooser>("Save Project As",
+        initialLocation,
         "*.midising");
 
     auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
@@ -359,6 +395,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::record);
     commands.add(CommandIDs::projectNew);
     commands.add(CommandIDs::save);
+    commands.add(CommandIDs::saveAs);
     commands.add(CommandIDs::open);
     commands.add(CommandIDs::undo);
     commands.add(CommandIDs::redo);
@@ -383,6 +420,10 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
     case CommandIDs::save:
         result.setInfo("Save Project", "Saves the project", "Project", 0);
         result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::saveAs:
+        result.setInfo("Save Project As", "Saves the project with a new name", "Project", 0);
+        result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
         break;
     case CommandIDs::open:
         result.setInfo("Open Project", "Opens a project", "Project", 0);
@@ -425,6 +466,9 @@ bool MainComponent::perform(const InvocationInfo& info)
         return true;
     case CommandIDs::save:
         saveProject();
+        return true;
+    case CommandIDs::saveAs:
+        saveProjectAs();
         return true;
     case CommandIDs::open:
         openProject();

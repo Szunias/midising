@@ -64,6 +64,7 @@ public:
     // Project management
     void newProject();
     void saveProject();
+    void saveProjectAs();
     void openProject();
 
 private:
