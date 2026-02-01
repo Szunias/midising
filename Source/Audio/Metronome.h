@@ -36,6 +36,13 @@ public:
     void setVolume(double newVolume) { volume.store(newVolume); }
     double getVolume() const { return volume.load(); }
 
+    // Count-in control
+    void setCountInBars(int bars); // 0 = off, 1 or 2 bars
+    int getCountInBars() const { return countInBars.load(); }
+    void startCountIn(int64_t startPosition);
+    bool isInCountIn() const { return isCountingIn.load(); }
+    bool isCountInComplete(int64_t currentPosition, double bpm) const;
+
     // Time signature (currently fixed to 4/4)
     int getBeatsPerMeasure() const { return beatsPerMeasure; }
 
@@ -49,6 +56,11 @@ private:
     // Thread-safe state
     std::atomic<bool> enabled { false };
     std::atomic<double> volume { 0.7 };
+
+    // Count-in state
+    std::atomic<int> countInBars { 1 }; // 0 = off, 1 or 2 bars
+    std::atomic<bool> isCountingIn { false };
+    std::atomic<int64_t> countInStartPosition { -1 };
 
     // Audio parameters
     double currentSampleRate = 44100.0;

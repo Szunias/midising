@@ -49,8 +49,13 @@ void Metronome::processBlock(juce::AudioBuffer<float>& outputBuffer,
                              double bpm,
                              bool isPlaying)
 {
-    // Early exit if metronome is disabled or not playing
-    if (!enabled.load() || !isPlaying)
+    const bool countingIn = isCountingIn.load();
+
+    // Metronome should play during count-in OR when enabled and playing
+    const bool shouldPlayClicks = (countingIn && isPlaying) || (enabled.load() && isPlaying);
+
+    // Early exit if we shouldn't play clicks
+    if (!shouldPlayClicks)
     {
         clickPlaybackPosition = -1;
         return;
@@ -121,6 +126,52 @@ bool Metronome::shouldTriggerClick(int64_t playheadPosition, double bpm, int& be
     {
         // Calculate beat number within measure (1-4 for 4/4 time)
         beatNumber = static_cast<int>((currentBeat % beatsPerMeasure) + 1);
+        return true;
+    }
+
+    return false;
+}
+
+void Metronome::setCountInBars(int bars)
+{
+    // Clamp to valid range: 0, 1, or 2
+    if (bars < 0) bars = 0;
+    if (bars > 2) bars = 2;
+    countInBars.store(bars);
+}
+
+void Metronome::startCountIn(int64_t startPosition)
+{
+    if (countInBars.load() > 0)
+    {
+        isCountingIn.store(true);
+        countInStartPosition.store(startPosition);
+    }
+}
+
+bool Metronome::isCountInComplete(int64_t currentPosition, double bpm) const
+{
+    if (!isCountingIn.load())
+        return true;
+
+    const int64_t startPos = countInStartPosition.load();
+    if (startPos < 0)
+        return true;
+
+    // Calculate samples per bar (4 beats in 4/4 time)
+    const double beatsPerSecond = bpm / 60.0;
+    const double samplesPerBeat = currentSampleRate / beatsPerSecond;
+    const double samplesPerBar = samplesPerBeat * beatsPerMeasure;
+
+    // Calculate how many bars have elapsed
+    const int64_t elapsedSamples = currentPosition - startPos;
+    const int64_t requiredSamples = static_cast<int64_t>(samplesPerBar * countInBars.load());
+
+    // Count-in is complete when we've elapsed the required number of bars
+    if (elapsedSamples >= requiredSamples)
+    {
+        // Note: We don't reset isCountingIn here because this is const
+        // The caller should handle resetting the count-in state
         return true;
     }
 
