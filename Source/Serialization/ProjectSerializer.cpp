@@ -67,6 +67,7 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createTrackXml(const Track&
     xml->setAttribute("pan", track.getPan());
     xml->setAttribute("muted", track.isMuted());
     xml->setAttribute("soloed", track.isSoloed());
+    xml->setAttribute("armed", track.isArmed());
     xml->setAttribute("colour", track.getColour().toString());
 
     if (track.getType() == TrackType::Audio)
@@ -174,6 +175,7 @@ void ProjectSerializer::restoreTrackFromXml(Timeline& timeline, const juce::XmlE
         track->setPan(static_cast<float>(xml.getDoubleAttribute("pan", 0.0)));
         track->setMuted(xml.getBoolAttribute("muted", false));
         track->setSoloed(xml.getBoolAttribute("soloed", false));
+        track->setArmed(xml.getBoolAttribute("armed", false));
         track->setColour(juce::Colour::fromString(xml.getStringAttribute("colour")));
 
         // Restore regions
