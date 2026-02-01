@@ -53,6 +53,10 @@ public:
     DAWUndoManager& getUndoManager() { return undoManager; }
     juce::ApplicationCommandManager& getCommandManager() { return commandManager; }
 
+    // Unsaved changes tracking
+    bool hasUnsavedChanges() const { return hasUnsavedChanges_; }
+    void setHasUnsavedChanges(bool dirty) { hasUnsavedChanges_ = dirty; }
+
 private:
     void setupTransportCallbacks();
     void createDemoTracks();
@@ -73,6 +77,7 @@ private:
     DAWUndoManager undoManager;
     RecentFilesManager recentFilesManager;
     std::unique_ptr<juce::FileChooser> fileChooser;
+    bool hasUnsavedChanges_ = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
