@@ -62,6 +62,7 @@ public:
     juce::File getCurrentProjectFile() const { return currentProjectFile; }
 
     // Project management
+    void newProject();
     void saveProject();
     void openProject();
 
@@ -70,6 +71,7 @@ private:
     void setupTransportCallbacks();
     void createDemoTracks();
     void setupCommands();
+    void createNewProject();
 
     juce::ApplicationCommandManager commandManager;
 
