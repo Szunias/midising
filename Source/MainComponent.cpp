@@ -58,8 +58,9 @@ MainComponent::MainComponent()
     addAndMakeVisible(transportBar);
     
     // Setup status bar
+    statusBar.setTransport(&audioEngine.getTransport());
     addAndMakeVisible(statusBar);
-    
+
     // Setup spectrum display
     addAndMakeVisible(spectrumDisplay);
 
