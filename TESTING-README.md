@@ -1,8 +1,12 @@
-# Subtask 5-1: Comprehensive Save/Load Workflow Test
+# Integration Testing: Project Save/Load Feature
 
-## Status: Ready for Manual Testing ⏸️
+## Subtask 5-1: Comprehensive Save/Load Workflow Test
+**Status:** Ready for Manual Testing ⏸️
 
-All code implementation from phases 1-4 has been completed and verified. The application is built and ready for end-to-end integration testing.
+## Subtask 5-2: Edge Cases and Error Handling Test
+**Status:** Documentation Complete ✅
+
+All code implementation from phases 1-4 has been completed and verified. The application is built and ready for comprehensive integration testing.
 
 ## What Has Been Prepared
 
@@ -137,4 +141,112 @@ If you encounter any problems during testing:
 
 ---
 
-**Ready to begin testing!** Launch the application and follow the test plan. 🚀
+## Subtask 5-2: Edge Cases and Error Handling
+
+### Test Documentation Prepared
+
+1. **📋 Edge Case Test Plan** (`.auto-claude/specs/005-project-save-load/edge-case-test-plan.md`)
+   - 9 comprehensive test suites
+   - 30+ detailed edge case scenarios
+   - Expected behaviors documented
+   - Current error handling analyzed
+
+2. **📖 Quick Start Guide** (`.auto-claude/specs/005-project-save-load/EDGE-CASE-TESTING-GUIDE.md`)
+   - 30-60 minute test execution plan
+   - 6 critical tests (must complete)
+   - 4 additional tests (optional)
+   - Results checklist template
+
+3. **🔍 Error Handling Analysis** (`.auto-claude/specs/005-project-save-load/error-handling-analysis.md`)
+   - Detailed code review of current error handling
+   - Risk assessment for each error scenario
+   - Identified 2 critical bugs (state management on failures)
+   - Prioritized recommendations for improvements
+
+4. **📁 Test Files** (`.auto-claude/specs/005-project-save-load/test-files/`)
+   - 8 pre-made test files for edge cases:
+     - Corrupted XML (invalid syntax, wrong tags, truncated)
+     - Invalid data types and negative values
+     - Missing audio file references
+     - Empty project
+     - Unicode characters in filenames/content
+
+### Edge Cases Covered
+
+#### Critical Tests (Must Execute)
+1. **Corrupted XML Files** - Verify no crashes on invalid files
+2. **Missing Audio Files** - Graceful handling of missing references
+3. **Cancel File Dialogs** - All cancellation operations work correctly
+4. **Rapid Operations** - No race conditions or overlapping dialogs
+5. **Invalid Data Handling** - Defaults used for bad values
+6. **Unicode Support** - International characters display correctly
+
+#### Additional Tests (If Time Permits)
+7. **Empty Project** - Valid project with no tracks
+8. **Disk Space** - Error handling when disk is full
+9. **Read-Only File** - Handling when file can't be overwritten
+10. **Very Large Project** - Performance with 50+ tracks
+
+### Quick Start: Edge Case Testing
+
+```bash
+# Launch application
+.\build\MidiSing_artefacts\Debug\MidiSing.exe
+
+# Test files location:
+# .auto-claude/specs/005-project-save-load/test-files/
+
+# Follow guide:
+# .auto-claude/specs/005-project-save-load/EDGE-CASE-TESTING-GUIDE.md
+```
+
+### Expected Results (Based on Code Analysis)
+
+✅ **Working Well:**
+- No crashes from invalid data (JUCE handles gracefully)
+- File chooser cancellation works correctly
+- Invalid data types return to defaults
+- UTF-8/Unicode fully supported
+- Missing audio files skipped safely
+
+⚠️ **Known Limitations:**
+- Silent failures (no error messages shown)
+- Save failures not detected (marks as saved anyway)
+- No warnings for missing audio files
+- No protection against multiple simultaneous dialogs
+
+**Current Error Handling Grade:** C+
+- Functional and safe (no crashes)
+- Minimal user feedback
+- State management issues on failures
+
+### Testing Timeline
+
+**Phase 1: E2E Testing (30-45 min)** - Subtask 5-1
+- Comprehensive workflow testing
+- Verify all features work correctly
+
+**Phase 2: Edge Case Testing (30-60 min)** - Subtask 5-2
+- Test error conditions
+- Verify graceful failure handling
+- Document actual vs expected behavior
+
+**Total Estimated Time:** 60-105 minutes
+
+### Completion Criteria
+
+#### Subtask 5-1 Complete When:
+- ✅ All E2E test steps executed
+- ✅ All acceptance criteria validated
+- ✅ Results documented
+- ✅ No critical bugs found (or fixed)
+
+#### Subtask 5-2 Complete When:
+- ✅ All critical edge case tests executed
+- ✅ Application remains stable under error conditions
+- ✅ Known limitations documented
+- ✅ No crashes or data corruption
+
+---
+
+**Ready to begin testing!** Start with subtask 5-1 (E2E workflow), then proceed to subtask 5-2 (edge cases). 🚀
