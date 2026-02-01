@@ -3,6 +3,39 @@
 #include "Tests/TestRunner.h"
 #include "UI/CommandIDs.h"
 
+// Helper class for count-in completion polling
+class CountInTimer : public juce::Timer
+{
+public:
+    CountInTimer(AudioEngine& engine, std::function<void()> onComplete)
+        : audioEngine(engine), completionCallback(onComplete) {}
+
+    void timerCallback() override
+    {
+        auto& metronome = audioEngine.getMetronome();
+        auto& transport = audioEngine.getTransport();
+
+        // Check if count-in is complete
+        if (metronome.isCountInComplete(transport.getPlayheadPosition(), transport.getBPM()))
+        {
+            stopTimer();
+
+            // Call completion callback
+            if (completionCallback)
+                completionCallback();
+
+            // Delete this timer
+            delete this;
+        }
+    }
+
+private:
+    AudioEngine& audioEngine;
+    std::function<void()> completionCallback;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CountInTimer)
+};
+
 //==============================================================================
 MainComponent::MainComponent()
     : statusBar(deviceManager),
@@ -128,12 +161,46 @@ void MainComponent::setupTransportCallbacks()
 
     transportBar.onRecord = [this]()
     {
+        // Handle stopping recording
         if (audioEngine.isRecording())
+        {
             audioEngine.stopRecording();
+            return;
+        }
+
+        // Handle starting recording with count-in
+        auto& metronome = audioEngine.getMetronome();
+        int countInBars = metronome.getCountInBars();
+
+        if (countInBars > 0)
+        {
+            // Start count-in mode
+            auto& transport = audioEngine.getTransport();
+            int64_t currentPosition = transport.getPlayheadPosition();
+
+            metronome.startCountIn(currentPosition);
+
+            // Start playback so metronome can be heard
+            if (!transport.isPlaying())
+                transport.play();
+
+            // Create timer to wait for count-in completion (self-deleting)
+            auto* countInTimer = new CountInTimer(audioEngine, [this]()
+            {
+                // Count-in complete - start actual recording
+                audioEngine.startRecording();
+            });
+
+            // Start polling for count-in completion (check every 50ms)
+            countInTimer->startTimer(50);
+        }
         else
+        {
+            // No count-in - start recording immediately
             audioEngine.startRecording();
+        }
     };
-    
+
     transportBar.onSave = [this]() { saveProject(); };
     transportBar.onOpen = [this]() { openProject(); };
 
@@ -295,10 +362,46 @@ bool MainComponent::perform(const InvocationInfo& info)
         audioEngine.getTransport().togglePlayPause();
         return true;
     case CommandIDs::record:
+        // Handle stopping recording
         if (audioEngine.isRecording())
+        {
             audioEngine.stopRecording();
-        else
-            audioEngine.startRecording();
+            return true;
+        }
+
+        // Handle starting recording with count-in
+        {
+            auto& metronome = audioEngine.getMetronome();
+            int countInBars = metronome.getCountInBars();
+
+            if (countInBars > 0)
+            {
+                // Start count-in mode
+                auto& transport = audioEngine.getTransport();
+                int64_t currentPosition = transport.getPlayheadPosition();
+
+                metronome.startCountIn(currentPosition);
+
+                // Start playback so metronome can be heard
+                if (!transport.isPlaying())
+                    transport.play();
+
+                // Create timer to wait for count-in completion (self-deleting)
+                auto* countInTimer = new CountInTimer(audioEngine, [this]()
+                {
+                    // Count-in complete - start actual recording
+                    audioEngine.startRecording();
+                });
+
+                // Start polling for count-in completion (check every 50ms)
+                countInTimer->startTimer(50);
+            }
+            else
+            {
+                // No count-in - start recording immediately
+                audioEngine.startRecording();
+            }
+        }
         return true;
     case CommandIDs::save:
         saveProject();
