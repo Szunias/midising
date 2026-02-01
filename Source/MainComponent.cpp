@@ -140,6 +140,7 @@ void MainComponent::setupTransportCallbacks()
     transportBar.onBpmChange = [this](double bpm)
     {
         audioEngine.getTimeline().setBpm(bpm);
+        setHasUnsavedChanges(true);
     };
 }
 
@@ -188,6 +189,9 @@ void MainComponent::saveProject()
 
             ProjectSerializer::saveProject(audioEngine.getTimeline(), audioEngine.getTransport(), file);
 
+            // Clear dirty flag after successful save
+            setHasUnsavedChanges(false);
+
             // Add to recent files after successful save
             recentFilesManager.addFile(file);
         }
@@ -222,6 +226,9 @@ void MainComponent::openProject()
             timelineView.resized();
             timelineView.repaint();
             transportBar.repaint();
+
+            // Clear dirty flag after successful load
+            setHasUnsavedChanges(false);
 
             // Add to recent files after successful load
             recentFilesManager.addFile(file);
@@ -303,10 +310,12 @@ bool MainComponent::perform(const InvocationInfo& info)
         openProject();
         return true;
     case CommandIDs::undo:
-        undoManager.undo();
+        if (undoManager.undo())
+            setHasUnsavedChanges(true);
         return true;
     case CommandIDs::redo:
-        undoManager.redo();
+        if (undoManager.redo())
+            setHasUnsavedChanges(true);
         return true;
     default:
         return false;
