@@ -622,10 +622,12 @@ void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
 
 void MainComponent::showAudioSettings()
 {
-    auto settingsPanel = std::make_unique<SettingsPanel>(deviceManager);
+    // Pass the MidiEngine as the MIDI input callback so that MIDI devices
+    // selected in the settings panel will send events to the MidiEngine
+    auto settingsPanel = std::make_unique<SettingsPanel>(deviceManager, &audioEngine.getMidiEngine());
 
     juce::DialogWindow::LaunchOptions options;
-    options.dialogTitle = "Audio Settings";
+    options.dialogTitle = "Audio & MIDI Settings";
     options.dialogBackgroundColour = MidiSingLookAndFeel::backgroundDark;
     options.content.setOwned(settingsPanel.release());
     options.componentToCentreAround = this;
