@@ -57,6 +57,18 @@ public:
     float getInputLevelLeft() const { return inputLevelLeft.load(); }
     float getInputLevelRight() const { return inputLevelRight.load(); }
 
+    // Input monitoring - hear input through speakers when armed
+    void setInputMonitoringEnabled(bool enabled) { inputMonitoringEnabled.store(enabled); }
+    bool isInputMonitoringEnabled() const { return inputMonitoringEnabled.load(); }
+
+    // Get the last processed input buffer for monitoring output
+    // Returns true if monitoring buffer is valid and contains data
+    bool getMonitoringBuffer(juce::AudioBuffer<float>& outputBuffer) const;
+
+    // Latency compensation for recording
+    void setLatencyCompensationSamples(int samples) { latencyCompensationSamples = samples; }
+    int getLatencyCompensationSamples() const { return latencyCompensationSamples; }
+
     // Recording
     void startRecording(int64_t startPosition);
     void stopRecording();
@@ -84,6 +96,15 @@ private:
     std::atomic<float> inputLevelLeft { 0.0f };
     std::atomic<float> inputLevelRight { 0.0f };
     static constexpr float levelDecayRate = 0.9995f; // Smooth decay for meters
+
+    // Input monitoring state
+    std::atomic<bool> inputMonitoringEnabled { false };
+    mutable juce::AudioBuffer<float> monitoringBuffer;
+    mutable std::atomic<bool> monitoringBufferValid { false };
+    mutable int monitoringBufferSamples { 0 };
+
+    // Latency compensation (in samples)
+    int latencyCompensationSamples { 0 };
 
     // Recording state
     bool recording = false;

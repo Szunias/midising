@@ -11,6 +11,12 @@ void AudioTrack::prepareToPlay(double sampleRate, int samplesPerBlock)
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlock;
     effectChain.prepareToPlay(sampleRate, samplesPerBlock);
+
+    // Pre-allocate monitoring buffer
+    monitoringBuffer.setSize(2, samplesPerBlock);
+    monitoringBuffer.clear();
+    monitoringBufferValid.store(false);
+    monitoringBufferSamples = 0;
 }
 
 void AudioTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
@@ -129,10 +135,26 @@ void AudioTrack::stopRecording()
 
     if (recordingRegion && recordingWritePosition > 0)
     {
+        // Apply latency compensation - shift region start position backward
+        // This compensates for the audio buffer latency during recording
+        if (latencyCompensationSamples > 0)
+        {
+            int64_t currentStart = recordingRegion->getStartPosition();
+            int64_t compensatedStart = currentStart - latencyCompensationSamples;
+
+            // Don't allow negative start positions
+            if (compensatedStart < 0)
+            {
+                compensatedStart = 0;
+            }
+
+            recordingRegion->setStartPosition(compensatedStart);
+        }
+
         // Trim buffer to actual recorded length
         recordingRegion->setLength(recordingWritePosition);
         juce::AudioBuffer<float>& buf = recordingRegion->getAudioBuffer();
-        
+
         // Create a properly sized buffer
         juce::AudioBuffer<float> trimmedBuffer(buf.getNumChannels(), recordingWritePosition);
         for (int ch = 0; ch < buf.getNumChannels(); ++ch)
@@ -241,6 +263,7 @@ void AudioTrack::processInputSignal(const juce::AudioBuffer<float>& inputBuffer,
         inputLevel.store(inputLevel.load() * levelDecayRate);
         inputLevelLeft.store(inputLevelLeft.load() * levelDecayRate);
         inputLevelRight.store(inputLevelRight.load() * levelDecayRate);
+        monitoringBufferValid.store(false);
         return;
     }
 
@@ -302,5 +325,62 @@ void AudioTrack::processInputSignal(const juce::AudioBuffer<float>& inputBuffer,
 
     // Combined input level is the max of left and right
     inputLevel.store(juce::jmax(newLeftLevel, newRightLevel));
+
+    // Fill monitoring buffer if input monitoring is enabled
+    if (inputMonitoringEnabled.load())
+    {
+        // Ensure monitoring buffer is large enough
+        if (monitoringBuffer.getNumSamples() < numSamples)
+        {
+            monitoringBuffer.setSize(2, numSamples, false, false, true);
+        }
+
+        monitoringBuffer.clear();
+
+        // Copy input to monitoring buffer
+        if (leftInput != nullptr)
+        {
+            monitoringBuffer.copyFrom(0, 0, leftInput, numSamples);
+        }
+        if (rightInput != nullptr)
+        {
+            monitoringBuffer.copyFrom(1, 0, rightInput, numSamples);
+        }
+        else if (leftInput != nullptr)
+        {
+            // If no right input but have left, copy left to right (mono to stereo)
+            monitoringBuffer.copyFrom(1, 0, leftInput, numSamples);
+        }
+
+        monitoringBufferSamples = numSamples;
+        monitoringBufferValid.store(true);
+    }
+    else
+    {
+        monitoringBufferValid.store(false);
+    }
+}
+
+bool AudioTrack::getMonitoringBuffer(juce::AudioBuffer<float>& outputBuffer) const
+{
+    if (!monitoringBufferValid.load() || monitoringBufferSamples <= 0)
+    {
+        return false;
+    }
+
+    // Copy monitoring buffer to output, applying track volume and pan
+    int numSamples = juce::jmin(monitoringBufferSamples, outputBuffer.getNumSamples());
+    int numChannels = juce::jmin(2, outputBuffer.getNumChannels());
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        if (ch < monitoringBuffer.getNumChannels())
+        {
+            // Apply track volume
+            outputBuffer.addFrom(ch, 0, monitoringBuffer, ch, 0, numSamples, getVolume());
+        }
+    }
+
+    return true;
 }
 

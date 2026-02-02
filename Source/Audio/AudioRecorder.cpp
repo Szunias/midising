@@ -12,7 +12,8 @@ AudioRecorder::~AudioRecorder()
     writerThread.stopThread(1000);
 }
 
-bool AudioRecorder::startRecording(const juce::File& file, double sampleRate, int numChannels)
+bool AudioRecorder::startRecording(const juce::File& file, double sampleRate, int numChannels,
+                                   int64_t startPositionSamples)
 {
     stopRecording();
 
@@ -21,6 +22,7 @@ bool AudioRecorder::startRecording(const juce::File& file, double sampleRate, in
 
     currentSampleRate = sampleRate;
     samplesRecorded = 0;
+    recordingStartPosition = startPositionSamples;
 
     // Create WAV format writer
     juce::WavAudioFormat wavFormat;
@@ -83,4 +85,18 @@ void AudioRecorder::writeAudioBlock(const juce::AudioBuffer<float>& buffer)
 double AudioRecorder::getRecordedDuration() const
 {
     return static_cast<double>(samplesRecorded.load()) / currentSampleRate;
+}
+
+int64_t AudioRecorder::getCompensatedStartPosition() const
+{
+    // Apply latency compensation - shift position backward by the latency amount
+    int64_t compensated = recordingStartPosition - latencyCompensationSamples;
+
+    // Don't allow negative positions
+    if (compensated < 0)
+    {
+        compensated = 0;
+    }
+
+    return compensated;
 }
