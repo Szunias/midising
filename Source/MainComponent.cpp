@@ -131,6 +131,14 @@ void MainComponent::prepareToPlay(int samplesPerBlockExpected, double sampleRate
 
 void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
 {
+    // Capture input buffer for recording BEFORE calling audioEngine.getNextAudioBlock()
+    // This is necessary because the audio engine clears the buffer before processing,
+    // which would lose the raw input signal needed for recording
+    if (audioEngine.isRecording())
+    {
+        audioEngine.recordInputBlock(*bufferToFill.buffer);
+    }
+
     audioEngine.getNextAudioBlock(bufferToFill);
 }
 
