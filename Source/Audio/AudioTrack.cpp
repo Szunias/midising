@@ -53,13 +53,54 @@ void AudioTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample,
 
         // Copy from region's audio buffer to TRACK buffer
         const juce::AudioBuffer<float>& regionBuffer = region->getAudioBuffer();
-        
+
         int numChannels = juce::jmin(trackBuffer.getNumChannels(), regionBuffer.getNumChannels());
         for (int ch = 0; ch < numChannels; ++ch)
         {
             if (regionReadPos >= 0 && regionReadPos + numToCopy <= regionBuffer.getNumSamples())
             {
                 trackBuffer.addFrom(ch, bufferWritePos, regionBuffer, ch, regionReadPos, numToCopy);
+            }
+        }
+
+        // Apply fade in/out envelopes
+        int64_t fadeInLen = region->getFadeInLength();
+        int64_t fadeOutLen = region->getFadeOutLength();
+
+        if (fadeInLen > 0 || fadeOutLen > 0)
+        {
+            // Apply fades sample by sample for the copied range
+            for (int i = 0; i < numToCopy; ++i)
+            {
+                // Position within the region (relative to region start)
+                int64_t posInRegion = copyStart - regionStart + i;
+
+                float gain = 1.0f;
+
+                // Apply fade in (linear ramp from 0 to 1)
+                if (fadeInLen > 0 && posInRegion < fadeInLen)
+                {
+                    gain *= static_cast<float>(posInRegion) / static_cast<float>(fadeInLen);
+                }
+
+                // Apply fade out (linear ramp from 1 to 0)
+                int64_t fadeOutStart = region->getLength() - fadeOutLen;
+                if (fadeOutLen > 0 && posInRegion >= fadeOutStart)
+                {
+                    int64_t posInFadeOut = posInRegion - fadeOutStart;
+                    gain *= 1.0f - (static_cast<float>(posInFadeOut) / static_cast<float>(fadeOutLen));
+                }
+
+                // Apply gain to all channels at this sample position
+                if (gain < 1.0f)
+                {
+                    int bufferPos = bufferWritePos + i;
+                    for (int ch = 0; ch < trackBuffer.getNumChannels(); ++ch)
+                    {
+                        float* samples = trackBuffer.getWritePointer(ch);
+                        samples[bufferPos] *= gain;
+                    }
+                }
             }
         }
     }
