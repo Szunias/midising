@@ -2,6 +2,7 @@
 #include "Audio/AudioTrack.h"
 #include "Tests/TestRunner.h"
 #include "UI/CommandIDs.h"
+#include "UI/SettingsPanel.h"
 
 //==============================================================================
 MainComponent::MainComponent()
@@ -432,6 +433,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::open);
     commands.add(CommandIDs::undo);
     commands.add(CommandIDs::redo);
+    commands.add(CommandIDs::audioSettings);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -476,6 +478,10 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
         result.addDefaultKeypress('y', juce::ModifierKeys::commandModifier);
 #endif
         break;
+    case CommandIDs::audioSettings:
+        result.setInfo("Audio Settings...", "Opens the audio device settings dialog", "Settings", 0);
+        result.addDefaultKeypress(',', juce::ModifierKeys::commandModifier);
+        break;
     default:
         break;
     }
@@ -513,6 +519,9 @@ bool MainComponent::perform(const InvocationInfo& info)
     case CommandIDs::redo:
         if (undoManager.redo())
             setHasUnsavedChanges(true);
+        return true;
+    case CommandIDs::audioSettings:
+        showAudioSettings();
         return true;
     default:
         return false;
@@ -556,6 +565,8 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
 
         menu.addCommandItem(&commandManager, CommandIDs::save);
         menu.addCommandItem(&commandManager, CommandIDs::saveAs);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::audioSettings);
         menu.addSeparator();
         menu.addCommandItem(&commandManager, juce::StandardApplicationCommandIDs::quit);
     }
@@ -607,5 +618,20 @@ void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             }
         }
     }
+}
+
+void MainComponent::showAudioSettings()
+{
+    auto settingsPanel = std::make_unique<SettingsPanel>(deviceManager);
+
+    juce::DialogWindow::LaunchOptions options;
+    options.dialogTitle = "Audio Settings";
+    options.dialogBackgroundColour = MidiSingLookAndFeel::backgroundDark;
+    options.content.setOwned(settingsPanel.release());
+    options.componentToCentreAround = this;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+
+    options.launchAsync();
 }
 

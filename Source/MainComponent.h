@@ -79,6 +79,7 @@ private:
     void createDemoTracks();
     void setupCommands();
     void createNewProject();
+    void showAudioSettings();
 
     juce::ApplicationCommandManager commandManager;
     juce::MenuBarComponent menuBar;
