@@ -1,6 +1,7 @@
 #include "PianoRoll.h"
 #include <algorithm>
 #include <vector>
+#include <cmath>
 
 PianoRoll::PianoRoll()
 {
@@ -106,8 +107,11 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& e)
             // Calculate new end beat from mouse position
             double newEndBeat = xToBeat(e.x);
 
-            // Ensure minimum length (at least 1/16 of a beat)
-            double minLength = 0.0625;
+            // Apply quantization to end beat if enabled
+            newEndBeat = quantizeBeatPosition(newEndBeat);
+
+            // Ensure minimum length (at least 1 grid step)
+            double minLength = quantizeEnabled ? getQuantizeGridSize() : 0.0625;
             newEndBeat = juce::jmax(startBeat + minLength, newEndBeat);
 
             resizeCurrentEndBeat = newEndBeat;
@@ -279,6 +283,9 @@ void PianoRoll::drawNoteGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
         g.drawHorizontalLine(y + noteHeight - 1, static_cast<float>(bounds.getX()),
                              static_cast<float>(bounds.getRight()));
     }
+
+    // Draw quantize grid lines (finer sub-beat grid)
+    drawQuantizeGrid(g, bounds);
 
     // Draw vertical lines (beat grid)
     double startBeat = horizontalScrollOffset / pixelsPerBeat;
@@ -748,6 +755,48 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
+    // Q = Quantize selected notes
+    if (key.getTextCharacter() == 'q' || key.getTextCharacter() == 'Q')
+    {
+        if (!selectedNoteIndices.empty())
+        {
+            quantizeSelectedNotes();
+            return true;
+        }
+    }
+
+    // G = Toggle quantize/snap-to-grid
+    if (key.getTextCharacter() == 'g' || key.getTextCharacter() == 'G')
+    {
+        setQuantizeEnabled(!quantizeEnabled);
+        return true;
+    }
+
+    // Number keys 6-9 for quick quantize value selection (when Ctrl is held)
+    if (key.getModifiers().isCommandDown())
+    {
+        if (key.getTextCharacter() == '6')
+        {
+            setQuantizeValue(QuantizeValue::Quarter);
+            return true;
+        }
+        if (key.getTextCharacter() == '7')
+        {
+            setQuantizeValue(QuantizeValue::Eighth);
+            return true;
+        }
+        if (key.getTextCharacter() == '8')
+        {
+            setQuantizeValue(QuantizeValue::Sixteenth);
+            return true;
+        }
+        if (key.getTextCharacter() == '9')
+        {
+            setQuantizeValue(QuantizeValue::EighthTriplet);
+            return true;
+        }
+    }
+
     return false;
 }
 
@@ -1062,15 +1111,26 @@ void PianoRoll::handleDrawToolMouseUp(const juce::MouseEvent& e)
     int endNote = yToNote(e.y);
     double endBeat = xToBeat(e.x);
 
-    // Create note from drag start to end
-    if (dragStartNote == endNote && endBeat > dragStartBeat)
+    // Apply quantization to start and end positions if enabled
+    double quantizedStartBeat = quantizeBeatPosition(dragStartBeat);
+    double quantizedEndBeat = quantizeBeatPosition(endBeat);
+
+    // Ensure minimum note length (at least 1 grid step)
+    double gridSize = getQuantizeGridSize();
+    if (quantizedEndBeat <= quantizedStartBeat)
+    {
+        quantizedEndBeat = quantizedStartBeat + gridSize;
+    }
+
+    // Create note from quantized start to end
+    if (dragStartNote == endNote && quantizedEndBeat > quantizedStartBeat)
     {
         auto& seq = midiRegion->getMidiSequence();
 
         // Convert beats to ticks (assuming 960 ticks per beat)
         double ticksPerBeat = 960.0;
-        double startTicks = dragStartBeat * ticksPerBeat;
-        double endTicks = endBeat * ticksPerBeat;
+        double startTicks = quantizedStartBeat * ticksPerBeat;
+        double endTicks = quantizedEndBeat * ticksPerBeat;
 
         // Add note on
         seq.addEvent(juce::MidiMessage::noteOn(1, dragStartNote, 0.8f).withTimeStamp(startTicks));
@@ -1246,5 +1306,132 @@ void PianoRoll::handleMuteToolMouseDown(const juce::MouseEvent& e)
     {
         // Toggle mute state of the clicked note
         toggleNoteMute(clickedNoteIndex);
+    }
+}
+
+// ============================================================================
+// Quantization functionality
+// ============================================================================
+
+double PianoRoll::getQuantizeGridSize() const
+{
+    switch (quantizeValue)
+    {
+        case QuantizeValue::Quarter:
+            return 1.0;  // 1 beat
+        case QuantizeValue::Eighth:
+            return 0.5;  // 1/2 beat
+        case QuantizeValue::Sixteenth:
+            return 0.25; // 1/4 beat
+        case QuantizeValue::QuarterTriplet:
+            return 2.0 / 3.0;  // 2/3 beat (triplet feel on quarters)
+        case QuantizeValue::EighthTriplet:
+            return 1.0 / 3.0;  // 1/3 beat
+        case QuantizeValue::SixteenthTriplet:
+            return 1.0 / 6.0;  // 1/6 beat
+        default:
+            return 0.25; // Default to 1/16
+    }
+}
+
+double PianoRoll::quantizeBeatPosition(double beat) const
+{
+    if (!quantizeEnabled)
+        return beat;
+
+    double gridSize = getQuantizeGridSize();
+    if (gridSize <= 0.0)
+        return beat;
+
+    // Round to nearest grid position
+    return std::round(beat / gridSize) * gridSize;
+}
+
+void PianoRoll::quantizeSelectedNotes()
+{
+    if (midiRegion == nullptr || selectedNoteIndices.empty())
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+    double gridSize = getQuantizeGridSize();
+
+    // Process each selected note
+    for (int eventIndex : selectedNoteIndices)
+    {
+        if (eventIndex < 0 || eventIndex >= seq.getNumEvents())
+            continue;
+
+        auto* event = seq.getEventPointer(eventIndex);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        // Get current beat position
+        double currentBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+        // Quantize to nearest grid position
+        double quantizedBeat = std::round(currentBeat / gridSize) * gridSize;
+
+        // Update the note-on timestamp
+        double newTicks = quantizedBeat * ticksPerBeat;
+        event->message.setTimeStamp(newTicks);
+
+        // If there's a note-off, adjust it to maintain note length
+        if (event->noteOffObject != nullptr)
+        {
+            double noteOffBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+            double noteLength = noteOffBeat - currentBeat;
+
+            // Keep the same duration, but optionally quantize the duration too
+            double newNoteOffBeat = quantizedBeat + noteLength;
+            event->noteOffObject->message.setTimeStamp(newNoteOffBeat * ticksPerBeat);
+        }
+    }
+
+    // Re-sort and update matched pairs after modifying timestamps
+    seq.sort();
+    seq.updateMatchedPairs();
+
+    repaint();
+}
+
+void PianoRoll::drawQuantizeGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    if (!quantizeEnabled)
+        return;
+
+    double gridSize = getQuantizeGridSize();
+    if (gridSize <= 0.0 || gridSize >= 1.0)
+        return;  // Don't draw sub-beat grid if it's beat-level or larger
+
+    // Draw finer grid lines for quantize value
+    double startBeat = horizontalScrollOffset / pixelsPerBeat;
+    double endBeat = startBeat + bounds.getWidth() / pixelsPerBeat;
+
+    // Determine grid color based on grid size - finer grids are more subtle
+    float alpha = 0.15f;
+    if (gridSize >= 0.5)
+        alpha = 0.2f;
+    else if (gridSize <= 0.2)
+        alpha = 0.1f;
+
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(alpha));
+
+    // Snap start beat to grid
+    double gridStart = std::floor(startBeat / gridSize) * gridSize;
+
+    for (double beat = gridStart; beat <= endBeat; beat += gridSize)
+    {
+        // Skip beats that would overlap with main beat grid
+        double beatFraction = std::fmod(beat, 1.0);
+        if (std::abs(beatFraction) < 0.001 || std::abs(beatFraction - 1.0) < 0.001)
+            continue;
+
+        int x = beatToX(beat);
+        if (x < bounds.getX() || x > bounds.getRight())
+            continue;
+
+        g.drawLine(static_cast<float>(x), static_cast<float>(bounds.getY()),
+                   static_cast<float>(x), static_cast<float>(bounds.getBottom()), 0.5f);
     }
 }

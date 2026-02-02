@@ -10,6 +10,7 @@
  * PianoRoll is an editor for MIDI notes.
  * Shows piano keys on left, note grid, and allows note editing.
  * Supports multiple editing tools: Draw, Erase, Select, Split, Mute.
+ * Supports quantization with snap-to-grid for various note values.
  */
 class PianoRoll : public juce::Component
 {
@@ -22,6 +23,17 @@ public:
         Select,     // Box selection of multiple notes
         Split,      // Divide note at click position
         Mute        // Toggle note mute state
+    };
+
+    // Quantize grid values
+    enum class QuantizeValue
+    {
+        Quarter,        // 1/4 note (1.0 beat)
+        Eighth,         // 1/8 note (0.5 beat)
+        Sixteenth,      // 1/16 note (0.25 beat)
+        QuarterTriplet, // 1/4 triplet (2/3 beat)
+        EighthTriplet,  // 1/8 triplet (1/3 beat)
+        SixteenthTriplet // 1/16 triplet (1/6 beat)
     };
 
     PianoRoll();
@@ -78,6 +90,21 @@ public:
     // Split note at a specific beat position
     void splitNoteAtBeat(int eventIndex, double splitBeat);
 
+    // Quantization settings
+    void setQuantizeEnabled(bool enabled) { quantizeEnabled = enabled; repaint(); }
+    bool isQuantizeEnabled() const { return quantizeEnabled; }
+    void setQuantizeValue(QuantizeValue value) { quantizeValue = value; repaint(); }
+    QuantizeValue getQuantizeValue() const { return quantizeValue; }
+
+    // Get the grid size in beats for the current quantize value
+    double getQuantizeGridSize() const;
+
+    // Quantize a beat position to the current grid
+    double quantizeBeatPosition(double beat) const;
+
+    // Apply quantization to selected notes
+    void quantizeSelectedNotes();
+
     static constexpr int KEYBOARD_WIDTH = 60;
     static constexpr int NUM_NOTES = 128;
     static constexpr int EDGE_DETECT_WIDTH = 8; // Pixels for edge detection
@@ -114,6 +141,7 @@ private:
     void updateCursorForTool();
     void drawBoxSelection(juce::Graphics& g, juce::Rectangle<int> bounds);
     void drawMutedNotes(juce::Graphics& g, juce::Rectangle<int> bounds);
+    void drawQuantizeGrid(juce::Graphics& g, juce::Rectangle<int> bounds);
 
     // Tool-specific mouse handlers
     void handleDrawToolMouseDown(const juce::MouseEvent& e);
@@ -164,6 +192,10 @@ private:
     bool isBoxSelecting = false;
     juce::Point<int> boxSelectStart;
     juce::Point<int> boxSelectEnd;
+
+    // Quantization state
+    bool quantizeEnabled = true;  // Snap to grid enabled by default
+    QuantizeValue quantizeValue = QuantizeValue::Sixteenth;  // Default to 1/16 notes
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PianoRoll)
 };
