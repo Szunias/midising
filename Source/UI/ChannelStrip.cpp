@@ -108,21 +108,66 @@ void ChannelStrip::paint(juce::Graphics& g)
     // Level meters (simple visualisation on sides)
     auto meterArea = bounds.reduced(4);
     int meterWidth = 4;
+    int clipIndicatorHeight = 6;
 
     // Left meter
     auto leftMeterBounds = meterArea.removeFromLeft(meterWidth);
+
+    // Draw clip indicator at top of left meter
+    auto leftClipBounds = leftMeterBounds.removeFromTop(clipIndicatorHeight);
+    if (clipHoldL)
+    {
+        g.setColour(MidiSingLookAndFeel::recordColour);  // Red for clipping
+    }
+    else
+    {
+        g.setColour(MidiSingLookAndFeel::sliderBackground.brighter(0.1f));
+    }
+    g.fillRect(leftClipBounds);
+
+    // Draw left meter background and level
     g.setColour(MidiSingLookAndFeel::sliderBackground);
     g.fillRect(leftMeterBounds);
     float leftHeight = leftMeterBounds.getHeight() * levelL;
-    g.setColour(MidiSingLookAndFeel::playColour);
+
+    // Color gradient: green for normal, yellow/orange approaching 0dB, red at clipping
+    juce::Colour leftMeterColour = MidiSingLookAndFeel::playColour;
+    if (levelL > 0.9f)
+        leftMeterColour = juce::Colour(0xffd4a85a);  // Orange/yellow warning
+    if (levelL >= 1.0f)
+        leftMeterColour = MidiSingLookAndFeel::recordColour;  // Red for clipping
+
+    g.setColour(leftMeterColour);
     g.fillRect(leftMeterBounds.removeFromBottom(static_cast<int>(leftHeight)));
 
     // Right meter
     auto rightMeterBounds = meterArea.removeFromRight(meterWidth);
+
+    // Draw clip indicator at top of right meter
+    auto rightClipBounds = rightMeterBounds.removeFromTop(clipIndicatorHeight);
+    if (clipHoldR)
+    {
+        g.setColour(MidiSingLookAndFeel::recordColour);  // Red for clipping
+    }
+    else
+    {
+        g.setColour(MidiSingLookAndFeel::sliderBackground.brighter(0.1f));
+    }
+    g.fillRect(rightClipBounds);
+
+    // Draw right meter background and level
     g.setColour(MidiSingLookAndFeel::sliderBackground);
     g.fillRect(rightMeterBounds);
     float rightHeight = rightMeterBounds.getHeight() * levelR;
-    g.setColour(MidiSingLookAndFeel::playColour);
+
+    // Color gradient: green for normal, yellow/orange approaching 0dB, red at clipping
+    juce::Colour rightMeterColour = MidiSingLookAndFeel::playColour;
+    if (levelR > 0.9f)
+        rightMeterColour = juce::Colour(0xffd4a85a);  // Orange/yellow warning
+    if (levelR >= 1.0f)
+        rightMeterColour = MidiSingLookAndFeel::recordColour;  // Red for clipping
+
+    g.setColour(rightMeterColour);
     g.fillRect(rightMeterBounds.removeFromBottom(static_cast<int>(rightHeight)));
 
     // Border
@@ -175,6 +220,54 @@ void ChannelStrip::setLevel(float left, float right)
 {
     levelL = juce::jlimit(0.0f, 1.0f, left);
     levelR = juce::jlimit(0.0f, 1.0f, right);
+    repaint();
+}
+
+void ChannelStrip::setLevelWithClipping(float left, float right, bool clippingL, bool clippingR)
+{
+    levelL = juce::jlimit(0.0f, 1.0f, left);
+    levelR = juce::jlimit(0.0f, 1.0f, right);
+
+    juce::int64 currentTime = juce::Time::currentTimeMillis();
+
+    // Set clip hold if clipping detected
+    if (clippingL)
+    {
+        clipHoldL = true;
+        clipHoldTimeL = currentTime;
+    }
+    else if (clipHoldL)
+    {
+        // Check if hold duration has elapsed
+        if (currentTime - clipHoldTimeL > clipHoldDurationMs)
+        {
+            clipHoldL = false;
+        }
+    }
+
+    if (clippingR)
+    {
+        clipHoldR = true;
+        clipHoldTimeR = currentTime;
+    }
+    else if (clipHoldR)
+    {
+        // Check if hold duration has elapsed
+        if (currentTime - clipHoldTimeR > clipHoldDurationMs)
+        {
+            clipHoldR = false;
+        }
+    }
+
+    repaint();
+}
+
+void ChannelStrip::resetClipIndicators()
+{
+    clipHoldL = false;
+    clipHoldR = false;
+    clipHoldTimeL = 0;
+    clipHoldTimeR = 0;
     repaint();
 }
 

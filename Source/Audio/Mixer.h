@@ -102,12 +102,64 @@ public:
         return channel == 0 ? peakLevelLeft.load() : peakLevelRight.load();
     }
 
+    /**
+     * Get true peak level (maximum sample value, can exceed 1.0).
+     * Used for clip detection.
+     */
+    float getTruePeakLevel(int channel) const
+    {
+        return channel == 0 ? truePeakLeft.load() : truePeakRight.load();
+    }
+
+    /**
+     * Check if a channel is currently clipping (true peak > 0dB).
+     */
+    bool isClipping(int channel) const
+    {
+        return channel == 0 ? clippingLeft.load() : clippingRight.load();
+    }
+
+    /**
+     * Reset clip indicators (called from UI when user clicks to clear).
+     */
+    void resetClipIndicators()
+    {
+        clippingLeft.store(false);
+        clippingRight.store(false);
+        truePeakLeft.store(0.0f);
+        truePeakRight.store(0.0f);
+    }
+
     void updatePeakLevels(const juce::AudioBuffer<float>& buffer)
     {
         if (buffer.getNumChannels() >= 1)
-            peakLevelLeft.store(buffer.getMagnitude(0, 0, buffer.getNumSamples()));
+        {
+            float peak = buffer.getMagnitude(0, 0, buffer.getNumSamples());
+            peakLevelLeft.store(peak);
+
+            // Update true peak (holds maximum)
+            float currentTruePeak = truePeakLeft.load();
+            if (peak > currentTruePeak)
+                truePeakLeft.store(peak);
+
+            // Set clipping flag if exceeding 0dB (1.0 linear)
+            if (peak >= 1.0f)
+                clippingLeft.store(true);
+        }
         if (buffer.getNumChannels() >= 2)
-            peakLevelRight.store(buffer.getMagnitude(1, 0, buffer.getNumSamples()));
+        {
+            float peak = buffer.getMagnitude(1, 0, buffer.getNumSamples());
+            peakLevelRight.store(peak);
+
+            // Update true peak (holds maximum)
+            float currentTruePeak = truePeakRight.load();
+            if (peak > currentTruePeak)
+                truePeakRight.store(peak);
+
+            // Set clipping flag if exceeding 0dB (1.0 linear)
+            if (peak >= 1.0f)
+                clippingRight.store(true);
+        }
     }
 
     void releaseResources()
@@ -123,4 +175,10 @@ private:
     std::atomic<float> masterVolume { 1.0f };
     std::atomic<float> peakLevelLeft { 0.0f };
     std::atomic<float> peakLevelRight { 0.0f };
+
+    // True peak metering (for clip detection)
+    std::atomic<float> truePeakLeft { 0.0f };
+    std::atomic<float> truePeakRight { 0.0f };
+    std::atomic<bool> clippingLeft { false };
+    std::atomic<bool> clippingRight { false };
 };
