@@ -23,6 +23,8 @@ public:
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
+    void mouseMove(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
     // Keyboard handling for shortcuts
@@ -53,6 +55,14 @@ public:
 
     static constexpr int KEYBOARD_WIDTH = 60;
     static constexpr int NUM_NOTES = 128;
+    static constexpr int EDGE_DETECT_WIDTH = 8; // Pixels for edge detection
+
+    // Note edge enum for resize operations
+    enum class NoteEdge
+    {
+        None,
+        Right // Only right edge for duration change
+    };
 
 private:
     void drawKeyboard(juce::Graphics& g, juce::Rectangle<int> bounds);
@@ -70,6 +80,11 @@ private:
     int getNoteAtPosition(int x, int y) const;
     juce::Rectangle<int> getNoteRect(int eventIndex) const;
 
+    // Edge detection for resize
+    NoteEdge getNoteEdgeAtPosition(int x, int y, int& outNoteIndex) const;
+    void updateCursorForPosition(int x, int y);
+    void drawResizeGhost(juce::Graphics& g, juce::Rectangle<int> bounds);
+
     MidiRegion* midiRegion = nullptr;
 
     double pixelsPerBeat = 40.0;
@@ -85,6 +100,12 @@ private:
     bool isCreatingNote = false;  // Distinguish between dragging selection and creating a note
     int dragStartNote = -1;
     double dragStartBeat = 0.0;
+
+    // For note resizing
+    bool isResizingNote = false;
+    int resizeNoteIndex = -1;
+    double resizeOriginalEndBeat = 0.0;
+    double resizeCurrentEndBeat = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PianoRoll)
 };

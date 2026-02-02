@@ -20,6 +20,9 @@ void PianoRoll::paint(juce::Graphics& g)
     // Draw note grid and notes
     drawNoteGrid(g, bounds);
     drawNotes(g, bounds);
+
+    // Draw resize ghost for visual feedback during note resizing
+    drawResizeGhost(g, bounds);
 }
 
 void PianoRoll::resized()
@@ -36,6 +39,41 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e)
 
     if (e.x > KEYBOARD_WIDTH)
     {
+        // First, check if clicking on a note edge for resizing
+        int edgeNoteIndex = -1;
+        NoteEdge edge = getNoteEdgeAtPosition(e.x, e.y, edgeNoteIndex);
+
+        if (edge == NoteEdge::Right && edgeNoteIndex >= 0)
+        {
+            // Start resize operation
+            const auto& seq = midiRegion->getMidiSequence();
+            auto* event = seq.getEventPointer(edgeNoteIndex);
+
+            if (event != nullptr && event->message.isNoteOn())
+            {
+                double ticksPerBeat = 960.0;
+                double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+                // Get current end beat
+                double endBeat = startBeat + 0.5;
+                if (event->noteOffObject != nullptr)
+                {
+                    endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+                }
+
+                // Select the note being resized
+                selectedNoteIndices.clear();
+                selectedNoteIndices.insert(edgeNoteIndex);
+
+                isResizingNote = true;
+                resizeNoteIndex = edgeNoteIndex;
+                resizeOriginalEndBeat = endBeat;
+                resizeCurrentEndBeat = endBeat;
+                repaint();
+                return;
+            }
+        }
+
         // Check if clicking on an existing note
         int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
 
@@ -82,12 +120,60 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e)
 
 void PianoRoll::mouseDrag(const juce::MouseEvent& e)
 {
-    juce::ignoreUnused(e);
+    // Handle note resizing
+    if (isResizingNote && resizeNoteIndex >= 0 && midiRegion != nullptr)
+    {
+        const auto& seq = midiRegion->getMidiSequence();
+        auto* event = seq.getEventPointer(resizeNoteIndex);
+
+        if (event != nullptr && event->message.isNoteOn())
+        {
+            double ticksPerBeat = 960.0;
+            double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+            // Calculate new end beat from mouse position
+            double newEndBeat = xToBeat(e.x);
+
+            // Ensure minimum length (at least 1/16 of a beat)
+            double minLength = 0.0625;
+            newEndBeat = juce::jmax(startBeat + minLength, newEndBeat);
+
+            resizeCurrentEndBeat = newEndBeat;
+            repaint();
+        }
+        return;
+    }
+
     // Could show preview of note being drawn
 }
 
 void PianoRoll::mouseUp(const juce::MouseEvent& e)
 {
+    // Finalize note resize operation
+    if (isResizingNote && resizeNoteIndex >= 0 && midiRegion != nullptr)
+    {
+        auto& seq = midiRegion->getMidiSequence();
+        auto* event = seq.getEventPointer(resizeNoteIndex);
+
+        if (event != nullptr && event->message.isNoteOn() && event->noteOffObject != nullptr)
+        {
+            double ticksPerBeat = 960.0;
+
+            // Update the note-off time to the new end position
+            double newEndTicks = resizeCurrentEndBeat * ticksPerBeat;
+            event->noteOffObject->message.setTimeStamp(newEndTicks);
+
+            // Re-sort and update matched pairs after modifying timestamps
+            seq.sort();
+            seq.updateMatchedPairs();
+        }
+
+        isResizingNote = false;
+        resizeNoteIndex = -1;
+        repaint();
+        return;
+    }
+
     if (!isDragging || !isCreatingNote || midiRegion == nullptr)
     {
         isDragging = false;
@@ -119,6 +205,18 @@ void PianoRoll::mouseUp(const juce::MouseEvent& e)
 
     isDragging = false;
     isCreatingNote = false;
+}
+
+void PianoRoll::mouseMove(const juce::MouseEvent& e)
+{
+    // Update cursor based on position (edge detection for resize)
+    updateCursorForPosition(e.x, e.y);
+}
+
+void PianoRoll::mouseExit(const juce::MouseEvent& /*e*/)
+{
+    // Reset cursor when mouse leaves component
+    setMouseCursor(juce::MouseCursor::NormalCursor);
 }
 
 void PianoRoll::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -410,6 +508,117 @@ juce::Rectangle<int> PianoRoll::getNoteRect(int eventIndex) const
     noteWidth = juce::jmax(4, noteWidth - 1);
 
     return juce::Rectangle<int>(noteX, noteY + 1, noteWidth, noteHeight - 2);
+}
+
+PianoRoll::NoteEdge PianoRoll::getNoteEdgeAtPosition(int x, int y, int& outNoteIndex) const
+{
+    outNoteIndex = -1;
+
+    if (midiRegion == nullptr || x <= KEYBOARD_WIDTH)
+        return NoteEdge::None;
+
+    const auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+
+    // Iterate through all note events and check for edge proximity
+    for (int i = 0; i < seq.getNumEvents(); ++i)
+    {
+        auto* event = seq.getEventPointer(i);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        int noteNumber = event->message.getNoteNumber();
+        double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+        // Find matching note off
+        double endBeat = startBeat + 0.5;
+        if (event->noteOffObject != nullptr)
+        {
+            endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+        }
+
+        // Calculate note bounds
+        int noteX = beatToX(startBeat);
+        int noteY = noteToY(noteNumber);
+        int noteWidth = beatToX(endBeat) - noteX;
+        noteWidth = juce::jmax(4, noteWidth - 1);
+
+        juce::Rectangle<int> noteRect(noteX, noteY + 1, noteWidth, noteHeight - 2);
+
+        // Check if y is within the note's vertical bounds
+        if (y < noteRect.getY() || y > noteRect.getBottom())
+            continue;
+
+        // Check right edge
+        int rightEdge = noteRect.getRight();
+        if (x >= rightEdge - EDGE_DETECT_WIDTH / 2 &&
+            x <= rightEdge + EDGE_DETECT_WIDTH / 2)
+        {
+            outNoteIndex = i;
+            return NoteEdge::Right;
+        }
+    }
+
+    return NoteEdge::None;
+}
+
+void PianoRoll::updateCursorForPosition(int x, int y)
+{
+    int noteIndex = -1;
+    NoteEdge edge = getNoteEdgeAtPosition(x, y, noteIndex);
+
+    if (edge == NoteEdge::Right)
+    {
+        // Show horizontal resize cursor
+        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+    }
+    else
+    {
+        // Normal cursor
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+    }
+}
+
+void PianoRoll::drawResizeGhost(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    if (!isResizingNote || resizeNoteIndex < 0 || midiRegion == nullptr)
+        return;
+
+    const auto& seq = midiRegion->getMidiSequence();
+    auto* event = seq.getEventPointer(resizeNoteIndex);
+
+    if (event == nullptr || !event->message.isNoteOn())
+        return;
+
+    double ticksPerBeat = 960.0;
+    int noteNumber = event->message.getNoteNumber();
+    double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+    // Calculate the ghost note rectangle using the current resize end beat
+    int x = beatToX(startBeat);
+    int y = noteToY(noteNumber);
+    int width = beatToX(resizeCurrentEndBeat) - x;
+
+    if (x > bounds.getRight() || x + width < bounds.getX())
+        return;
+    if (y < -noteHeight || y > bounds.getHeight())
+        return;
+
+    auto ghostRect = juce::Rectangle<int>(x, y + 1, juce::jmax(4, width - 1), noteHeight - 2);
+
+    // Draw semi-transparent ghost of the resized note
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.4f));
+    g.fillRoundedRectangle(ghostRect.toFloat(), 2.0f);
+
+    // Draw ghost border
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.9f));
+    g.drawRoundedRectangle(ghostRect.toFloat(), 2.0f, 2.0f);
+
+    // Draw indicator line at the new end position
+    int endX = beatToX(resizeCurrentEndBeat);
+    g.setColour(MidiSingLookAndFeel::accentColour);
+    g.drawLine(static_cast<float>(endX), static_cast<float>(bounds.getY()),
+               static_cast<float>(endX), static_cast<float>(bounds.getBottom()), 1.0f);
 }
 
 bool PianoRoll::keyPressed(const juce::KeyPress& key)
