@@ -39,6 +39,9 @@ void TimelineView::paint(juce::Graphics& g)
     // Draw drag ghost for visual feedback during region dragging
     drawDragGhost(g);
 
+    // Draw resize ghost for visual feedback during edge resizing
+    drawResizeGhost(g);
+
     // Draw playhead on top of everything
     drawPlayhead(g);
 }
@@ -62,8 +65,28 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
     if (timelinePtr == nullptr || transportPtr == nullptr)
         return;
 
-    // Check if clicking on a region
+    // First, check if clicking on a region edge for resizing
     int trackIndex = -1;
+    Region* edgeRegion = nullptr;
+    RegionEdge edge = getRegionEdgeAtPosition(e.x, e.y, edgeRegion, trackIndex);
+
+    if (edge != RegionEdge::None && edgeRegion != nullptr)
+    {
+        // Start edge resize operation
+        selectedRegion = edgeRegion;
+        selectedTrackIndex = trackIndex;
+        isResizingRegion = true;
+        resizeEdge = edge;
+        resizeOriginalStart = edgeRegion->getStartPosition();
+        resizeOriginalLength = edgeRegion->getLength();
+        resizeOriginalOffset = edgeRegion->getOffset();
+        resizeCurrentStart = resizeOriginalStart;
+        resizeCurrentLength = resizeOriginalLength;
+        repaint();
+        return;
+    }
+
+    // Check if clicking on a region (for dragging)
     Region* region = getRegionAtPosition(e.x, e.y, trackIndex);
 
     if (region != nullptr)
@@ -97,6 +120,64 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
 
 void TimelineView::mouseDrag(const juce::MouseEvent& e)
 {
+    // Handle region edge resizing
+    if (isResizingRegion && selectedRegion != nullptr)
+    {
+        int64_t mouseSample = pixelToSample(e.x);
+
+        if (resizeEdge == RegionEdge::Left)
+        {
+            // Resizing from left edge - changes start position and length
+            int64_t newStart = mouseSample;
+
+            // Snap to grid if enabled
+            if (snapToGrid)
+            {
+                newStart = snapPositionToGrid(newStart);
+            }
+
+            // Clamp to non-negative
+            newStart = juce::jmax(int64_t(0), newStart);
+
+            // Don't allow moving start past original end position
+            int64_t originalEnd = resizeOriginalStart + resizeOriginalLength;
+            newStart = juce::jmin(newStart, originalEnd - 1);
+
+            // Calculate new length and offset change
+            int64_t deltaStart = newStart - resizeOriginalStart;
+            int64_t newLength = resizeOriginalLength - deltaStart;
+
+            // Ensure minimum length
+            newLength = juce::jmax(int64_t(1), newLength);
+
+            resizeCurrentStart = newStart;
+            resizeCurrentLength = newLength;
+        }
+        else if (resizeEdge == RegionEdge::Right)
+        {
+            // Resizing from right edge - only changes length
+            int64_t newEnd = mouseSample;
+
+            // Snap to grid if enabled
+            if (snapToGrid)
+            {
+                newEnd = snapPositionToGrid(newEnd);
+            }
+
+            // Calculate new length
+            int64_t newLength = newEnd - resizeOriginalStart;
+
+            // Ensure minimum length
+            newLength = juce::jmax(int64_t(1), newLength);
+
+            resizeCurrentStart = resizeOriginalStart;
+            resizeCurrentLength = newLength;
+        }
+
+        repaint();
+        return;
+    }
+
     // Handle region dragging
     if (isDraggingRegion && selectedRegion != nullptr)
     {
@@ -132,6 +213,31 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
 {
     juce::ignoreUnused(e);
 
+    // Finalize region edge resize
+    if (isResizingRegion && selectedRegion != nullptr)
+    {
+        // Apply the new start position and length
+        if (resizeEdge == RegionEdge::Left)
+        {
+            // When resizing from left, we also need to adjust the offset
+            int64_t deltaStart = resizeCurrentStart - resizeOriginalStart;
+            int64_t newOffset = resizeOriginalOffset + deltaStart;
+
+            // Clamp offset to non-negative
+            newOffset = juce::jmax(int64_t(0), newOffset);
+
+            selectedRegion->setOffset(newOffset);
+            selectedRegion->setStartPosition(resizeCurrentStart);
+        }
+
+        selectedRegion->setLength(resizeCurrentLength);
+
+        isResizingRegion = false;
+        resizeEdge = RegionEdge::None;
+        repaint();
+        return;
+    }
+
     // Finalize region drag
     if (isDraggingRegion && selectedRegion != nullptr)
     {
@@ -143,6 +249,7 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
     }
 
     isDraggingRegion = false;
+    isResizingRegion = false;
 }
 
 void TimelineView::mouseMove(const juce::MouseEvent& e)
@@ -157,6 +264,9 @@ void TimelineView::mouseMove(const juce::MouseEvent& e)
         hoveredTrackIndex = trackIndex;
         repaint();
     }
+
+    // Update cursor based on position (edge detection for resize)
+    updateCursorForPosition(e.x, e.y);
 }
 
 void TimelineView::mouseExit(const juce::MouseEvent& /*e*/)
@@ -168,6 +278,9 @@ void TimelineView::mouseExit(const juce::MouseEvent& /*e*/)
         hoveredTrackIndex = -1;
         repaint();
     }
+
+    // Reset cursor
+    setMouseCursor(juce::MouseCursor::NormalCursor);
 }
 
 void TimelineView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -830,4 +943,138 @@ void TimelineView::drawDragGhost(juce::Graphics& g)
     g.setColour(MidiSingLookAndFeel::accentColour);
     g.drawLine(static_cast<float>(x1), static_cast<float>(RULER_HEIGHT),
                static_cast<float>(x1), static_cast<float>(getHeight()), 1.0f);
+}
+
+void TimelineView::drawResizeGhost(juce::Graphics& g)
+{
+    if (!isResizingRegion || selectedRegion == nullptr || selectedTrackIndex < 0)
+        return;
+
+    // Calculate ghost region bounds using the resize current values
+    int64_t endSample = resizeCurrentStart + resizeCurrentLength;
+
+    int x1 = HEADER_WIDTH + sampleToPixel(resizeCurrentStart) - static_cast<int>(horizontalScrollOffset);
+    int x2 = HEADER_WIDTH + sampleToPixel(endSample) - static_cast<int>(horizontalScrollOffset);
+    int w = x2 - x1;
+
+    int trackY = RULER_HEIGHT + selectedTrackIndex * trackHeight;
+    juce::Rectangle<int> ghostBounds(x1, trackY + 2, w, trackHeight - 4);
+
+    // Draw semi-transparent ghost of the resized region
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.3f));
+    g.fillRect(ghostBounds);
+
+    // Draw ghost border
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.8f));
+    g.drawRect(ghostBounds, 2);
+
+    // Draw indicator line at the edge being resized
+    g.setColour(MidiSingLookAndFeel::accentColour);
+    if (resizeEdge == RegionEdge::Left)
+    {
+        g.drawLine(static_cast<float>(x1), static_cast<float>(RULER_HEIGHT),
+                   static_cast<float>(x1), static_cast<float>(getHeight()), 2.0f);
+    }
+    else if (resizeEdge == RegionEdge::Right)
+    {
+        g.drawLine(static_cast<float>(x2), static_cast<float>(RULER_HEIGHT),
+                   static_cast<float>(x2), static_cast<float>(getHeight()), 2.0f);
+    }
+}
+
+TimelineView::RegionEdge TimelineView::getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const
+{
+    outRegion = nullptr;
+    outTrackIndex = -1;
+
+    if (timelinePtr == nullptr)
+        return RegionEdge::None;
+
+    // Check if position is in the timeline area (not ruler or headers)
+    if (x <= HEADER_WIDTH || y <= RULER_HEIGHT)
+        return RegionEdge::None;
+
+    // Find which track the y position corresponds to
+    int trackIndex = getTrackIndexAtY(y);
+    if (trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return RegionEdge::None;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return RegionEdge::None;
+
+    // Lambda to check region edges
+    auto checkRegionEdge = [&](Region* region) -> RegionEdge
+    {
+        if (region == nullptr)
+            return RegionEdge::None;
+
+        juce::Rectangle<int> regionBounds = getRegionBounds(region, trackIndex);
+
+        // Check if y is within the region's vertical bounds
+        if (y < regionBounds.getY() || y > regionBounds.getBottom())
+            return RegionEdge::None;
+
+        // Check left edge
+        if (x >= regionBounds.getX() - EDGE_DETECT_WIDTH / 2 &&
+            x <= regionBounds.getX() + EDGE_DETECT_WIDTH / 2)
+        {
+            outRegion = region;
+            outTrackIndex = trackIndex;
+            return RegionEdge::Left;
+        }
+
+        // Check right edge
+        if (x >= regionBounds.getRight() - EDGE_DETECT_WIDTH / 2 &&
+            x <= regionBounds.getRight() + EDGE_DETECT_WIDTH / 2)
+        {
+            outRegion = region;
+            outTrackIndex = trackIndex;
+            return RegionEdge::Right;
+        }
+
+        return RegionEdge::None;
+    };
+
+    // Check audio tracks
+    if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
+    {
+        for (int i = 0; i < audioTrack->getNumRegions(); ++i)
+        {
+            RegionEdge edge = checkRegionEdge(audioTrack->getRegion(i));
+            if (edge != RegionEdge::None)
+                return edge;
+        }
+    }
+    // Check MIDI tracks
+    else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
+    {
+        for (int i = 0; i < midiTrack->getNumRegions(); ++i)
+        {
+            RegionEdge edge = checkRegionEdge(midiTrack->getRegion(i));
+            if (edge != RegionEdge::None)
+                return edge;
+        }
+    }
+
+    return RegionEdge::None;
+}
+
+void TimelineView::updateCursorForPosition(int x, int y)
+{
+    // Check if hovering over a region edge
+    Region* edgeRegion = nullptr;
+    int trackIndex = -1;
+    RegionEdge edge = getRegionEdgeAtPosition(x, y, edgeRegion, trackIndex);
+
+    if (edge == RegionEdge::Left || edge == RegionEdge::Right)
+    {
+        // Show horizontal resize cursor
+        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+    }
+    else
+    {
+        // Normal cursor
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+    }
 }

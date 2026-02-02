@@ -115,6 +115,10 @@ private:
     Region* hoveredRegion = nullptr;
     int hoveredTrackIndex = -1;
 
+    // Edge detection for region resize
+    enum class RegionEdge { None, Left, Right };
+    static constexpr int EDGE_DETECT_WIDTH = 8;  // Pixels from edge to detect resize
+
     // Region dragging state
     bool isDraggingRegion = false;
     int64_t dragStartSampleOffset = 0;  // Offset from mouse to region start
@@ -122,9 +126,21 @@ private:
     int64_t dragCurrentPosition = 0;    // Current dragged position (for visual feedback)
     bool snapToGrid = true;             // Enable grid snapping
 
-    // Helper methods for region dragging
+    // Region edge resize state
+    bool isResizingRegion = false;
+    RegionEdge resizeEdge = RegionEdge::None;
+    int64_t resizeOriginalStart = 0;    // Original start position before resize
+    int64_t resizeOriginalLength = 0;   // Original length before resize
+    int64_t resizeOriginalOffset = 0;   // Original offset before resize
+    int64_t resizeCurrentStart = 0;     // Current start during resize
+    int64_t resizeCurrentLength = 0;    // Current length during resize
+
+    // Helper methods for region dragging and resizing
     int64_t snapPositionToGrid(int64_t samplePosition) const;
     void drawDragGhost(juce::Graphics& g);
+    void drawResizeGhost(juce::Graphics& g);
+    RegionEdge getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const;
+    void updateCursorForPosition(int x, int y);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimelineView)
 };
