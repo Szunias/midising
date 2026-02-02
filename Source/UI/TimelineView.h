@@ -37,6 +37,9 @@ public:
     void mouseExit(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
+    // Keyboard handling
+    bool keyPressed(const juce::KeyPress& key) override;
+
     // FileDragAndDropTarget interface
     bool isInterestedInFileDrag(const juce::StringArray& files) override;
     void filesDropped(const juce::StringArray& files, int x, int y) override;

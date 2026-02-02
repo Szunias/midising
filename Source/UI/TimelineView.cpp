@@ -5,6 +5,7 @@
 TimelineView::TimelineView()
 {
     startTimer(30); // ~30 FPS for playhead updates
+    setWantsKeyboardFocus(true); // Enable keyboard focus for shortcuts
 }
 
 TimelineView::~TimelineView()
@@ -64,6 +65,9 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
 {
     if (timelinePtr == nullptr || transportPtr == nullptr)
         return;
+
+    // Grab keyboard focus for shortcuts
+    grabKeyboardFocus();
 
     // Store click position for paste operations
     lastClickSamplePosition = pixelToSample(e.x);
@@ -322,6 +326,57 @@ void TimelineView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWh
         horizontalScrollOffset = juce::jmax(0.0, horizontalScrollOffset);
         repaint();
     }
+}
+
+bool TimelineView::keyPressed(const juce::KeyPress& key)
+{
+    // Delete key - delete selected region
+    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+    {
+        if (selectedRegion != nullptr && selectedTrackIndex >= 0)
+        {
+            deleteSelectedRegion();
+            return true;
+        }
+    }
+
+    // Ctrl+X - cut region
+    if (key == juce::KeyPress('x', juce::ModifierKeys::commandModifier, 0))
+    {
+        if (selectedRegion != nullptr && selectedTrackIndex >= 0)
+        {
+            cutSelectedRegion();
+            return true;
+        }
+    }
+
+    // Ctrl+C - copy region
+    if (key == juce::KeyPress('c', juce::ModifierKeys::commandModifier, 0))
+    {
+        if (selectedRegion != nullptr && selectedTrackIndex >= 0)
+        {
+            copySelectedRegion();
+            return true;
+        }
+    }
+
+    // Ctrl+V - paste region
+    if (key == juce::KeyPress('v', juce::ModifierKeys::commandModifier, 0))
+    {
+        if (clipboard.hasData)
+        {
+            // Paste at playhead position if transport is available, otherwise use last click position
+            int64_t pastePosition = lastClickSamplePosition;
+            if (transportPtr != nullptr)
+            {
+                pastePosition = transportPtr->getPlayheadPosition();
+            }
+            pasteRegion(pastePosition);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void TimelineView::zoomIn()
