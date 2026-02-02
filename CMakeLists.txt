@@ -59,6 +59,8 @@ target_sources(MidiSing
         Source/MIDI/MidiTrack.cpp
         Source/MIDI/MidiImporter.h
         Source/MIDI/MidiImporter.cpp
+        Source/MIDI/PluginHost.h
+        Source/MIDI/PluginHost.cpp
         # UI
         Source/UI/LookAndFeel.h
         Source/UI/TransportBar.h
@@ -121,6 +123,7 @@ target_compile_definitions(MidiSing
     PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        JUCE_PLUGINHOST_VST3=1
         JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:MidiSing,JUCE_PRODUCT_NAME>"
         JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:MidiSing,JUCE_VERSION>"
 )
