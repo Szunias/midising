@@ -141,6 +141,21 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
         audioEngine.recordInputBlock(*bufferToFill.buffer);
     }
 
+    // Calculate and update input levels for metering (before buffer is cleared)
+    if (bufferToFill.buffer->getNumChannels() > 0)
+    {
+        float leftLevel = bufferToFill.buffer->getMagnitude(0, 0, bufferToFill.numSamples);
+        float rightLevel = bufferToFill.buffer->getNumChannels() > 1
+            ? bufferToFill.buffer->getMagnitude(1, 0, bufferToFill.numSamples)
+            : leftLevel;
+
+        // Update status bar on message thread
+        juce::MessageManager::callAsync([this, leftLevel, rightLevel]()
+        {
+            statusBar.setInputLevel(leftLevel, rightLevel);
+        });
+    }
+
     audioEngine.getNextAudioBlock(bufferToFill);
 }
 
