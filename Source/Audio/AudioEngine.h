@@ -64,9 +64,13 @@ public:
 
     // Capture input buffer for recording (called before processing)
     void recordInputBlock(const juce::AudioBuffer<float>& inputBuffer);
-    
+
     // Get recorded file after recording stops
     juce::File getLastRecordedFile() const { return lastRecordedFile; }
+
+    // Input routing - get available input channels from audio device
+    juce::StringArray getAvailableInputChannelNames() const;
+    int getNumAvailableInputChannels() const;
 
     // Convenience methods
     double getSampleRate() const { return currentSampleRate; }
@@ -75,6 +79,7 @@ public:
 private:
     void handleRecordingStart();
     void handleRecordingStop();
+    void routeInputToArmedTracks(const juce::AudioBuffer<float>& inputBuffer);
     juce::File generateRecordingFilePath();
 
     Timeline timeline;

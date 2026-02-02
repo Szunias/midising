@@ -54,6 +54,9 @@ void AudioEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferTo
         recordInputBlock(*bufferToFill.buffer);
     }
 
+    // Route input to armed tracks for metering (always, even when stopped)
+    routeInputToArmedTracks(*bufferToFill.buffer);
+
     // If not playing or recording, just output silence
     if (transport.isStopped())
         return;
@@ -251,9 +254,68 @@ juce::File AudioEngine::generateRecordingFilePath()
     auto timestamp = juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
     auto tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory);
     auto recordingsDir = tempDir.getChildFile("MidiSing_Recordings");
-    
+
     if (!recordingsDir.exists())
         recordingsDir.createDirectory();
-    
+
     return recordingsDir.getChildFile("recording_" + timestamp + ".wav");
+}
+
+void AudioEngine::routeInputToArmedTracks(const juce::AudioBuffer<float>& inputBuffer)
+{
+    const int numSamples = inputBuffer.getNumSamples();
+
+    // Process input for all audio tracks (for metering)
+    for (int i = 0; i < timeline.getNumTracks(); ++i)
+    {
+        Track* track = timeline.getTrack(i);
+        if (track->getType() == TrackType::Audio)
+        {
+            auto* audioTrack = static_cast<AudioTrack*>(track);
+            audioTrack->processInputSignal(inputBuffer, numSamples);
+        }
+    }
+}
+
+juce::StringArray AudioEngine::getAvailableInputChannelNames() const
+{
+    juce::StringArray names;
+
+    if (deviceManager != nullptr)
+    {
+        if (auto* device = deviceManager->getCurrentAudioDevice())
+        {
+            auto inputChannels = device->getActiveInputChannels();
+            auto allInputNames = device->getInputChannelNames();
+
+            for (int i = 0; i < allInputNames.size(); ++i)
+            {
+                if (inputChannels[i])
+                {
+                    names.add(allInputNames[i]);
+                }
+            }
+        }
+    }
+
+    // Return default names if no device or no names available
+    if (names.isEmpty())
+    {
+        names.add("Input 1");
+        names.add("Input 2");
+    }
+
+    return names;
+}
+
+int AudioEngine::getNumAvailableInputChannels() const
+{
+    if (deviceManager != nullptr)
+    {
+        if (auto* device = deviceManager->getCurrentAudioDevice())
+        {
+            return device->getActiveInputChannels().countNumberOfSetBits();
+        }
+    }
+    return 2; // Default stereo
 }

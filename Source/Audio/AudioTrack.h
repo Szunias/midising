@@ -8,6 +8,17 @@
 #include "../Effects/EffectChain.h"
 
 /**
+ * Input channel configuration for audio tracks.
+ * Specifies which physical input channels to route to the track.
+ */
+struct InputChannelConfig
+{
+    int leftChannel = 0;   // Physical input channel index for left (0-based)
+    int rightChannel = 1;  // Physical input channel index for right (0-based, -1 for mono)
+    bool isMono = false;   // If true, only use leftChannel
+};
+
+/**
  * AudioTrack is a track that plays and records audio.
  * Contains audio regions and handles audio playback/recording.
  */
@@ -30,11 +41,27 @@ public:
     int getNumRegions() const { return static_cast<int>(regions.size()); }
     void clearRegions();
 
+    // Input routing
+    void setInputChannels(int leftChannel, int rightChannel = -1);
+    void setInputChannelConfig(const InputChannelConfig& config);
+    InputChannelConfig getInputChannelConfig() const;
+    int getInputChannelLeft() const { return inputConfig.leftChannel; }
+    int getInputChannelRight() const { return inputConfig.rightChannel; }
+    bool isMonoInput() const { return inputConfig.isMono; }
+
+    // Input monitoring - process input signal when armed
+    void processInputSignal(const juce::AudioBuffer<float>& inputBuffer, int numSamples);
+
+    // Input metering - returns current input level (0.0 to 1.0)
+    float getInputLevel() const { return inputLevel.load(); }
+    float getInputLevelLeft() const { return inputLevelLeft.load(); }
+    float getInputLevelRight() const { return inputLevelRight.load(); }
+
     // Recording
     void startRecording(int64_t startPosition);
     void stopRecording();
     bool isCurrentlyRecording() const { return recording; }
-    
+
     // Record audio sample (call from audio thread during recording)
     void recordSample(const float* leftChannel, const float* rightChannel, int numSamples);
 
@@ -48,7 +75,16 @@ public:
 private:
     std::vector<std::unique_ptr<AudioRegion>> regions;
     EffectChain effectChain;
-    
+
+    // Input routing configuration
+    InputChannelConfig inputConfig;
+
+    // Input metering (thread-safe for real-time access)
+    std::atomic<float> inputLevel { 0.0f };
+    std::atomic<float> inputLevelLeft { 0.0f };
+    std::atomic<float> inputLevelRight { 0.0f };
+    static constexpr float levelDecayRate = 0.9995f; // Smooth decay for meters
+
     // Recording state
     bool recording = false;
     int64_t recordingStartPosition = 0;

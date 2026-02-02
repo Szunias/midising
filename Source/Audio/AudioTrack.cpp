@@ -1,4 +1,5 @@
 #include "AudioTrack.h"
+#include <cmath>
 
 AudioTrack::AudioTrack(const juce::String& name)
     : Track(name, TrackType::Audio)
@@ -200,7 +201,106 @@ bool AudioTrack::loadAudioFile(const juce::File& file, int64_t startPosition)
     
     // Add to track
     regions.push_back(std::move(region));
-    
+
     return true;
+}
+
+void AudioTrack::setInputChannels(int leftChannel, int rightChannel)
+{
+    inputConfig.leftChannel = juce::jmax(0, leftChannel);
+
+    if (rightChannel < 0)
+    {
+        // Mono input - use same channel for both
+        inputConfig.rightChannel = -1;
+        inputConfig.isMono = true;
+    }
+    else
+    {
+        inputConfig.rightChannel = rightChannel;
+        inputConfig.isMono = false;
+    }
+}
+
+void AudioTrack::setInputChannelConfig(const InputChannelConfig& config)
+{
+    inputConfig = config;
+}
+
+InputChannelConfig AudioTrack::getInputChannelConfig() const
+{
+    return inputConfig;
+}
+
+void AudioTrack::processInputSignal(const juce::AudioBuffer<float>& inputBuffer, int numSamples)
+{
+    // Only process input when track is armed
+    if (!isArmed())
+    {
+        // Decay input levels when not armed
+        inputLevel.store(inputLevel.load() * levelDecayRate);
+        inputLevelLeft.store(inputLevelLeft.load() * levelDecayRate);
+        inputLevelRight.store(inputLevelRight.load() * levelDecayRate);
+        return;
+    }
+
+    const int numInputChannels = inputBuffer.getNumChannels();
+
+    // Get input from configured channels
+    const float* leftInput = nullptr;
+    const float* rightInput = nullptr;
+
+    if (inputConfig.leftChannel >= 0 && inputConfig.leftChannel < numInputChannels)
+    {
+        leftInput = inputBuffer.getReadPointer(inputConfig.leftChannel);
+    }
+
+    if (!inputConfig.isMono && inputConfig.rightChannel >= 0 && inputConfig.rightChannel < numInputChannels)
+    {
+        rightInput = inputBuffer.getReadPointer(inputConfig.rightChannel);
+    }
+    else if (inputConfig.isMono && leftInput != nullptr)
+    {
+        // Mono: use left channel for both
+        rightInput = leftInput;
+    }
+
+    // Calculate peak levels for metering
+    float peakLeft = 0.0f;
+    float peakRight = 0.0f;
+
+    if (leftInput != nullptr)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            float absVal = std::abs(leftInput[i]);
+            if (absVal > peakLeft)
+                peakLeft = absVal;
+        }
+    }
+
+    if (rightInput != nullptr)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            float absVal = std::abs(rightInput[i]);
+            if (absVal > peakRight)
+                peakRight = absVal;
+        }
+    }
+
+    // Update input levels with peak hold and decay
+    float currentLeftLevel = inputLevelLeft.load();
+    float currentRightLevel = inputLevelRight.load();
+
+    // Use peak if higher, otherwise decay
+    float newLeftLevel = (peakLeft > currentLeftLevel) ? peakLeft : (currentLeftLevel * levelDecayRate);
+    float newRightLevel = (peakRight > currentRightLevel) ? peakRight : (currentRightLevel * levelDecayRate);
+
+    inputLevelLeft.store(newLeftLevel);
+    inputLevelRight.store(newRightLevel);
+
+    // Combined input level is the max of left and right
+    inputLevel.store(juce::jmax(newLeftLevel, newRightLevel));
 }
 
