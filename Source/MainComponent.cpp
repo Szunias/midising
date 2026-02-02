@@ -120,6 +120,11 @@ bool MainComponent::keyPressed(const juce::KeyPress& key, juce::Component* origi
 //==============================================================================
 void MainComponent::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
 {
+    // Configure audio device for stereo input
+    auto setup = deviceManager.getAudioDeviceSetup();
+    setup.inputChannels.setRange(0, 2, true);  // Enable stereo input (channels 0 and 1)
+    deviceManager.setAudioDeviceSetup(setup, true);
+
     audioEngine.prepareToPlay(samplesPerBlockExpected, sampleRate);
     timelineView.setSampleRate(sampleRate);
 }
