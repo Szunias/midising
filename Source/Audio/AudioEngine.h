@@ -54,6 +54,9 @@ public:
     bool startRecording(Track* targetTrack = nullptr);
     void stopRecording();
     bool isRecording() const { return recorder.isRecording(); }
+
+    // Capture input buffer for recording (called before processing)
+    void recordInputBlock(const juce::AudioBuffer<float>& inputBuffer);
     
     // Get recorded file after recording stops
     juce::File getLastRecordedFile() const { return lastRecordedFile; }
