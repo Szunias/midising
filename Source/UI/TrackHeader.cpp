@@ -124,3 +124,34 @@ void TrackHeader::updateFromTrack()
                         trackPtr->isArmed() ? MidiSingLookAndFeel::recordColour
                                             : MidiSingLookAndFeel::buttonBackground);
 }
+
+void TrackHeader::mouseDown(const juce::MouseEvent& event)
+{
+    if (event.mods.isPopupMenu())
+    {
+        showContextMenu();
+    }
+    else
+    {
+        // Left-click selects the track
+        if (onTrackSelected && trackPtr != nullptr)
+            onTrackSelected(trackPtr);
+    }
+}
+
+void TrackHeader::showContextMenu()
+{
+    juce::PopupMenu menu;
+
+    menu.addItem(DeleteTrackId, "Delete Track", trackPtr != nullptr);
+
+    menu.showMenuAsync(juce::PopupMenu::Options(),
+        [this](int result)
+        {
+            if (result == DeleteTrackId && trackPtr != nullptr)
+            {
+                if (onDeleteTrack)
+                    onDeleteTrack(trackPtr);
+            }
+        });
+}
