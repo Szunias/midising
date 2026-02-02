@@ -1,5 +1,7 @@
 #include "MainComponent.h"
 #include "Audio/AudioTrack.h"
+#include "MIDI/MidiTrack.h"
+#include "Actions/TrackActions.h"
 #include "Tests/TestRunner.h"
 #include "UI/CommandIDs.h"
 #include "UI/SettingsPanel.h"
@@ -32,8 +34,6 @@ MainComponent::MainComponent()
     addAndMakeVisible(spectrumDisplay);
 
     // Setup commands
-    setupCommands();
-    setupCommands();
     setupCommands();
     addKeyListener(commandManager.getKeyMappings());
 
@@ -434,6 +434,8 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::undo);
     commands.add(CommandIDs::redo);
     commands.add(CommandIDs::audioSettings);
+    commands.add(CommandIDs::addAudioTrack);
+    commands.add(CommandIDs::addMidiTrack);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -482,6 +484,14 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
         result.setInfo("Audio Settings...", "Opens the audio device settings dialog", "Settings", 0);
         result.addDefaultKeypress(',', juce::ModifierKeys::commandModifier);
         break;
+    case CommandIDs::addAudioTrack:
+        result.setInfo("Add Audio Track", "Adds a new audio track to the timeline", "Track", 0);
+        result.addDefaultKeypress('t', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::addMidiTrack:
+        result.setInfo("Add MIDI Track", "Adds a new MIDI track to the timeline", "Track", 0);
+        result.addDefaultKeypress('t', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+        break;
     default:
         break;
     }
@@ -523,6 +533,30 @@ bool MainComponent::perform(const InvocationInfo& info)
     case CommandIDs::audioSettings:
         showAudioSettings();
         return true;
+    case CommandIDs::addAudioTrack:
+        {
+            auto& timeline = audioEngine.getTimeline();
+            int trackNum = timeline.getNumTracks() + 1;
+            auto* newTrack = new AudioTrack("Audio " + juce::String(trackNum));
+            newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+            undoManager.perform(new AddTrackAction(timeline, newTrack));
+            timelineView.resized();
+            timelineView.repaint();
+            setHasUnsavedChanges(true);
+        }
+        return true;
+    case CommandIDs::addMidiTrack:
+        {
+            auto& timeline = audioEngine.getTimeline();
+            int trackNum = timeline.getNumTracks() + 1;
+            auto* newTrack = new MidiTrack("MIDI " + juce::String(trackNum), &audioEngine.getMidiEngine());
+            newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+            undoManager.perform(new AddTrackAction(timeline, newTrack));
+            timelineView.resized();
+            timelineView.repaint();
+            setHasUnsavedChanges(true);
+        }
+        return true;
     default:
         return false;
     }
@@ -532,7 +566,7 @@ bool MainComponent::perform(const InvocationInfo& info)
 // MenuBarModel implementation
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "File" };
+    return { "File", "Track" };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName)
@@ -569,6 +603,11 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addCommandItem(&commandManager, CommandIDs::audioSettings);
         menu.addSeparator();
         menu.addCommandItem(&commandManager, juce::StandardApplicationCommandIDs::quit);
+    }
+    else if (topLevelMenuIndex == 1)  // Track menu
+    {
+        menu.addCommandItem(&commandManager, CommandIDs::addAudioTrack);
+        menu.addCommandItem(&commandManager, CommandIDs::addMidiTrack);
     }
 
     return menu;
