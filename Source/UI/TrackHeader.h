@@ -17,6 +17,7 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& event) override;
+    bool keyPressed(const juce::KeyPress& key) override;
 
     void setTrack(Track* track);
     Track* getTrack() const { return trackPtr; }
@@ -31,6 +32,7 @@ public:
 private:
     void updateFromTrack();
     void showContextMenu();
+    void showDeleteConfirmation();
 
     Track* trackPtr = nullptr;
 
