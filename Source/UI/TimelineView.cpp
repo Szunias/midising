@@ -58,9 +58,23 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
     if (timelinePtr == nullptr || transportPtr == nullptr)
         return;
 
-    // Click on timeline area to set playhead
+    // Check if clicking on a region
+    int trackIndex = -1;
+    Region* region = getRegionAtPosition(e.x, e.y, trackIndex);
+
+    if (region != nullptr)
+    {
+        // Select the clicked region
+        selectedRegion = region;
+        selectedTrackIndex = trackIndex;
+        repaint();
+        return;
+    }
+
+    // Click on timeline area (not on a region) - set playhead and clear selection
     if (e.x > HEADER_WIDTH && e.y > RULER_HEIGHT)
     {
+        clearSelection();
         int64_t newPos = pixelToSample(e.x);
         transportPtr->setPlayheadPosition(newPos);
         repaint();
@@ -69,10 +83,39 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
 
 void TimelineView::mouseDrag(const juce::MouseEvent& e)
 {
+    // If a region is selected, don't drag playhead (region drag will be implemented later)
+    if (selectedRegion != nullptr)
+        return;
+
     if (transportPtr != nullptr && e.x > HEADER_WIDTH)
     {
         int64_t newPos = pixelToSample(e.x);
         transportPtr->setPlayheadPosition(juce::jmax(int64_t(0), newPos));
+        repaint();
+    }
+}
+
+void TimelineView::mouseMove(const juce::MouseEvent& e)
+{
+    int trackIndex = -1;
+    Region* region = getRegionAtPosition(e.x, e.y, trackIndex);
+
+    // Update hover state if changed
+    if (region != hoveredRegion || trackIndex != hoveredTrackIndex)
+    {
+        hoveredRegion = region;
+        hoveredTrackIndex = trackIndex;
+        repaint();
+    }
+}
+
+void TimelineView::mouseExit(const juce::MouseEvent& /*e*/)
+{
+    // Clear hover state when mouse leaves component
+    if (hoveredRegion != nullptr || hoveredTrackIndex != -1)
+    {
+        hoveredRegion = nullptr;
+        hoveredTrackIndex = -1;
         repaint();
     }
 }
@@ -197,13 +240,28 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
                 continue;
                 
             juce::Rectangle<int> regionBounds(x1, bounds.getY() + 2, w, bounds.getHeight() - 4);
-            
-            // Draw region box
-            g.setColour(MidiSingLookAndFeel::regionColour);
+
+            // Determine if this region is selected or hovered
+            bool isSelected = (region == selectedRegion && trackIndex == selectedTrackIndex);
+            bool isHovered = (region == hoveredRegion && trackIndex == hoveredTrackIndex);
+
+            // Draw region box with appropriate colour
+            juce::Colour fillColour = MidiSingLookAndFeel::regionColour;
+            if (isSelected)
+                fillColour = fillColour.brighter(0.3f);
+            else if (isHovered)
+                fillColour = fillColour.brighter(0.15f);
+
+            g.setColour(fillColour);
             g.fillRect(regionBounds);
-            g.setColour(MidiSingLookAndFeel::borderColour);
-            g.drawRect(regionBounds);
-            
+
+            // Draw border - brighter for selected regions
+            if (isSelected)
+                g.setColour(MidiSingLookAndFeel::accentColour);
+            else
+                g.setColour(MidiSingLookAndFeel::borderColour);
+            g.drawRect(regionBounds, isSelected ? 2 : 1);
+
             // Draw waveform
             g.setColour(juce::Colours::white.withAlpha(0.8f));
             
@@ -244,13 +302,28 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
                 continue;
                 
             juce::Rectangle<int> regionBounds(x1, bounds.getY() + 2, w, bounds.getHeight() - 4);
-            
-            // Draw region box
-            g.setColour(MidiSingLookAndFeel::regionColour.withHue(0.1f)); // Different hue for MIDI
+
+            // Determine if this region is selected or hovered
+            bool isSelected = (region == selectedRegion && trackIndex == selectedTrackIndex);
+            bool isHovered = (region == hoveredRegion && trackIndex == hoveredTrackIndex);
+
+            // Draw region box with appropriate colour
+            juce::Colour fillColour = MidiSingLookAndFeel::regionColour.withHue(0.1f); // Different hue for MIDI
+            if (isSelected)
+                fillColour = fillColour.brighter(0.3f);
+            else if (isHovered)
+                fillColour = fillColour.brighter(0.15f);
+
+            g.setColour(fillColour);
             g.fillRect(regionBounds);
-            g.setColour(MidiSingLookAndFeel::borderColour);
-            g.drawRect(regionBounds);
-            
+
+            // Draw border - brighter for selected regions
+            if (isSelected)
+                g.setColour(MidiSingLookAndFeel::accentColour);
+            else
+                g.setColour(MidiSingLookAndFeel::borderColour);
+            g.drawRect(regionBounds, isSelected ? 2 : 1);
+
             // Draw MIDI notes preview
             g.setColour(juce::Colours::white.withAlpha(0.8f));
             const auto& sequence = region->getMidiSequence();
@@ -535,18 +608,18 @@ void TimelineView::importMidiFileToTrack(const juce::File& file, int trackIndex,
 
     // Get or create track
     MidiTrack* track = nullptr;
-    
+
     if (trackIndex >= 0 && trackIndex < timelinePtr->getNumTracks())
     {
         track = dynamic_cast<MidiTrack*>(timelinePtr->getTrack(trackIndex));
     }
-    
+
     if (track == nullptr)
     {
         // Require MidiEngine
         if (midiEnginePtr == nullptr)
             return;
-            
+
         auto newTrack = std::make_unique<MidiTrack>("MIDI Track", midiEnginePtr);
         track = newTrack.get();
         timelinePtr->addTrack(newTrack.release());
@@ -560,18 +633,107 @@ void TimelineView::importMidiFileToTrack(const juce::File& file, int trackIndex,
         if (sequence.getNumEvents() > 0)
         {
             // Calculate length
-            double endTime = sequence.getEndTime(); 
+            double endTime = sequence.getEndTime();
             int64_t lengthVal = static_cast<int64_t>(endTime);
-            
+
             auto region = std::make_unique<MidiRegion>(startSample, lengthVal);
             region->setMidiSequence(sequence);
             region->setName(file.getFileNameWithoutExtension());
-            
+
             track->addRegion(std::move(region));
             break; // Just import first valid track for now
         }
     }
-    
+
     updateTrackHeaders();
     repaint();
+}
+
+Region* TimelineView::getRegionAtPosition(int x, int y, int& outTrackIndex) const
+{
+    outTrackIndex = -1;
+
+    if (timelinePtr == nullptr)
+        return nullptr;
+
+    // Check if position is in the timeline area (not ruler or headers)
+    if (x <= HEADER_WIDTH || y <= RULER_HEIGHT)
+        return nullptr;
+
+    // Find which track the y position corresponds to
+    int trackIndex = getTrackIndexAtY(y);
+    if (trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return nullptr;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return nullptr;
+
+    // Check audio tracks
+    if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
+    {
+        for (int i = 0; i < audioTrack->getNumRegions(); ++i)
+        {
+            auto* region = audioTrack->getRegion(i);
+            if (region == nullptr)
+                continue;
+
+            // Get region bounds and check if point is inside
+            juce::Rectangle<int> regionBounds = getRegionBounds(region, trackIndex);
+            if (regionBounds.contains(x, y))
+            {
+                outTrackIndex = trackIndex;
+                return region;
+            }
+        }
+    }
+    // Check MIDI tracks
+    else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
+    {
+        for (int i = 0; i < midiTrack->getNumRegions(); ++i)
+        {
+            auto* region = midiTrack->getRegion(i);
+            if (region == nullptr)
+                continue;
+
+            // Get region bounds and check if point is inside
+            juce::Rectangle<int> regionBounds = getRegionBounds(region, trackIndex);
+            if (regionBounds.contains(x, y))
+            {
+                outTrackIndex = trackIndex;
+                return region;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+juce::Rectangle<int> TimelineView::getRegionBounds(Region* region, int trackIndex) const
+{
+    if (region == nullptr || timelinePtr == nullptr)
+        return juce::Rectangle<int>();
+
+    int64_t startSample = region->getStartPosition();
+    int64_t endSample = region->getEndPosition();
+
+    // Calculate x coordinates
+    int x1 = HEADER_WIDTH + sampleToPixel(startSample) - static_cast<int>(horizontalScrollOffset);
+    int x2 = HEADER_WIDTH + sampleToPixel(endSample) - static_cast<int>(horizontalScrollOffset);
+    int w = x2 - x1;
+
+    // Calculate y coordinates (track lane bounds)
+    int trackY = RULER_HEIGHT + trackIndex * trackHeight;
+
+    return juce::Rectangle<int>(x1, trackY + 2, w, trackHeight - 4);
+}
+
+void TimelineView::clearSelection()
+{
+    if (selectedRegion != nullptr || selectedTrackIndex != -1)
+    {
+        selectedRegion = nullptr;
+        selectedTrackIndex = -1;
+        repaint();
+    }
 }

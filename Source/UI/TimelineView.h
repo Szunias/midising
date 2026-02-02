@@ -32,6 +32,8 @@ public:
     // Mouse handling
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseMove(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
     // FileDragAndDropTarget interface
@@ -60,6 +62,11 @@ public:
     void zoomIn();
     void zoomOut();
 
+    // Region selection
+    Region* getSelectedRegion() const { return selectedRegion; }
+    int getSelectedTrackIndex() const { return selectedTrackIndex; }
+    void clearSelection();
+
     // Track header width
     static constexpr int HEADER_WIDTH = 150;
     static constexpr int RULER_HEIGHT = 30;
@@ -74,6 +81,10 @@ private:
     int getTrackIndexAtY(int y) const;
     void importAudioFileToTrack(const juce::File& file, int trackIndex, int x);
     void importMidiFileToTrack(const juce::File& file, int trackIndex, int x);
+
+    // Region hit testing
+    Region* getRegionAtPosition(int x, int y, int& outTrackIndex) const;
+    juce::Rectangle<int> getRegionBounds(Region* region, int trackIndex) const;
 
     int sampleToPixel(int64_t samples) const;
     int64_t pixelToSample(int x) const;
@@ -96,6 +107,12 @@ private:
     bool isDraggingFile = false;
     
     MidiEngine* midiEnginePtr = nullptr;
+
+    // Region selection/hover state
+    Region* selectedRegion = nullptr;
+    int selectedTrackIndex = -1;
+    Region* hoveredRegion = nullptr;
+    int hoveredTrackIndex = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimelineView)
 };
