@@ -107,5 +107,11 @@ private:
     double resizeOriginalEndBeat = 0.0;
     double resizeCurrentEndBeat = 0.0;
 
+    // For velocity editing (drag vertically on note)
+    bool isEditingVelocity = false;
+    int velocityEditNoteIndex = -1;
+    int velocityEditStartY = 0;
+    float velocityEditOriginalVelocity = 0.0f;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PianoRoll)
 };

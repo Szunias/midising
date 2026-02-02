@@ -79,6 +79,25 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e)
 
         if (clickedNoteIndex >= 0)
         {
+            // Check if clicking on an already-selected note to start velocity editing
+            if (selectedNoteIndices.count(clickedNoteIndex) > 0 && !e.mods.isShiftDown())
+            {
+                // Start velocity editing mode
+                const auto& seq = midiRegion->getMidiSequence();
+                auto* event = seq.getEventPointer(clickedNoteIndex);
+
+                if (event != nullptr && event->message.isNoteOn())
+                {
+                    isEditingVelocity = true;
+                    velocityEditNoteIndex = clickedNoteIndex;
+                    velocityEditStartY = e.y;
+                    velocityEditOriginalVelocity = event->message.getFloatVelocity();
+                    isDragging = false;
+                    isCreatingNote = false;
+                    return;
+                }
+            }
+
             // Clicked on a note - handle selection
             if (e.mods.isShiftDown())
             {
@@ -120,6 +139,32 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e)
 
 void PianoRoll::mouseDrag(const juce::MouseEvent& e)
 {
+    // Handle velocity editing - drag up to increase, down to decrease
+    if (isEditingVelocity && velocityEditNoteIndex >= 0 && midiRegion != nullptr)
+    {
+        auto& seq = midiRegion->getMidiSequence();
+        auto* event = seq.getEventPointer(velocityEditNoteIndex);
+
+        if (event != nullptr && event->message.isNoteOn())
+        {
+            // Calculate velocity delta based on vertical drag
+            // Dragging up (negative deltaY) increases velocity
+            // Use a sensitivity factor to make editing feel natural
+            int deltaY = velocityEditStartY - e.y;
+            float velocitySensitivity = 0.005f; // Adjust for desired sensitivity
+            float newVelocity = velocityEditOriginalVelocity + (deltaY * velocitySensitivity);
+
+            // Clamp velocity to valid range (0.0 to 1.0)
+            newVelocity = juce::jlimit(0.01f, 1.0f, newVelocity);
+
+            // Update the note's velocity
+            event->message.setVelocity(newVelocity);
+
+            repaint();
+        }
+        return;
+    }
+
     // Handle note resizing
     if (isResizingNote && resizeNoteIndex >= 0 && midiRegion != nullptr)
     {
@@ -149,6 +194,16 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& e)
 
 void PianoRoll::mouseUp(const juce::MouseEvent& e)
 {
+    // Finalize velocity editing
+    if (isEditingVelocity)
+    {
+        // Velocity changes are already applied during drag, just reset state
+        isEditingVelocity = false;
+        velocityEditNoteIndex = -1;
+        repaint();
+        return;
+    }
+
     // Finalize note resize operation
     if (isResizingNote && resizeNoteIndex >= 0 && midiRegion != nullptr)
     {
