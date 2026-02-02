@@ -72,6 +72,7 @@ public:
     void saveProject();
     void saveProjectAs();
     void openProject();
+    void exportAudio();
 
 private:
     void updateWindowTitle();

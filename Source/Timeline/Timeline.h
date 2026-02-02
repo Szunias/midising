@@ -62,6 +62,9 @@ public:
         return false;
     }
 
+    // Get the end sample position of the last region across all tracks
+    int64_t getEndSample() const;
+
 private:
     juce::OwnedArray<Track> tracks;
     double bpm = 120.0;

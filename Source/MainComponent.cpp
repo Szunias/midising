@@ -5,6 +5,7 @@
 #include "Tests/TestRunner.h"
 #include "UI/CommandIDs.h"
 #include "UI/SettingsPanel.h"
+#include "Export/AudioExporter.h"
 
 //==============================================================================
 MainComponent::MainComponent()
@@ -431,6 +432,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::save);
     commands.add(CommandIDs::saveAs);
     commands.add(CommandIDs::open);
+    commands.add(CommandIDs::exportAudio);
     commands.add(CommandIDs::undo);
     commands.add(CommandIDs::redo);
     commands.add(CommandIDs::audioSettings);
@@ -465,6 +467,10 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
     case CommandIDs::open:
         result.setInfo("Open Project", "Opens a project", "Project", 0);
         result.addDefaultKeypress('o', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::exportAudio:
+        result.setInfo("Export Audio...", "Exports the project to a WAV file", "Project", 0);
+        result.addDefaultKeypress('e', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
         break;
     case CommandIDs::undo:
         result.setInfo("Undo", "Undo the last operation", "Edit", 0);
@@ -521,6 +527,9 @@ bool MainComponent::perform(const InvocationInfo& info)
         return true;
     case CommandIDs::open:
         openProject();
+        return true;
+    case CommandIDs::exportAudio:
+        exportAudio();
         return true;
     case CommandIDs::undo:
         if (undoManager.undo())
@@ -600,6 +609,8 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addCommandItem(&commandManager, CommandIDs::save);
         menu.addCommandItem(&commandManager, CommandIDs::saveAs);
         menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::exportAudio);
+        menu.addSeparator();
         menu.addCommandItem(&commandManager, CommandIDs::audioSettings);
         menu.addSeparator();
         menu.addCommandItem(&commandManager, juce::StandardApplicationCommandIDs::quit);
@@ -674,5 +685,64 @@ void MainComponent::showAudioSettings()
     options.resizable = true;
 
     options.launchAsync();
+}
+
+void MainComponent::exportAudio()
+{
+    // Stop playback
+    audioEngine.getTransport().stop();
+
+    fileChooser = std::make_unique<juce::FileChooser>("Export Audio",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+        "*.wav");
+
+    auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file != juce::File())
+        {
+            if (!file.hasFileExtension("wav"))
+                file = file.withFileExtension("wav");
+
+            // Get timeline length in samples
+            auto& timeline = audioEngine.getTimeline();
+            int64_t endSample = timeline.getEndSample();
+
+            if (endSample <= 0)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Export Failed",
+                                                       "The project is empty. Add some audio or MIDI clips before exporting.");
+                return;
+            }
+
+            // Create exporter and export
+            AudioExporter exporter;
+            exporter.setSampleRate(44100.0);
+            exporter.setBitDepth(16);
+
+            bool success = exporter.exportToFile(audioEngine, file, 0, endSample,
+                [](float progress)
+                {
+                    // Progress callback - could show a progress bar in the future
+                    juce::ignoreUnused(progress);
+                });
+
+            if (success)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                       "Export Complete",
+                                                       "Audio exported successfully to:\n" + file.getFullPathName());
+            }
+            else
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Export Failed",
+                                                       "Failed to export audio. Please check the file path and try again.");
+            }
+        }
+    });
 }
 
