@@ -821,15 +821,52 @@ void TimelineView::drawBeatGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
     double startBeat = horizontalScrollOffset / pixelsPerBeat;
     double endBeat = startBeat + bounds.getWidth() / pixelsPerBeat;
 
+    // Get current snap resolution to determine sub-beat grid visibility
+    SnapResolution snapRes = getZoomAwareSnapResolution();
+    double snapDivision = getSnapDivisionForResolution(snapRes);
+
+    // Draw sub-beat grid lines when zoomed in enough
+    if (snapDivision < 1.0)
+    {
+        // Calculate sub-beat positions
+        double subBeatStart = std::floor(startBeat / snapDivision) * snapDivision;
+        double subBeatEnd = endBeat + snapDivision;
+
+        for (double subBeat = subBeatStart; subBeat <= subBeatEnd; subBeat += snapDivision)
+        {
+            // Skip whole beats (they'll be drawn below)
+            double fractionalPart = subBeat - std::floor(subBeat);
+            if (fractionalPart < 0.001 || fractionalPart > 0.999)
+                continue;
+
+            int x = bounds.getX() + static_cast<int>(beatToPixel(subBeat) - horizontalScrollOffset);
+
+            if (x < bounds.getX() || x > bounds.getRight())
+                continue;
+
+            // Lighter color for sub-beat lines, even lighter for finer divisions
+            float alpha = 0.15f;
+            if (snapDivision <= 0.125)
+                alpha = 0.08f;
+            else if (snapDivision <= 0.25)
+                alpha = 0.12f;
+
+            g.setColour(MidiSingLookAndFeel::borderColour.withAlpha(alpha));
+            g.drawLine(static_cast<float>(x), static_cast<float>(bounds.getY()),
+                       static_cast<float>(x), static_cast<float>(bounds.getBottom()), 0.5f);
+        }
+    }
+
+    // Draw main beat and bar grid lines
     for (int beat = static_cast<int>(startBeat); beat <= static_cast<int>(endBeat) + 1; ++beat)
     {
         int x = bounds.getX() + static_cast<int>(beatToPixel(beat) - horizontalScrollOffset);
-        
+
         if (x < bounds.getX() || x > bounds.getRight())
             continue;
 
         bool isBarStart = (beat % beatsPerBar) == 0;
-        g.setColour(isBarStart ? MidiSingLookAndFeel::borderColour 
+        g.setColour(isBarStart ? MidiSingLookAndFeel::borderColour
                                : MidiSingLookAndFeel::borderColour.withAlpha(0.3f));
         g.drawLine(static_cast<float>(x), static_cast<float>(bounds.getY()),
                    static_cast<float>(x), static_cast<float>(bounds.getBottom()),
@@ -1168,16 +1205,78 @@ void TimelineView::clearSelection()
     }
 }
 
+TimelineView::SnapResolution TimelineView::getZoomAwareSnapResolution() const
+{
+    // Determine snap resolution based on zoom level (pixelsPerBeat)
+    // Higher zoom = finer snap resolution
+    // pixelsPerBeat range is 5.0 to 100.0
+
+    if (pixelsPerBeat >= 80.0)
+    {
+        // Very zoomed in - snap to 32nd notes (1/8 beat)
+        return SnapResolution::EighthBeat;
+    }
+    else if (pixelsPerBeat >= 50.0)
+    {
+        // Zoomed in - snap to 16th notes (1/4 beat)
+        return SnapResolution::QuarterBeat;
+    }
+    else if (pixelsPerBeat >= 25.0)
+    {
+        // Medium zoom - snap to 8th notes (1/2 beat)
+        return SnapResolution::HalfBeat;
+    }
+    else if (pixelsPerBeat >= 12.0)
+    {
+        // Lower zoom - snap to whole beats
+        return SnapResolution::Beat;
+    }
+    else
+    {
+        // Very zoomed out - snap to bars
+        return SnapResolution::Bar;
+    }
+}
+
+double TimelineView::getSnapDivisionForResolution(SnapResolution resolution) const
+{
+    // Returns the beat division for the given snap resolution
+    // e.g., 1.0 = whole beat, 0.5 = half beat, 0.25 = quarter beat, etc.
+
+    switch (resolution)
+    {
+    case SnapResolution::EighthBeat:
+        return 0.125;   // 1/8 beat (32nd notes in 4/4)
+    case SnapResolution::QuarterBeat:
+        return 0.25;    // 1/4 beat (16th notes in 4/4)
+    case SnapResolution::HalfBeat:
+        return 0.5;     // 1/2 beat (8th notes in 4/4)
+    case SnapResolution::Beat:
+        return 1.0;     // Whole beat (quarter notes in 4/4)
+    case SnapResolution::Bar:
+    default:
+        // Snap to bars - use beatsPerBar from timeline
+        if (timelinePtr != nullptr)
+            return static_cast<double>(timelinePtr->getBeatsPerBar());
+        return 4.0;     // Default to 4 beats per bar
+    }
+}
+
 int64_t TimelineView::snapPositionToGrid(int64_t samplePosition) const
 {
     if (timelinePtr == nullptr)
         return samplePosition;
 
-    // Snap to beat boundaries
+    // Get zoom-aware snap resolution
+    SnapResolution resolution = getZoomAwareSnapResolution();
+    double snapDivision = getSnapDivisionForResolution(resolution);
+
+    // Convert sample position to beats
     double beats = timelinePtr->samplesToBeats(samplePosition);
 
-    // Round to nearest beat
-    double snappedBeats = std::round(beats);
+    // Round to nearest snap division
+    // Formula: round(beats / division) * division
+    double snappedBeats = std::round(beats / snapDivision) * snapDivision;
 
     return timelinePtr->beatsToSamples(snappedBeats);
 }

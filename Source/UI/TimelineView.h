@@ -151,8 +151,20 @@ private:
     int64_t resizeCurrentStart = 0;     // Current start during resize
     int64_t resizeCurrentLength = 0;    // Current length during resize
 
+    // Snap resolution levels for zoom-aware grid snapping
+    enum class SnapResolution
+    {
+        Bar,            // Snap to bar boundaries (e.g., every 4 beats in 4/4)
+        Beat,           // Snap to whole beats
+        HalfBeat,       // Snap to half beats (8th notes in 4/4)
+        QuarterBeat,    // Snap to quarter beats (16th notes in 4/4)
+        EighthBeat      // Snap to eighth beats (32nd notes in 4/4)
+    };
+
     // Helper methods for region dragging and resizing
     int64_t snapPositionToGrid(int64_t samplePosition) const;
+    SnapResolution getZoomAwareSnapResolution() const;
+    double getSnapDivisionForResolution(SnapResolution resolution) const;
     void drawDragGhost(juce::Graphics& g);
     void drawResizeGhost(juce::Graphics& g);
     void drawFadeGhost(juce::Graphics& g);
