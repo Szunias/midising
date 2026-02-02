@@ -9,10 +9,21 @@
 /**
  * PianoRoll is an editor for MIDI notes.
  * Shows piano keys on left, note grid, and allows note editing.
+ * Supports multiple editing tools: Draw, Erase, Select, Split, Mute.
  */
 class PianoRoll : public juce::Component
 {
 public:
+    // Editing tools for the tool palette
+    enum class Tool
+    {
+        Draw,       // Create new notes by click-drag
+        Erase,      // Delete notes on click
+        Select,     // Box selection of multiple notes
+        Split,      // Divide note at click position
+        Mute        // Toggle note mute state
+    };
+
     PianoRoll();
     ~PianoRoll() override = default;
 
@@ -53,6 +64,20 @@ public:
     int getNumSelectedNotes() const { return static_cast<int>(selectedNoteIndices.size()); }
     void deleteSelectedNotes();
 
+    // Tool palette
+    void setTool(Tool tool) { currentTool = tool; updateCursorForTool(); repaint(); }
+    Tool getTool() const { return currentTool; }
+
+    // Muted notes management
+    bool isNoteMuted(int eventIndex) const;
+    void toggleNoteMute(int eventIndex);
+    void muteSelectedNotes();
+    void unmuteSelectedNotes();
+    const std::set<int>& getMutedNotes() const { return mutedNoteIndices; }
+
+    // Split note at a specific beat position
+    void splitNoteAtBeat(int eventIndex, double splitBeat);
+
     static constexpr int KEYBOARD_WIDTH = 60;
     static constexpr int NUM_NOTES = 128;
     static constexpr int EDGE_DETECT_WIDTH = 8; // Pixels for edge detection
@@ -85,6 +110,22 @@ private:
     void updateCursorForPosition(int x, int y);
     void drawResizeGhost(juce::Graphics& g, juce::Rectangle<int> bounds);
 
+    // Tool-related helpers
+    void updateCursorForTool();
+    void drawBoxSelection(juce::Graphics& g, juce::Rectangle<int> bounds);
+    void drawMutedNotes(juce::Graphics& g, juce::Rectangle<int> bounds);
+
+    // Tool-specific mouse handlers
+    void handleDrawToolMouseDown(const juce::MouseEvent& e);
+    void handleDrawToolMouseDrag(const juce::MouseEvent& e);
+    void handleDrawToolMouseUp(const juce::MouseEvent& e);
+    void handleEraseToolMouseDown(const juce::MouseEvent& e);
+    void handleSelectToolMouseDown(const juce::MouseEvent& e);
+    void handleSelectToolMouseDrag(const juce::MouseEvent& e);
+    void handleSelectToolMouseUp(const juce::MouseEvent& e);
+    void handleSplitToolMouseDown(const juce::MouseEvent& e);
+    void handleMuteToolMouseDown(const juce::MouseEvent& e);
+
     MidiRegion* midiRegion = nullptr;
 
     double pixelsPerBeat = 40.0;
@@ -112,6 +153,17 @@ private:
     int velocityEditNoteIndex = -1;
     int velocityEditStartY = 0;
     float velocityEditOriginalVelocity = 0.0f;
+
+    // Current tool state
+    Tool currentTool = Tool::Draw;
+
+    // Muted notes (indices of note-on events that are muted)
+    std::set<int> mutedNoteIndices;
+
+    // Box selection state for Select tool
+    bool isBoxSelecting = false;
+    juce::Point<int> boxSelectStart;
+    juce::Point<int> boxSelectEnd;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PianoRoll)
 };

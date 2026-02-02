@@ -23,6 +23,9 @@ void PianoRoll::paint(juce::Graphics& g)
 
     // Draw resize ghost for visual feedback during note resizing
     drawResizeGhost(g, bounds);
+
+    // Draw box selection rectangle for Select tool
+    drawBoxSelection(g, bounds);
 }
 
 void PianoRoll::resized()
@@ -39,101 +42,25 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e)
 
     if (e.x > KEYBOARD_WIDTH)
     {
-        // First, check if clicking on a note edge for resizing
-        int edgeNoteIndex = -1;
-        NoteEdge edge = getNoteEdgeAtPosition(e.x, e.y, edgeNoteIndex);
-
-        if (edge == NoteEdge::Right && edgeNoteIndex >= 0)
+        // Dispatch to tool-specific handler
+        switch (currentTool)
         {
-            // Start resize operation
-            const auto& seq = midiRegion->getMidiSequence();
-            auto* event = seq.getEventPointer(edgeNoteIndex);
-
-            if (event != nullptr && event->message.isNoteOn())
-            {
-                double ticksPerBeat = 960.0;
-                double startBeat = event->message.getTimeStamp() / ticksPerBeat;
-
-                // Get current end beat
-                double endBeat = startBeat + 0.5;
-                if (event->noteOffObject != nullptr)
-                {
-                    endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
-                }
-
-                // Select the note being resized
-                selectedNoteIndices.clear();
-                selectedNoteIndices.insert(edgeNoteIndex);
-
-                isResizingNote = true;
-                resizeNoteIndex = edgeNoteIndex;
-                resizeOriginalEndBeat = endBeat;
-                resizeCurrentEndBeat = endBeat;
-                repaint();
-                return;
-            }
+            case Tool::Draw:
+                handleDrawToolMouseDown(e);
+                break;
+            case Tool::Erase:
+                handleEraseToolMouseDown(e);
+                break;
+            case Tool::Select:
+                handleSelectToolMouseDown(e);
+                break;
+            case Tool::Split:
+                handleSplitToolMouseDown(e);
+                break;
+            case Tool::Mute:
+                handleMuteToolMouseDown(e);
+                break;
         }
-
-        // Check if clicking on an existing note
-        int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
-
-        if (clickedNoteIndex >= 0)
-        {
-            // Check if clicking on an already-selected note to start velocity editing
-            if (selectedNoteIndices.count(clickedNoteIndex) > 0 && !e.mods.isShiftDown())
-            {
-                // Start velocity editing mode
-                const auto& seq = midiRegion->getMidiSequence();
-                auto* event = seq.getEventPointer(clickedNoteIndex);
-
-                if (event != nullptr && event->message.isNoteOn())
-                {
-                    isEditingVelocity = true;
-                    velocityEditNoteIndex = clickedNoteIndex;
-                    velocityEditStartY = e.y;
-                    velocityEditOriginalVelocity = event->message.getFloatVelocity();
-                    isDragging = false;
-                    isCreatingNote = false;
-                    return;
-                }
-            }
-
-            // Clicked on a note - handle selection
-            if (e.mods.isShiftDown())
-            {
-                // Shift+click: toggle selection (multi-select)
-                if (selectedNoteIndices.count(clickedNoteIndex) > 0)
-                {
-                    selectedNoteIndices.erase(clickedNoteIndex);
-                }
-                else
-                {
-                    selectedNoteIndices.insert(clickedNoteIndex);
-                }
-            }
-            else
-            {
-                // Regular click: select only this note (clear previous selection)
-                selectedNoteIndices.clear();
-                selectedNoteIndices.insert(clickedNoteIndex);
-            }
-
-            isDragging = false;
-            isCreatingNote = false;
-            repaint();
-            return;
-        }
-
-        // Clicked on empty space - clear selection and start creating a new note
-        if (!e.mods.isShiftDown())
-        {
-            clearSelection();
-        }
-
-        dragStartNote = yToNote(e.y);
-        dragStartBeat = xToBeat(e.x);
-        isDragging = true;
-        isCreatingNote = true;
     }
 }
 
@@ -189,7 +116,19 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& e)
         return;
     }
 
-    // Could show preview of note being drawn
+    // Handle Select tool box selection drag
+    if (currentTool == Tool::Select && isBoxSelecting)
+    {
+        handleSelectToolMouseDrag(e);
+        return;
+    }
+
+    // Handle Draw tool drag (for note preview)
+    if (currentTool == Tool::Draw && isDragging)
+    {
+        handleDrawToolMouseDrag(e);
+        return;
+    }
 }
 
 void PianoRoll::mouseUp(const juce::MouseEvent& e)
@@ -229,33 +168,18 @@ void PianoRoll::mouseUp(const juce::MouseEvent& e)
         return;
     }
 
-    if (!isDragging || !isCreatingNote || midiRegion == nullptr)
+    // Handle Select tool box selection completion
+    if (currentTool == Tool::Select && isBoxSelecting)
     {
-        isDragging = false;
-        isCreatingNote = false;
+        handleSelectToolMouseUp(e);
         return;
     }
 
-    int endNote = yToNote(e.y);
-    double endBeat = xToBeat(e.x);
-
-    // Create note from drag start to end
-    if (dragStartNote == endNote && endBeat > dragStartBeat)
+    // Handle Draw tool note creation
+    if (currentTool == Tool::Draw)
     {
-        auto& seq = midiRegion->getMidiSequence();
-
-        // Convert beats to ticks (assuming 960 ticks per beat)
-        double ticksPerBeat = 960.0;
-        double startTicks = dragStartBeat * ticksPerBeat;
-        double endTicks = endBeat * ticksPerBeat;
-
-        // Add note on
-        seq.addEvent(juce::MidiMessage::noteOn(1, dragStartNote, 0.8f).withTimeStamp(startTicks));
-        // Add note off
-        seq.addEvent(juce::MidiMessage::noteOff(1, dragStartNote, 0.0f).withTimeStamp(endTicks));
-        seq.updateMatchedPairs();
-
-        repaint();
+        handleDrawToolMouseUp(e);
+        return;
     }
 
     isDragging = false;
@@ -412,12 +336,23 @@ void PianoRoll::drawNotes(juce::Graphics& g, juce::Rectangle<int> bounds)
         // Draw note
         auto noteRect = juce::Rectangle<int>(x, y + 1, juce::jmax(4, width - 1), noteHeight - 2);
 
-        // Check if this note is selected
+        // Check if this note is selected or muted
         bool isSelected = isNoteSelected(i);
+        bool isMuted = isNoteMuted(i);
 
-        // Note colour based on velocity and selection state
+        // Note colour based on velocity, selection, and mute state
         float velocity = event->message.getFloatVelocity();
-        auto noteColour = MidiSingLookAndFeel::accentColour.withAlpha(0.7f + velocity * 0.3f);
+        juce::Colour noteColour;
+
+        if (isMuted)
+        {
+            // Muted notes are gray and semi-transparent
+            noteColour = juce::Colour(0xff666666).withAlpha(0.5f);
+        }
+        else
+        {
+            noteColour = MidiSingLookAndFeel::accentColour.withAlpha(0.7f + velocity * 0.3f);
+        }
 
         if (isSelected)
         {
@@ -434,10 +369,24 @@ void PianoRoll::drawNotes(juce::Graphics& g, juce::Rectangle<int> bounds)
             g.setColour(juce::Colours::white);
             g.drawRoundedRectangle(noteRect.toFloat(), 2.0f, 2.0f);
         }
+        else if (isMuted)
+        {
+            // Dashed appearance for muted notes - draw lighter border
+            g.setColour(juce::Colour(0xff888888));
+            g.drawRoundedRectangle(noteRect.toFloat(), 2.0f, 1.0f);
+        }
         else
         {
             g.setColour(noteColour.brighter(0.3f));
             g.drawRoundedRectangle(noteRect.toFloat(), 2.0f, 1.0f);
+        }
+
+        // Draw mute indicator "M" on muted notes
+        if (isMuted && noteRect.getWidth() > 15)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.7f));
+            g.setFont(juce::Font(8.0f));
+            g.drawText("M", noteRect.reduced(2, 0), juce::Justification::centredLeft, false);
         }
     }
 }
@@ -619,18 +568,45 @@ PianoRoll::NoteEdge PianoRoll::getNoteEdgeAtPosition(int x, int y, int& outNoteI
 
 void PianoRoll::updateCursorForPosition(int x, int y)
 {
-    int noteIndex = -1;
-    NoteEdge edge = getNoteEdgeAtPosition(x, y, noteIndex);
+    // For Draw tool, check edge detection for resize
+    if (currentTool == Tool::Draw)
+    {
+        int noteIndex = -1;
+        NoteEdge edge = getNoteEdgeAtPosition(x, y, noteIndex);
 
-    if (edge == NoteEdge::Right)
-    {
-        // Show horizontal resize cursor
-        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        if (edge == NoteEdge::Right)
+        {
+            // Show horizontal resize cursor
+            setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+            return;
+        }
     }
-    else
+
+    // Use tool-specific cursor
+    updateCursorForTool();
+}
+
+void PianoRoll::updateCursorForTool()
+{
+    switch (currentTool)
     {
-        // Normal cursor
-        setMouseCursor(juce::MouseCursor::NormalCursor);
+        case Tool::Draw:
+            setMouseCursor(juce::MouseCursor::CrosshairCursor);
+            break;
+        case Tool::Erase:
+            // No specific cursor in JUCE for eraser, using pointing hand
+            setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            break;
+        case Tool::Select:
+            setMouseCursor(juce::MouseCursor::NormalCursor);
+            break;
+        case Tool::Split:
+            // Crosshair for precision
+            setMouseCursor(juce::MouseCursor::CrosshairCursor);
+            break;
+        case Tool::Mute:
+            setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            break;
     }
 }
 
@@ -686,6 +662,90 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key)
             deleteSelectedNotes();
             return true;
         }
+    }
+
+    // Tool switching shortcuts
+    // D = Draw tool
+    if (key.getTextCharacter() == 'd' || key.getTextCharacter() == 'D')
+    {
+        setTool(Tool::Draw);
+        return true;
+    }
+
+    // E = Erase tool
+    if (key.getTextCharacter() == 'e' || key.getTextCharacter() == 'E')
+    {
+        setTool(Tool::Erase);
+        return true;
+    }
+
+    // S = Select tool
+    if (key.getTextCharacter() == 's' || key.getTextCharacter() == 'S')
+    {
+        setTool(Tool::Select);
+        return true;
+    }
+
+    // P = Split tool (P for "partition")
+    if (key.getTextCharacter() == 'p' || key.getTextCharacter() == 'P')
+    {
+        setTool(Tool::Split);
+        return true;
+    }
+
+    // M = Mute tool
+    if (key.getTextCharacter() == 'm' || key.getTextCharacter() == 'M')
+    {
+        setTool(Tool::Mute);
+        return true;
+    }
+
+    // Number keys 1-5 for quick tool selection
+    if (key.getTextCharacter() == '1')
+    {
+        setTool(Tool::Draw);
+        return true;
+    }
+    if (key.getTextCharacter() == '2')
+    {
+        setTool(Tool::Erase);
+        return true;
+    }
+    if (key.getTextCharacter() == '3')
+    {
+        setTool(Tool::Select);
+        return true;
+    }
+    if (key.getTextCharacter() == '4')
+    {
+        setTool(Tool::Split);
+        return true;
+    }
+    if (key.getTextCharacter() == '5')
+    {
+        setTool(Tool::Mute);
+        return true;
+    }
+
+    // Ctrl+A = Select all notes
+    if (key.getModifiers().isCommandDown() &&
+        (key.getTextCharacter() == 'a' || key.getTextCharacter() == 'A'))
+    {
+        if (midiRegion != nullptr)
+        {
+            const auto& seq = midiRegion->getMidiSequence();
+            selectedNoteIndices.clear();
+            for (int i = 0; i < seq.getNumEvents(); ++i)
+            {
+                auto* event = seq.getEventPointer(i);
+                if (event != nullptr && event->message.isNoteOn())
+                {
+                    selectedNoteIndices.insert(i);
+                }
+            }
+            repaint();
+        }
+        return true;
     }
 
     return false;
@@ -749,4 +809,442 @@ void PianoRoll::deleteSelectedNotes()
     selectedNoteIndices.clear();
 
     repaint();
+}
+
+// ============================================================================
+// Mute functionality
+// ============================================================================
+
+bool PianoRoll::isNoteMuted(int eventIndex) const
+{
+    return mutedNoteIndices.count(eventIndex) > 0;
+}
+
+void PianoRoll::toggleNoteMute(int eventIndex)
+{
+    if (mutedNoteIndices.count(eventIndex) > 0)
+    {
+        mutedNoteIndices.erase(eventIndex);
+    }
+    else
+    {
+        mutedNoteIndices.insert(eventIndex);
+    }
+    repaint();
+}
+
+void PianoRoll::muteSelectedNotes()
+{
+    for (int index : selectedNoteIndices)
+    {
+        mutedNoteIndices.insert(index);
+    }
+    repaint();
+}
+
+void PianoRoll::unmuteSelectedNotes()
+{
+    for (int index : selectedNoteIndices)
+    {
+        mutedNoteIndices.erase(index);
+    }
+    repaint();
+}
+
+// ============================================================================
+// Split functionality
+// ============================================================================
+
+void PianoRoll::splitNoteAtBeat(int eventIndex, double splitBeat)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    if (eventIndex < 0 || eventIndex >= seq.getNumEvents())
+        return;
+
+    auto* event = seq.getEventPointer(eventIndex);
+    if (event == nullptr || !event->message.isNoteOn())
+        return;
+
+    double ticksPerBeat = 960.0;
+    double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+    // Get end beat
+    double endBeat = startBeat + 0.5;
+    if (event->noteOffObject != nullptr)
+    {
+        endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+    }
+
+    // Ensure split position is within the note
+    if (splitBeat <= startBeat || splitBeat >= endBeat)
+        return;
+
+    // Get note properties
+    int noteNumber = event->message.getNoteNumber();
+    float velocity = event->message.getFloatVelocity();
+    int channel = event->message.getChannel();
+
+    // Calculate split position in ticks
+    double splitTicks = splitBeat * ticksPerBeat;
+    double endTicks = endBeat * ticksPerBeat;
+
+    // Modify the original note to end at the split point
+    if (event->noteOffObject != nullptr)
+    {
+        event->noteOffObject->message.setTimeStamp(splitTicks);
+    }
+
+    // Add new note from split point to original end
+    seq.addEvent(juce::MidiMessage::noteOn(channel, noteNumber, velocity).withTimeStamp(splitTicks));
+    seq.addEvent(juce::MidiMessage::noteOff(channel, noteNumber, 0.0f).withTimeStamp(endTicks));
+
+    // Re-sort and update matched pairs
+    seq.sort();
+    seq.updateMatchedPairs();
+
+    repaint();
+}
+
+// ============================================================================
+// Box selection drawing
+// ============================================================================
+
+void PianoRoll::drawBoxSelection(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    if (!isBoxSelecting)
+        return;
+
+    // Calculate the selection rectangle
+    int left = juce::jmin(boxSelectStart.x, boxSelectEnd.x);
+    int top = juce::jmin(boxSelectStart.y, boxSelectEnd.y);
+    int right = juce::jmax(boxSelectStart.x, boxSelectEnd.x);
+    int bottom = juce::jmax(boxSelectStart.y, boxSelectEnd.y);
+
+    auto selectionRect = juce::Rectangle<int>(left, top, right - left, bottom - top);
+
+    // Clip to bounds
+    selectionRect = selectionRect.getIntersection(bounds);
+
+    if (selectionRect.isEmpty())
+        return;
+
+    // Draw semi-transparent fill
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.2f));
+    g.fillRect(selectionRect);
+
+    // Draw border
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.8f));
+    g.drawRect(selectionRect, 1);
+}
+
+// ============================================================================
+// Tool-specific mouse handlers
+// ============================================================================
+
+void PianoRoll::handleDrawToolMouseDown(const juce::MouseEvent& e)
+{
+    // First, check if clicking on a note edge for resizing
+    int edgeNoteIndex = -1;
+    NoteEdge edge = getNoteEdgeAtPosition(e.x, e.y, edgeNoteIndex);
+
+    if (edge == NoteEdge::Right && edgeNoteIndex >= 0)
+    {
+        // Start resize operation
+        const auto& seq = midiRegion->getMidiSequence();
+        auto* event = seq.getEventPointer(edgeNoteIndex);
+
+        if (event != nullptr && event->message.isNoteOn())
+        {
+            double ticksPerBeat = 960.0;
+            double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+            // Get current end beat
+            double endBeat = startBeat + 0.5;
+            if (event->noteOffObject != nullptr)
+            {
+                endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+            }
+
+            // Select the note being resized
+            selectedNoteIndices.clear();
+            selectedNoteIndices.insert(edgeNoteIndex);
+
+            isResizingNote = true;
+            resizeNoteIndex = edgeNoteIndex;
+            resizeOriginalEndBeat = endBeat;
+            resizeCurrentEndBeat = endBeat;
+            repaint();
+            return;
+        }
+    }
+
+    // Check if clicking on an existing note
+    int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+    if (clickedNoteIndex >= 0)
+    {
+        // Check if clicking on an already-selected note to start velocity editing
+        if (selectedNoteIndices.count(clickedNoteIndex) > 0 && !e.mods.isShiftDown())
+        {
+            // Start velocity editing mode
+            const auto& seq = midiRegion->getMidiSequence();
+            auto* event = seq.getEventPointer(clickedNoteIndex);
+
+            if (event != nullptr && event->message.isNoteOn())
+            {
+                isEditingVelocity = true;
+                velocityEditNoteIndex = clickedNoteIndex;
+                velocityEditStartY = e.y;
+                velocityEditOriginalVelocity = event->message.getFloatVelocity();
+                isDragging = false;
+                isCreatingNote = false;
+                return;
+            }
+        }
+
+        // Clicked on a note - handle selection
+        if (e.mods.isShiftDown())
+        {
+            // Shift+click: toggle selection (multi-select)
+            if (selectedNoteIndices.count(clickedNoteIndex) > 0)
+            {
+                selectedNoteIndices.erase(clickedNoteIndex);
+            }
+            else
+            {
+                selectedNoteIndices.insert(clickedNoteIndex);
+            }
+        }
+        else
+        {
+            // Regular click: select only this note (clear previous selection)
+            selectedNoteIndices.clear();
+            selectedNoteIndices.insert(clickedNoteIndex);
+        }
+
+        isDragging = false;
+        isCreatingNote = false;
+        repaint();
+        return;
+    }
+
+    // Clicked on empty space - clear selection and start creating a new note
+    if (!e.mods.isShiftDown())
+    {
+        clearSelection();
+    }
+
+    dragStartNote = yToNote(e.y);
+    dragStartBeat = xToBeat(e.x);
+    isDragging = true;
+    isCreatingNote = true;
+}
+
+void PianoRoll::handleDrawToolMouseDrag(const juce::MouseEvent& /*e*/)
+{
+    // Could show preview of note being drawn
+    // For now, we just update the view during drag
+    repaint();
+}
+
+void PianoRoll::handleDrawToolMouseUp(const juce::MouseEvent& e)
+{
+    if (!isDragging || !isCreatingNote || midiRegion == nullptr)
+    {
+        isDragging = false;
+        isCreatingNote = false;
+        return;
+    }
+
+    int endNote = yToNote(e.y);
+    double endBeat = xToBeat(e.x);
+
+    // Create note from drag start to end
+    if (dragStartNote == endNote && endBeat > dragStartBeat)
+    {
+        auto& seq = midiRegion->getMidiSequence();
+
+        // Convert beats to ticks (assuming 960 ticks per beat)
+        double ticksPerBeat = 960.0;
+        double startTicks = dragStartBeat * ticksPerBeat;
+        double endTicks = endBeat * ticksPerBeat;
+
+        // Add note on
+        seq.addEvent(juce::MidiMessage::noteOn(1, dragStartNote, 0.8f).withTimeStamp(startTicks));
+        // Add note off
+        seq.addEvent(juce::MidiMessage::noteOff(1, dragStartNote, 0.0f).withTimeStamp(endTicks));
+        seq.updateMatchedPairs();
+
+        repaint();
+    }
+
+    isDragging = false;
+    isCreatingNote = false;
+}
+
+void PianoRoll::handleEraseToolMouseDown(const juce::MouseEvent& e)
+{
+    // Find note at click position and delete it
+    int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+    if (clickedNoteIndex >= 0 && midiRegion != nullptr)
+    {
+        auto& seq = midiRegion->getMidiSequence();
+        auto* event = seq.getEventPointer(clickedNoteIndex);
+
+        if (event != nullptr && event->message.isNoteOn())
+        {
+            std::vector<int> indicesToDelete;
+            indicesToDelete.push_back(clickedNoteIndex);
+
+            // Find and add the matching note-off index
+            if (event->noteOffObject != nullptr)
+            {
+                for (int i = 0; i < seq.getNumEvents(); ++i)
+                {
+                    if (seq.getEventPointer(i) == event->noteOffObject)
+                    {
+                        indicesToDelete.push_back(i);
+                        break;
+                    }
+                }
+            }
+
+            // Sort in descending order
+            std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
+
+            // Delete events
+            for (int index : indicesToDelete)
+            {
+                seq.deleteEvent(index, false);
+            }
+
+            seq.updateMatchedPairs();
+
+            // Remove from selection and muted sets
+            selectedNoteIndices.erase(clickedNoteIndex);
+            mutedNoteIndices.erase(clickedNoteIndex);
+
+            repaint();
+        }
+    }
+}
+
+void PianoRoll::handleSelectToolMouseDown(const juce::MouseEvent& e)
+{
+    // Check if clicking on an existing note
+    int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+    if (clickedNoteIndex >= 0)
+    {
+        // Clicked on a note - handle selection
+        if (e.mods.isShiftDown())
+        {
+            // Shift+click: toggle selection (multi-select)
+            if (selectedNoteIndices.count(clickedNoteIndex) > 0)
+            {
+                selectedNoteIndices.erase(clickedNoteIndex);
+            }
+            else
+            {
+                selectedNoteIndices.insert(clickedNoteIndex);
+            }
+        }
+        else
+        {
+            // Regular click: select only this note (clear previous selection)
+            selectedNoteIndices.clear();
+            selectedNoteIndices.insert(clickedNoteIndex);
+        }
+        repaint();
+    }
+    else
+    {
+        // Clicked on empty space - start box selection
+        if (!e.mods.isShiftDown())
+        {
+            clearSelection();
+        }
+
+        isBoxSelecting = true;
+        boxSelectStart = e.getPosition();
+        boxSelectEnd = e.getPosition();
+    }
+}
+
+void PianoRoll::handleSelectToolMouseDrag(const juce::MouseEvent& e)
+{
+    if (isBoxSelecting)
+    {
+        boxSelectEnd = e.getPosition();
+        repaint();
+    }
+}
+
+void PianoRoll::handleSelectToolMouseUp(const juce::MouseEvent& e)
+{
+    if (isBoxSelecting && midiRegion != nullptr)
+    {
+        boxSelectEnd = e.getPosition();
+
+        // Calculate the selection rectangle
+        int left = juce::jmin(boxSelectStart.x, boxSelectEnd.x);
+        int top = juce::jmin(boxSelectStart.y, boxSelectEnd.y);
+        int right = juce::jmax(boxSelectStart.x, boxSelectEnd.x);
+        int bottom = juce::jmax(boxSelectStart.y, boxSelectEnd.y);
+
+        auto selectionRect = juce::Rectangle<int>(left, top, right - left, bottom - top);
+
+        // Find all notes that intersect with the selection rectangle
+        const auto& seq = midiRegion->getMidiSequence();
+        double ticksPerBeat = 960.0;
+
+        for (int i = 0; i < seq.getNumEvents(); ++i)
+        {
+            auto* event = seq.getEventPointer(i);
+            if (event == nullptr || !event->message.isNoteOn())
+                continue;
+
+            // Get note rectangle
+            juce::Rectangle<int> noteRect = getNoteRect(i);
+
+            if (selectionRect.intersects(noteRect))
+            {
+                selectedNoteIndices.insert(i);
+            }
+        }
+
+        isBoxSelecting = false;
+        repaint();
+    }
+}
+
+void PianoRoll::handleSplitToolMouseDown(const juce::MouseEvent& e)
+{
+    // Find note at click position
+    int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+    if (clickedNoteIndex >= 0)
+    {
+        // Get the beat position where the user clicked
+        double splitBeat = xToBeat(e.x);
+
+        // Split the note at this position
+        splitNoteAtBeat(clickedNoteIndex, splitBeat);
+    }
+}
+
+void PianoRoll::handleMuteToolMouseDown(const juce::MouseEvent& e)
+{
+    // Find note at click position
+    int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+    if (clickedNoteIndex >= 0)
+    {
+        // Toggle mute state of the clicked note
+        toggleNoteMute(clickedNoteIndex);
+    }
 }
