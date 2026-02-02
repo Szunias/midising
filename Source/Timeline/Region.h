@@ -30,12 +30,26 @@ public:
     int64_t getEndPosition() const { return startPosition + length; }
     int64_t getOffset() const { return offset; }
     juce::String getName() const { return name; }
-    
+
+    // Fade getters
+    int64_t getFadeInLength() const { return fadeInLength; }
+    int64_t getFadeOutLength() const { return fadeOutLength; }
+
     // Setters
     void setStartPosition(int64_t newPosition) { startPosition = newPosition; }
     void setLength(int64_t newLength) { length = juce::jmax(int64_t(0), newLength); }
     void setOffset(int64_t newOffset) { offset = juce::jmax(int64_t(0), newOffset); }
     void setName(const juce::String& newName) { name = newName; }
+
+    // Fade setters - clamp to region length
+    void setFadeInLength(int64_t newLength)
+    {
+        fadeInLength = juce::jlimit(int64_t(0), length - fadeOutLength, newLength);
+    }
+    void setFadeOutLength(int64_t newLength)
+    {
+        fadeOutLength = juce::jlimit(int64_t(0), length - fadeInLength, newLength);
+    }
 
     // Check if a sample position falls within this region
     bool containsPosition(int64_t position) const
@@ -49,6 +63,10 @@ protected:
     int64_t length;         // Length in samples
     int64_t offset = 0;     // Offset into source content (for trimmed regions)
     juce::String name;
+
+    // Fade lengths in samples (0 = no fade)
+    int64_t fadeInLength = 0;
+    int64_t fadeOutLength = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Region)
 };

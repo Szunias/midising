@@ -118,9 +118,22 @@ private:
     Region* hoveredRegion = nullptr;
     int hoveredTrackIndex = -1;
 
-    // Edge detection for region resize
+    // Smart Tool zones for context-sensitive cursor
+    enum class SmartToolZone
+    {
+        None,           // Not over a region
+        Move,           // Center of region - move operation
+        TrimLeft,       // Left edge - trim start
+        TrimRight,      // Right edge - trim end
+        FadeIn,         // Top-left corner - fade in
+        FadeOut         // Top-right corner - fade out
+    };
+
+    // Edge detection for region resize (legacy, kept for compatibility)
     enum class RegionEdge { None, Left, Right };
-    static constexpr int EDGE_DETECT_WIDTH = 8;  // Pixels from edge to detect resize
+    static constexpr int EDGE_DETECT_WIDTH = 8;   // Pixels from edge to detect trim
+    static constexpr int FADE_ZONE_WIDTH = 16;    // Pixels from corner for fade zones
+    static constexpr int FADE_ZONE_HEIGHT = 20;   // Vertical pixels for fade zone detection
 
     // Region dragging state
     bool isDraggingRegion = false;
@@ -142,8 +155,20 @@ private:
     int64_t snapPositionToGrid(int64_t samplePosition) const;
     void drawDragGhost(juce::Graphics& g);
     void drawResizeGhost(juce::Graphics& g);
+    void drawFadeGhost(juce::Graphics& g);
     RegionEdge getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const;
+    SmartToolZone getSmartToolZone(int x, int y, Region*& outRegion, int& outTrackIndex) const;
     void updateCursorForPosition(int x, int y);
+
+    // Current smart tool zone for status display
+    SmartToolZone currentSmartToolZone = SmartToolZone::None;
+
+    // Fade editing state
+    bool isEditingFade = false;
+    bool isFadeIn = true;  // true = fade in, false = fade out
+    int64_t fadeOriginalLength = 0;
+    int64_t fadeCurrentLength = 0;
+    int fadeStartMouseX = 0;
 
     // Context menu and clipboard operations
     void showContextMenu(const juce::MouseEvent& e);

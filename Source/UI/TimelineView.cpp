@@ -43,6 +43,9 @@ void TimelineView::paint(juce::Graphics& g)
     // Draw resize ghost for visual feedback during edge resizing
     drawResizeGhost(g);
 
+    // Draw fade ghost for visual feedback during fade editing
+    drawFadeGhost(g);
+
     // Draw playhead on top of everything
     drawPlayhead(g);
 }
@@ -91,47 +94,81 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    // First, check if clicking on a region edge for resizing
+    // Use Smart Tool to determine operation based on click position
     int trackIndex = -1;
-    Region* edgeRegion = nullptr;
-    RegionEdge edge = getRegionEdgeAtPosition(e.x, e.y, edgeRegion, trackIndex);
+    Region* clickedRegion = nullptr;
+    SmartToolZone zone = getSmartToolZone(e.x, e.y, clickedRegion, trackIndex);
 
-    if (edge != RegionEdge::None && edgeRegion != nullptr)
+    if (zone != SmartToolZone::None && clickedRegion != nullptr)
     {
-        // Start edge resize operation
-        selectedRegion = edgeRegion;
-        selectedTrackIndex = trackIndex;
-        isResizingRegion = true;
-        resizeEdge = edge;
-        resizeOriginalStart = edgeRegion->getStartPosition();
-        resizeOriginalLength = edgeRegion->getLength();
-        resizeOriginalOffset = edgeRegion->getOffset();
-        resizeCurrentStart = resizeOriginalStart;
-        resizeCurrentLength = resizeOriginalLength;
-        repaint();
-        return;
-    }
-
-    // Check if clicking on a region (for dragging)
-    Region* region = getRegionAtPosition(e.x, e.y, trackIndex);
-
-    if (region != nullptr)
-    {
-        // Select the clicked region
-        selectedRegion = region;
+        // Select the region for all operations
+        selectedRegion = clickedRegion;
         selectedTrackIndex = trackIndex;
 
-        // Start dragging the region
-        isDraggingRegion = true;
-        dragOriginalPosition = region->getStartPosition();
-        dragCurrentPosition = dragOriginalPosition;
+        switch (zone)
+        {
+        case SmartToolZone::TrimLeft:
+            // Start left edge trim operation
+            isResizingRegion = true;
+            resizeEdge = RegionEdge::Left;
+            resizeOriginalStart = clickedRegion->getStartPosition();
+            resizeOriginalLength = clickedRegion->getLength();
+            resizeOriginalOffset = clickedRegion->getOffset();
+            resizeCurrentStart = resizeOriginalStart;
+            resizeCurrentLength = resizeOriginalLength;
+            repaint();
+            return;
 
-        // Calculate offset from mouse position to region start
-        int64_t mouseSample = pixelToSample(e.x);
-        dragStartSampleOffset = mouseSample - dragOriginalPosition;
+        case SmartToolZone::TrimRight:
+            // Start right edge trim operation
+            isResizingRegion = true;
+            resizeEdge = RegionEdge::Right;
+            resizeOriginalStart = clickedRegion->getStartPosition();
+            resizeOriginalLength = clickedRegion->getLength();
+            resizeOriginalOffset = clickedRegion->getOffset();
+            resizeCurrentStart = resizeOriginalStart;
+            resizeCurrentLength = resizeOriginalLength;
+            repaint();
+            return;
 
-        repaint();
-        return;
+        case SmartToolZone::FadeIn:
+            // Start fade in editing
+            isEditingFade = true;
+            isFadeIn = true;
+            fadeOriginalLength = clickedRegion->getFadeInLength();
+            fadeCurrentLength = fadeOriginalLength;
+            fadeStartMouseX = e.x;
+            repaint();
+            return;
+
+        case SmartToolZone::FadeOut:
+            // Start fade out editing
+            isEditingFade = true;
+            isFadeIn = false;
+            fadeOriginalLength = clickedRegion->getFadeOutLength();
+            fadeCurrentLength = fadeOriginalLength;
+            fadeStartMouseX = e.x;
+            repaint();
+            return;
+
+        case SmartToolZone::Move:
+            // Start dragging the region
+            isDraggingRegion = true;
+            dragOriginalPosition = clickedRegion->getStartPosition();
+            dragCurrentPosition = dragOriginalPosition;
+
+            // Calculate offset from mouse position to region start
+            {
+                int64_t mouseSample = pixelToSample(e.x);
+                dragStartSampleOffset = mouseSample - dragOriginalPosition;
+            }
+            repaint();
+            return;
+
+        case SmartToolZone::None:
+        default:
+            break;
+        }
     }
 
     // Click on timeline area (not on a region) - set playhead and clear selection
@@ -146,6 +183,43 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
 
 void TimelineView::mouseDrag(const juce::MouseEvent& e)
 {
+    // Handle fade editing
+    if (isEditingFade && selectedRegion != nullptr)
+    {
+        // Calculate new fade length based on mouse movement
+        int deltaX = e.x - fadeStartMouseX;
+
+        // Convert pixels to samples
+        int64_t deltaSamples = pixelToSample(HEADER_WIDTH + static_cast<int>(horizontalScrollOffset) + std::abs(deltaX)) -
+                               pixelToSample(HEADER_WIDTH + static_cast<int>(horizontalScrollOffset));
+
+        if (isFadeIn)
+        {
+            // Fade in grows to the right
+            fadeCurrentLength = fadeOriginalLength + deltaSamples;
+        }
+        else
+        {
+            // Fade out grows to the left (negative deltaX increases fade)
+            fadeCurrentLength = fadeOriginalLength - deltaSamples;
+        }
+
+        // Clamp fade length to valid range
+        int64_t maxFadeLength = selectedRegion->getLength();
+        if (isFadeIn)
+        {
+            maxFadeLength -= selectedRegion->getFadeOutLength();
+        }
+        else
+        {
+            maxFadeLength -= selectedRegion->getFadeInLength();
+        }
+
+        fadeCurrentLength = juce::jlimit(int64_t(0), maxFadeLength, fadeCurrentLength);
+        repaint();
+        return;
+    }
+
     // Handle region edge resizing
     if (isResizingRegion && selectedRegion != nullptr)
     {
@@ -239,6 +313,25 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
 {
     juce::ignoreUnused(e);
 
+    // Finalize fade editing
+    if (isEditingFade && selectedRegion != nullptr)
+    {
+        if (isFadeIn)
+        {
+            selectedRegion->setFadeInLength(fadeCurrentLength);
+        }
+        else
+        {
+            selectedRegion->setFadeOutLength(fadeCurrentLength);
+        }
+
+        isEditingFade = false;
+        fadeOriginalLength = 0;
+        fadeCurrentLength = 0;
+        repaint();
+        return;
+    }
+
     // Finalize region edge resize
     if (isResizingRegion && selectedRegion != nullptr)
     {
@@ -276,6 +369,7 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
 
     isDraggingRegion = false;
     isResizingRegion = false;
+    isEditingFade = false;
 }
 
 void TimelineView::mouseMove(const juce::MouseEvent& e)
@@ -518,7 +612,55 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
             double thumbEnd = thumbStart + static_cast<double>(region->getLength()) / sampleRate;
             
             thumb.drawChannel(g, regionBounds.reduced(1), thumbStart, thumbEnd, 0, 1.0f);
-            
+
+            // Draw fade in/out overlays
+            int64_t fadeInLen = region->getFadeInLength();
+            int64_t fadeOutLen = region->getFadeOutLength();
+
+            if (fadeInLen > 0)
+            {
+                // Draw fade in as diagonal line with semi-transparent overlay
+                int fadeInEndX = regionBounds.getX() + sampleToPixel(fadeInLen);
+                juce::Path fadeInPath;
+                fadeInPath.startNewSubPath(static_cast<float>(regionBounds.getX()),
+                                           static_cast<float>(regionBounds.getBottom()));
+                fadeInPath.lineTo(static_cast<float>(regionBounds.getX()),
+                                 static_cast<float>(regionBounds.getY()));
+                fadeInPath.lineTo(static_cast<float>(fadeInEndX),
+                                 static_cast<float>(regionBounds.getY()));
+                fadeInPath.closeSubPath();
+
+                g.setColour(juce::Colours::black.withAlpha(0.3f));
+                g.fillPath(fadeInPath);
+
+                // Draw fade line
+                g.setColour(juce::Colours::white.withAlpha(0.7f));
+                g.drawLine(static_cast<float>(regionBounds.getX()), static_cast<float>(regionBounds.getBottom()),
+                           static_cast<float>(fadeInEndX), static_cast<float>(regionBounds.getY()), 1.5f);
+            }
+
+            if (fadeOutLen > 0)
+            {
+                // Draw fade out as diagonal line with semi-transparent overlay
+                int fadeOutStartX = regionBounds.getRight() - sampleToPixel(fadeOutLen);
+                juce::Path fadeOutPath;
+                fadeOutPath.startNewSubPath(static_cast<float>(fadeOutStartX),
+                                            static_cast<float>(regionBounds.getY()));
+                fadeOutPath.lineTo(static_cast<float>(regionBounds.getRight()),
+                                  static_cast<float>(regionBounds.getY()));
+                fadeOutPath.lineTo(static_cast<float>(regionBounds.getRight()),
+                                  static_cast<float>(regionBounds.getBottom()));
+                fadeOutPath.closeSubPath();
+
+                g.setColour(juce::Colours::black.withAlpha(0.3f));
+                g.fillPath(fadeOutPath);
+
+                // Draw fade line
+                g.setColour(juce::Colours::white.withAlpha(0.7f));
+                g.drawLine(static_cast<float>(fadeOutStartX), static_cast<float>(regionBounds.getY()),
+                           static_cast<float>(regionBounds.getRight()), static_cast<float>(regionBounds.getBottom()), 1.5f);
+            }
+
             // Draw name
             g.setColour(juce::Colours::white);
             g.drawText(region->getName(), regionBounds.reduced(2), juce::Justification::topLeft, true);
@@ -603,11 +745,59 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
                      // Just draw simple dots/lines for note ons
                      int noteX = x1 + sampleToPixel(noteStart) - sampleToPixel(0);
                      int noteY = regionBounds.getY() + static_cast<int>(regionHeight * (1.0 - (event->message.getNoteNumber() / 128.0)));
-                     
+
                      g.fillRect(noteX, noteY, 4, 2);
                 }
             }
-            
+
+            // Draw fade in/out overlays for MIDI regions
+            int64_t fadeInLen = region->getFadeInLength();
+            int64_t fadeOutLen = region->getFadeOutLength();
+
+            if (fadeInLen > 0)
+            {
+                // Draw fade in as diagonal line with semi-transparent overlay
+                int fadeInEndX = regionBounds.getX() + sampleToPixel(fadeInLen);
+                juce::Path fadeInPath;
+                fadeInPath.startNewSubPath(static_cast<float>(regionBounds.getX()),
+                                           static_cast<float>(regionBounds.getBottom()));
+                fadeInPath.lineTo(static_cast<float>(regionBounds.getX()),
+                                 static_cast<float>(regionBounds.getY()));
+                fadeInPath.lineTo(static_cast<float>(fadeInEndX),
+                                 static_cast<float>(regionBounds.getY()));
+                fadeInPath.closeSubPath();
+
+                g.setColour(juce::Colours::black.withAlpha(0.3f));
+                g.fillPath(fadeInPath);
+
+                // Draw fade line
+                g.setColour(juce::Colours::white.withAlpha(0.7f));
+                g.drawLine(static_cast<float>(regionBounds.getX()), static_cast<float>(regionBounds.getBottom()),
+                           static_cast<float>(fadeInEndX), static_cast<float>(regionBounds.getY()), 1.5f);
+            }
+
+            if (fadeOutLen > 0)
+            {
+                // Draw fade out as diagonal line with semi-transparent overlay
+                int fadeOutStartX = regionBounds.getRight() - sampleToPixel(fadeOutLen);
+                juce::Path fadeOutPath;
+                fadeOutPath.startNewSubPath(static_cast<float>(fadeOutStartX),
+                                            static_cast<float>(regionBounds.getY()));
+                fadeOutPath.lineTo(static_cast<float>(regionBounds.getRight()),
+                                  static_cast<float>(regionBounds.getY()));
+                fadeOutPath.lineTo(static_cast<float>(regionBounds.getRight()),
+                                  static_cast<float>(regionBounds.getBottom()));
+                fadeOutPath.closeSubPath();
+
+                g.setColour(juce::Colours::black.withAlpha(0.3f));
+                g.fillPath(fadeOutPath);
+
+                // Draw fade line
+                g.setColour(juce::Colours::white.withAlpha(0.7f));
+                g.drawLine(static_cast<float>(fadeOutStartX), static_cast<float>(regionBounds.getY()),
+                           static_cast<float>(regionBounds.getRight()), static_cast<float>(regionBounds.getBottom()), 1.5f);
+            }
+
             // Draw name
             g.setColour(juce::Colours::white);
             g.drawText(region->getName(), regionBounds.reduced(2), juce::Justification::topLeft, true);
@@ -1059,6 +1249,64 @@ void TimelineView::drawResizeGhost(juce::Graphics& g)
     }
 }
 
+void TimelineView::drawFadeGhost(juce::Graphics& g)
+{
+    if (!isEditingFade || selectedRegion == nullptr || selectedTrackIndex < 0)
+        return;
+
+    // Get region bounds
+    juce::Rectangle<int> regionBounds = getRegionBounds(selectedRegion, selectedTrackIndex);
+
+    // Calculate fade shape
+    juce::Path fadePath;
+
+    if (isFadeIn)
+    {
+        // Fade in: triangle from left edge going right
+        int fadeEndX = regionBounds.getX() + sampleToPixel(fadeCurrentLength);
+
+        fadePath.startNewSubPath(static_cast<float>(regionBounds.getX()),
+                                  static_cast<float>(regionBounds.getBottom()));
+        fadePath.lineTo(static_cast<float>(regionBounds.getX()),
+                       static_cast<float>(regionBounds.getY()));
+        fadePath.lineTo(static_cast<float>(fadeEndX),
+                       static_cast<float>(regionBounds.getY()));
+        fadePath.closeSubPath();
+    }
+    else
+    {
+        // Fade out: triangle from right edge going left
+        int fadeStartX = regionBounds.getRight() - sampleToPixel(fadeCurrentLength);
+
+        fadePath.startNewSubPath(static_cast<float>(regionBounds.getRight()),
+                                  static_cast<float>(regionBounds.getY()));
+        fadePath.lineTo(static_cast<float>(regionBounds.getRight()),
+                       static_cast<float>(regionBounds.getBottom()));
+        fadePath.lineTo(static_cast<float>(fadeStartX),
+                       static_cast<float>(regionBounds.getY()));
+        fadePath.closeSubPath();
+    }
+
+    // Draw the fade shape
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.4f));
+    g.fillPath(fadePath);
+
+    // Draw fade boundary line
+    g.setColour(MidiSingLookAndFeel::accentColour);
+    if (isFadeIn)
+    {
+        int fadeEndX = regionBounds.getX() + sampleToPixel(fadeCurrentLength);
+        g.drawLine(static_cast<float>(regionBounds.getX()), static_cast<float>(regionBounds.getBottom()),
+                   static_cast<float>(fadeEndX), static_cast<float>(regionBounds.getY()), 2.0f);
+    }
+    else
+    {
+        int fadeStartX = regionBounds.getRight() - sampleToPixel(fadeCurrentLength);
+        g.drawLine(static_cast<float>(fadeStartX), static_cast<float>(regionBounds.getY()),
+                   static_cast<float>(regionBounds.getRight()), static_cast<float>(regionBounds.getBottom()), 2.0f);
+    }
+}
+
 TimelineView::RegionEdge TimelineView::getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const
 {
     outRegion = nullptr;
@@ -1137,22 +1385,145 @@ TimelineView::RegionEdge TimelineView::getRegionEdgeAtPosition(int x, int y, Reg
     return RegionEdge::None;
 }
 
+TimelineView::SmartToolZone TimelineView::getSmartToolZone(int x, int y, Region*& outRegion, int& outTrackIndex) const
+{
+    outRegion = nullptr;
+    outTrackIndex = -1;
+
+    if (timelinePtr == nullptr)
+        return SmartToolZone::None;
+
+    // Check if position is in the timeline area (not ruler or headers)
+    if (x <= HEADER_WIDTH || y <= RULER_HEIGHT)
+        return SmartToolZone::None;
+
+    // Find which track the y position corresponds to
+    int trackIndex = getTrackIndexAtY(y);
+    if (trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return SmartToolZone::None;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return SmartToolZone::None;
+
+    // Lambda to check smart tool zone for a region
+    auto checkRegionZone = [&](Region* region) -> SmartToolZone
+    {
+        if (region == nullptr)
+            return SmartToolZone::None;
+
+        juce::Rectangle<int> regionBounds = getRegionBounds(region, trackIndex);
+
+        // Check if y is within the region's vertical bounds
+        if (y < regionBounds.getY() || y > regionBounds.getBottom())
+            return SmartToolZone::None;
+
+        // Check if x is within the region's horizontal bounds (with some tolerance)
+        if (x < regionBounds.getX() - EDGE_DETECT_WIDTH / 2 ||
+            x > regionBounds.getRight() + EDGE_DETECT_WIDTH / 2)
+            return SmartToolZone::None;
+
+        outRegion = region;
+        outTrackIndex = trackIndex;
+
+        // Check fade zones first (corners take priority)
+        bool inTopHalf = y < regionBounds.getY() + FADE_ZONE_HEIGHT;
+
+        // Fade In zone: top-left corner
+        if (inTopHalf && x >= regionBounds.getX() && x <= regionBounds.getX() + FADE_ZONE_WIDTH)
+        {
+            return SmartToolZone::FadeIn;
+        }
+
+        // Fade Out zone: top-right corner
+        if (inTopHalf && x >= regionBounds.getRight() - FADE_ZONE_WIDTH && x <= regionBounds.getRight())
+        {
+            return SmartToolZone::FadeOut;
+        }
+
+        // Check trim edges (excluding fade zones)
+        // Left trim edge
+        if (x >= regionBounds.getX() - EDGE_DETECT_WIDTH / 2 &&
+            x <= regionBounds.getX() + EDGE_DETECT_WIDTH / 2)
+        {
+            return SmartToolZone::TrimLeft;
+        }
+
+        // Right trim edge
+        if (x >= regionBounds.getRight() - EDGE_DETECT_WIDTH / 2 &&
+            x <= regionBounds.getRight() + EDGE_DETECT_WIDTH / 2)
+        {
+            return SmartToolZone::TrimRight;
+        }
+
+        // Center of region - move operation
+        if (x > regionBounds.getX() + EDGE_DETECT_WIDTH / 2 &&
+            x < regionBounds.getRight() - EDGE_DETECT_WIDTH / 2)
+        {
+            return SmartToolZone::Move;
+        }
+
+        return SmartToolZone::None;
+    };
+
+    // Check audio tracks
+    if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
+    {
+        for (int i = 0; i < audioTrack->getNumRegions(); ++i)
+        {
+            SmartToolZone zone = checkRegionZone(audioTrack->getRegion(i));
+            if (zone != SmartToolZone::None)
+                return zone;
+        }
+    }
+    // Check MIDI tracks
+    else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
+    {
+        for (int i = 0; i < midiTrack->getNumRegions(); ++i)
+        {
+            SmartToolZone zone = checkRegionZone(midiTrack->getRegion(i));
+            if (zone != SmartToolZone::None)
+                return zone;
+        }
+    }
+
+    return SmartToolZone::None;
+}
+
 void TimelineView::updateCursorForPosition(int x, int y)
 {
-    // Check if hovering over a region edge
-    Region* edgeRegion = nullptr;
+    // Use Smart Tool to determine zone and set appropriate cursor
+    Region* region = nullptr;
     int trackIndex = -1;
-    RegionEdge edge = getRegionEdgeAtPosition(x, y, edgeRegion, trackIndex);
+    SmartToolZone zone = getSmartToolZone(x, y, region, trackIndex);
 
-    if (edge == RegionEdge::Left || edge == RegionEdge::Right)
+    // Update current zone for potential status display
+    currentSmartToolZone = zone;
+
+    switch (zone)
     {
-        // Show horizontal resize cursor
+    case SmartToolZone::TrimLeft:
+    case SmartToolZone::TrimRight:
+        // Horizontal resize cursor for trim operations
         setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-    }
-    else
-    {
-        // Normal cursor
+        break;
+
+    case SmartToolZone::Move:
+        // Pointing hand or drag cursor for move operations
+        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        break;
+
+    case SmartToolZone::FadeIn:
+    case SmartToolZone::FadeOut:
+        // Use crosshair cursor for fade operations (diagonal resize would be ideal)
+        setMouseCursor(juce::MouseCursor::CrosshairCursor);
+        break;
+
+    case SmartToolZone::None:
+    default:
+        // Normal cursor when not over a region
         setMouseCursor(juce::MouseCursor::NormalCursor);
+        break;
     }
 }
 
