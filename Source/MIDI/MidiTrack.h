@@ -3,28 +3,110 @@
 #include "../Timeline/Track.h"
 #include "../Timeline/Region.h"
 #include "MidiEngine.h"
+#include "PluginHost.h"
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_audio_processors/juce_audio_processors.h>
 #include <memory>
 #include <vector>
 #include <atomic>
+#include <functional>
+
+// Forward declaration
+class PluginHost;
 
 /**
  * MidiTrack is a track that plays MIDI data through a synthesizer.
  * Supports MIDI recording when armed.
+ * Can host a VST3 instrument plugin for sound generation.
  */
 class MidiTrack : public Track
 {
 public:
+    /**
+     * Callback type for async plugin loading.
+     * @param success True if plugin loaded successfully
+     * @param errorMessage Error message if loading failed
+     */
+    using PluginLoadedCallback = std::function<void(bool success, const juce::String& errorMessage)>;
+
     MidiTrack(const juce::String& name = "MIDI Track", MidiEngine* engine = nullptr);
-    ~MidiTrack() override = default;
+    ~MidiTrack() override;
 
     // Track interface
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void processBlock(juce::AudioBuffer<float>& buffer, int startSample, int numSamples) override;
     void releaseResources() override;
 
-    // Set the MIDI engine to use for synthesis
+    // Set the MIDI engine to use for synthesis (fallback when no plugin loaded)
     void setMidiEngine(MidiEngine* engine) { midiEngine = engine; }
+
+    // ========== VST3 Plugin Hosting ==========
+
+    /**
+     * Set the PluginHost reference for loading plugins.
+     * @param host Pointer to the application's PluginHost
+     */
+    void setPluginHost(PluginHost* host) { pluginHost = host; }
+
+    /**
+     * Load a VST3 instrument plugin asynchronously.
+     * The plugin will be used for sound generation instead of the built-in synth.
+     * @param pluginDescription Description of the plugin to load
+     * @param callback Called when loading completes (on message thread)
+     */
+    void loadPluginAsync(const juce::PluginDescription& pluginDescription,
+                         PluginLoadedCallback callback = nullptr);
+
+    /**
+     * Load a VST3 instrument plugin synchronously.
+     * @param pluginDescription Description of the plugin to load
+     * @param errorMessage Output parameter for error message on failure
+     * @return True if plugin loaded successfully
+     */
+    bool loadPluginSync(const juce::PluginDescription& pluginDescription,
+                        juce::String& errorMessage);
+
+    /**
+     * Unload the current plugin and revert to built-in synth.
+     */
+    void unloadPlugin();
+
+    /**
+     * Check if a plugin is currently loaded.
+     * @return True if a VST3 plugin is loaded
+     */
+    bool hasPlugin() const { return loadedPlugin != nullptr; }
+
+    /**
+     * Get the currently loaded plugin instance.
+     * @return Pointer to the plugin instance, or nullptr if none loaded
+     */
+    juce::AudioPluginInstance* getPlugin() { return loadedPlugin.get(); }
+    const juce::AudioPluginInstance* getPlugin() const { return loadedPlugin.get(); }
+
+    /**
+     * Get the description of the currently loaded plugin.
+     * @return Plugin description, or empty description if no plugin loaded
+     */
+    const juce::PluginDescription& getPluginDescription() const { return loadedPluginDescription; }
+
+    /**
+     * Get the plugin's editor component (for showing in UI).
+     * @return The plugin's editor, or nullptr if plugin has no editor
+     */
+    juce::AudioProcessorEditor* createPluginEditor();
+
+    /**
+     * Save the current plugin state to memory block.
+     * @param destData Output memory block for plugin state
+     */
+    void savePluginState(juce::MemoryBlock& destData) const;
+
+    /**
+     * Load plugin state from memory block.
+     * @param data Memory block containing plugin state
+     */
+    void loadPluginState(const void* data, int sizeInBytes);
 
     // Region management
     void addRegion(std::unique_ptr<MidiRegion> region);
@@ -82,6 +164,15 @@ private:
 
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
+
+    // VST3 Plugin hosting
+    PluginHost* pluginHost = nullptr;
+    std::unique_ptr<juce::AudioPluginInstance> loadedPlugin;
+    juce::PluginDescription loadedPluginDescription;
+    mutable juce::CriticalSection pluginLock;  // Protects plugin instance
+
+    // Helper to prepare loaded plugin with current audio settings
+    void preparePlugin();
 
     // Recording state
     std::atomic<bool> recording { false };
