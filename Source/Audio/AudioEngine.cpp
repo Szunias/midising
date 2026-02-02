@@ -7,6 +7,7 @@ AudioEngine::AudioEngine()
 
 AudioEngine::~AudioEngine()
 {
+    removeFromDeviceManager();
     stopRecording();
 }
 
@@ -100,6 +101,67 @@ void AudioEngine::releaseResources()
     for (int i = 0; i < timeline.getNumTracks(); ++i)
     {
         timeline.getTrack(i)->releaseResources();
+    }
+}
+
+void AudioEngine::setAudioDeviceManager(juce::AudioDeviceManager* manager)
+{
+    // Remove from previous manager if any
+    removeFromDeviceManager();
+
+    deviceManager = manager;
+
+    if (deviceManager != nullptr)
+    {
+        deviceManager->addChangeListener(this);
+
+        // Sync with current device settings
+        if (auto* device = deviceManager->getCurrentAudioDevice())
+        {
+            double newSampleRate = device->getCurrentSampleRate();
+            int newBlockSize = device->getCurrentBufferSizeSamples();
+
+            if (newSampleRate > 0 && newBlockSize > 0)
+            {
+                prepareToPlay(newBlockSize, newSampleRate);
+            }
+        }
+    }
+}
+
+void AudioEngine::removeFromDeviceManager()
+{
+    if (deviceManager != nullptr)
+    {
+        deviceManager->removeChangeListener(this);
+        deviceManager = nullptr;
+    }
+}
+
+void AudioEngine::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    // Handle audio device changes
+    if (source == deviceManager && deviceManager != nullptr)
+    {
+        if (auto* device = deviceManager->getCurrentAudioDevice())
+        {
+            double newSampleRate = device->getCurrentSampleRate();
+            int newBlockSize = device->getCurrentBufferSizeSamples();
+
+            // Only re-prepare if settings have actually changed
+            if (newSampleRate > 0 && newBlockSize > 0 &&
+                (newSampleRate != currentSampleRate || newBlockSize != currentBlockSize))
+            {
+                // Stop any ongoing recording before changing settings
+                if (recorder.isRecording())
+                {
+                    stopRecording();
+                }
+
+                // Re-prepare all components with new settings
+                prepareToPlay(newBlockSize, newSampleRate);
+            }
+        }
     }
 }
 
