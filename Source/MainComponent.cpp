@@ -1,7 +1,11 @@
 #include "MainComponent.h"
 #include "Audio/AudioTrack.h"
+#include "MIDI/MidiTrack.h"
+#include "Actions/TrackActions.h"
 #include "Tests/TestRunner.h"
 #include "UI/CommandIDs.h"
+#include "UI/SettingsPanel.h"
+#include "Export/AudioExporter.h"
 
 //==============================================================================
 MainComponent::MainComponent()
@@ -31,8 +35,6 @@ MainComponent::MainComponent()
     addAndMakeVisible(spectrumDisplay);
 
     // Setup commands
-    setupCommands();
-    setupCommands();
     setupCommands();
     addKeyListener(commandManager.getKeyMappings());
 
@@ -120,12 +122,40 @@ bool MainComponent::keyPressed(const juce::KeyPress& key, juce::Component* origi
 //==============================================================================
 void MainComponent::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
 {
+    // Configure audio device for stereo input
+    auto setup = deviceManager.getAudioDeviceSetup();
+    setup.inputChannels.setRange(0, 2, true);  // Enable stereo input (channels 0 and 1)
+    deviceManager.setAudioDeviceSetup(setup, true);
+
     audioEngine.prepareToPlay(samplesPerBlockExpected, sampleRate);
     timelineView.setSampleRate(sampleRate);
 }
 
 void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
 {
+    // Capture input buffer for recording BEFORE calling audioEngine.getNextAudioBlock()
+    // This is necessary because the audio engine clears the buffer before processing,
+    // which would lose the raw input signal needed for recording
+    if (audioEngine.isRecording())
+    {
+        audioEngine.recordInputBlock(*bufferToFill.buffer);
+    }
+
+    // Calculate and update input levels for metering (before buffer is cleared)
+    if (bufferToFill.buffer->getNumChannels() > 0)
+    {
+        float leftLevel = bufferToFill.buffer->getMagnitude(0, 0, bufferToFill.numSamples);
+        float rightLevel = bufferToFill.buffer->getNumChannels() > 1
+            ? bufferToFill.buffer->getMagnitude(1, 0, bufferToFill.numSamples)
+            : leftLevel;
+
+        // Update status bar on message thread
+        juce::MessageManager::callAsync([this, leftLevel, rightLevel]()
+        {
+            statusBar.setInputLevel(leftLevel, rightLevel);
+        });
+    }
+
     audioEngine.getNextAudioBlock(bufferToFill);
 }
 
@@ -417,8 +447,12 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::save);
     commands.add(CommandIDs::saveAs);
     commands.add(CommandIDs::open);
+    commands.add(CommandIDs::exportAudio);
     commands.add(CommandIDs::undo);
     commands.add(CommandIDs::redo);
+    commands.add(CommandIDs::audioSettings);
+    commands.add(CommandIDs::addAudioTrack);
+    commands.add(CommandIDs::addMidiTrack);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -449,6 +483,10 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
         result.setInfo("Open Project", "Opens a project", "Project", 0);
         result.addDefaultKeypress('o', juce::ModifierKeys::commandModifier);
         break;
+    case CommandIDs::exportAudio:
+        result.setInfo("Export Audio...", "Exports the project to a WAV file", "Project", 0);
+        result.addDefaultKeypress('e', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+        break;
     case CommandIDs::undo:
         result.setInfo("Undo", "Undo the last operation", "Edit", 0);
         result.addDefaultKeypress('z', juce::ModifierKeys::commandModifier);
@@ -462,6 +500,18 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
 #else
         result.addDefaultKeypress('y', juce::ModifierKeys::commandModifier);
 #endif
+        break;
+    case CommandIDs::audioSettings:
+        result.setInfo("Audio Settings...", "Opens the audio device settings dialog", "Settings", 0);
+        result.addDefaultKeypress(',', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::addAudioTrack:
+        result.setInfo("Add Audio Track", "Adds a new audio track to the timeline", "Track", 0);
+        result.addDefaultKeypress('t', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::addMidiTrack:
+        result.setInfo("Add MIDI Track", "Adds a new MIDI track to the timeline", "Track", 0);
+        result.addDefaultKeypress('t', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
         break;
     default:
         break;
@@ -493,6 +543,9 @@ bool MainComponent::perform(const InvocationInfo& info)
     case CommandIDs::open:
         openProject();
         return true;
+    case CommandIDs::exportAudio:
+        exportAudio();
+        return true;
     case CommandIDs::undo:
         if (undoManager.undo())
             setHasUnsavedChanges(true);
@@ -500,6 +553,33 @@ bool MainComponent::perform(const InvocationInfo& info)
     case CommandIDs::redo:
         if (undoManager.redo())
             setHasUnsavedChanges(true);
+        return true;
+    case CommandIDs::audioSettings:
+        showAudioSettings();
+        return true;
+    case CommandIDs::addAudioTrack:
+        {
+            auto& timeline = audioEngine.getTimeline();
+            int trackNum = timeline.getNumTracks() + 1;
+            auto* newTrack = new AudioTrack("Audio " + juce::String(trackNum));
+            newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+            undoManager.perform(new AddTrackAction(timeline, newTrack));
+            timelineView.resized();
+            timelineView.repaint();
+            setHasUnsavedChanges(true);
+        }
+        return true;
+    case CommandIDs::addMidiTrack:
+        {
+            auto& timeline = audioEngine.getTimeline();
+            int trackNum = timeline.getNumTracks() + 1;
+            auto* newTrack = new MidiTrack("MIDI " + juce::String(trackNum), &audioEngine.getMidiEngine());
+            newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+            undoManager.perform(new AddTrackAction(timeline, newTrack));
+            timelineView.resized();
+            timelineView.repaint();
+            setHasUnsavedChanges(true);
+        }
         return true;
     default:
         return false;
@@ -510,7 +590,7 @@ bool MainComponent::perform(const InvocationInfo& info)
 // MenuBarModel implementation
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "File" };
+    return { "File", "Track" };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName)
@@ -544,7 +624,16 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addCommandItem(&commandManager, CommandIDs::save);
         menu.addCommandItem(&commandManager, CommandIDs::saveAs);
         menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::exportAudio);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::audioSettings);
+        menu.addSeparator();
         menu.addCommandItem(&commandManager, juce::StandardApplicationCommandIDs::quit);
+    }
+    else if (topLevelMenuIndex == 1)  // Track menu
+    {
+        menu.addCommandItem(&commandManager, CommandIDs::addAudioTrack);
+        menu.addCommandItem(&commandManager, CommandIDs::addMidiTrack);
     }
 
     return menu;
@@ -594,5 +683,148 @@ void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
             }
         }
     }
+}
+
+void MainComponent::showAudioSettings()
+{
+    // Pass the MidiEngine as the MIDI input callback so that MIDI devices
+    // selected in the settings panel will send events to the MidiEngine
+    auto settingsPanel = std::make_unique<SettingsPanel>(deviceManager, &audioEngine.getMidiEngine());
+
+    juce::DialogWindow::LaunchOptions options;
+    options.dialogTitle = "Audio & MIDI Settings";
+    options.dialogBackgroundColour = MidiSingLookAndFeel::backgroundDark;
+    options.content.setOwned(settingsPanel.release());
+    options.componentToCentreAround = this;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+
+    options.launchAsync();
+}
+
+//==============================================================================
+// Export progress dialog with cancel support
+class ExportProgressTask : public juce::ThreadWithProgressWindow
+{
+public:
+    ExportProgressTask(AudioEngine& engine, const juce::File& outputFile, int64_t lengthInSamples)
+        : juce::ThreadWithProgressWindow("Exporting Audio...", true, true),
+          audioEngine(engine),
+          file(outputFile),
+          lengthSamples(lengthInSamples)
+    {
+        setStatusMessage("Preparing to export...");
+    }
+
+    void run() override
+    {
+        AudioExporter exporter;
+        exporter.setSampleRate(44100.0);
+        exporter.setBitDepth(16);
+
+        setStatusMessage("Rendering audio...");
+
+        exportSuccess = exporter.exportToFile(audioEngine, file, 0, lengthSamples,
+            [this](float progress)
+            {
+                // Update progress bar (0.0 to 1.0)
+                setProgress(static_cast<double>(progress));
+
+                // Update status message with percentage
+                int percent = static_cast<int>(progress * 100.0f);
+                setStatusMessage("Exporting... " + juce::String(percent) + "%");
+
+                // Check for user cancellation
+                if (threadShouldExit())
+                {
+                    wasCancelled = true;
+                    // Note: We can't actually stop the export mid-way since AudioExporter
+                    // doesn't support cancellation. We'll delete the file after completion.
+                }
+            });
+    }
+
+    bool wasSuccessful() const { return exportSuccess && !wasCancelled; }
+    bool wasCancelledByUser() const { return wasCancelled; }
+    juce::File getOutputFile() const { return file; }
+
+private:
+    AudioEngine& audioEngine;
+    juce::File file;
+    int64_t lengthSamples;
+    bool exportSuccess = false;
+    bool wasCancelled = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ExportProgressTask)
+};
+
+void MainComponent::exportAudio()
+{
+    // Stop playback
+    audioEngine.getTransport().stop();
+
+    fileChooser = std::make_unique<juce::FileChooser>("Export Audio",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+        "*.wav");
+
+    auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file != juce::File())
+        {
+            if (!file.hasFileExtension("wav"))
+                file = file.withFileExtension("wav");
+
+            // Get timeline length in samples
+            auto& timeline = audioEngine.getTimeline();
+            int64_t endSample = timeline.getEndSample();
+
+            if (endSample <= 0)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Export Failed",
+                                                       "The project is empty. Add some audio or MIDI clips before exporting.");
+                return;
+            }
+
+            // Create and run export task with progress dialog
+            ExportProgressTask exportTask(audioEngine, file, endSample);
+
+            // runThread() shows modal dialog and returns true when thread finishes
+            if (exportTask.runThread())
+            {
+                if (exportTask.wasSuccessful())
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                           "Export Complete",
+                                                           "Audio exported successfully to:\n" + file.getFullPathName());
+                }
+                else if (exportTask.wasCancelledByUser())
+                {
+                    // Delete the partial/complete file since user cancelled
+                    file.deleteFile();
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                           "Export Cancelled",
+                                                           "The export was cancelled.");
+                }
+                else
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                           "Export Failed",
+                                                           "Failed to export audio. Please check the file path and try again.");
+                }
+            }
+            else
+            {
+                // runThread() returned false - user closed the dialog early or error occurred
+                file.deleteFile();
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                       "Export Cancelled",
+                                                       "The export was cancelled.");
+            }
+        }
+    });
 }
 

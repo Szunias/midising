@@ -2,6 +2,9 @@
 
 TrackHeader::TrackHeader()
 {
+    // Enable keyboard focus for keyboard shortcuts
+    setWantsKeyboardFocus(true);
+
     // Name label
     nameLabel.setEditable(true);
     nameLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
@@ -123,4 +126,75 @@ void TrackHeader::updateFromTrack()
     armButton.setColour(juce::TextButton::buttonColourId,
                         trackPtr->isArmed() ? MidiSingLookAndFeel::recordColour
                                             : MidiSingLookAndFeel::buttonBackground);
+}
+
+void TrackHeader::mouseDown(const juce::MouseEvent& event)
+{
+    if (event.mods.isPopupMenu())
+    {
+        showContextMenu();
+    }
+    else
+    {
+        // Left-click selects the track and grabs keyboard focus for shortcuts
+        grabKeyboardFocus();
+        if (onTrackSelected && trackPtr != nullptr)
+            onTrackSelected(trackPtr);
+    }
+}
+
+void TrackHeader::showContextMenu()
+{
+    juce::PopupMenu menu;
+
+    menu.addItem(DeleteTrackId, "Delete Track", trackPtr != nullptr);
+
+    menu.showMenuAsync(juce::PopupMenu::Options(),
+        [this](int result)
+        {
+            if (result == DeleteTrackId && trackPtr != nullptr)
+            {
+                showDeleteConfirmation();
+            }
+        });
+}
+
+bool TrackHeader::keyPressed(const juce::KeyPress& key)
+{
+    // Delete key - show confirmation dialog to delete track
+    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+    {
+        if (trackPtr != nullptr)
+        {
+            showDeleteConfirmation();
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void TrackHeader::showDeleteConfirmation()
+{
+    if (trackPtr == nullptr)
+        return;
+
+    juce::String trackName = trackPtr->getName();
+
+    auto options = juce::MessageBoxOptions()
+        .withIconType(juce::MessageBoxIconType::QuestionIcon)
+        .withTitle("Delete Track")
+        .withMessage("Are you sure you want to delete \"" + trackName + "\"?\n\nThis action cannot be undone.")
+        .withButton("Delete")
+        .withButton("Cancel");
+
+    juce::AlertWindow::showAsync(options, [this](int result)
+    {
+        // result == 1 means the first button ("Delete") was clicked
+        if (result == 1 && trackPtr != nullptr)
+        {
+            if (onDeleteTrack)
+                onDeleteTrack(trackPtr);
+        }
+    });
 }

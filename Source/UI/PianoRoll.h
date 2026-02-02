@@ -4,6 +4,7 @@
 #include "LookAndFeel.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <set>
 
 /**
  * PianoRoll is an editor for MIDI notes.
@@ -22,10 +23,15 @@ public:
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
+    void mouseMove(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
+    // Keyboard handling for shortcuts
+    bool keyPressed(const juce::KeyPress& key) override;
+
     // Set the MIDI region to edit
-    void setMidiRegion(MidiRegion* region) { midiRegion = region; repaint(); }
+    void setMidiRegion(MidiRegion* region) { midiRegion = region; clearSelection(); repaint(); }
     MidiRegion* getMidiRegion() const { return midiRegion; }
 
     // View settings
@@ -40,8 +46,23 @@ public:
     void setHorizontalScrollOffset(double offset) { horizontalScrollOffset = juce::jmax(0.0, offset); repaint(); }
     double getHorizontalScrollOffset() const { return horizontalScrollOffset; }
 
+    // Selection
+    void clearSelection();
+    bool isNoteSelected(int eventIndex) const;
+    const std::set<int>& getSelectedNotes() const { return selectedNoteIndices; }
+    int getNumSelectedNotes() const { return static_cast<int>(selectedNoteIndices.size()); }
+    void deleteSelectedNotes();
+
     static constexpr int KEYBOARD_WIDTH = 60;
     static constexpr int NUM_NOTES = 128;
+    static constexpr int EDGE_DETECT_WIDTH = 8; // Pixels for edge detection
+
+    // Note edge enum for resize operations
+    enum class NoteEdge
+    {
+        None,
+        Right // Only right edge for duration change
+    };
 
 private:
     void drawKeyboard(juce::Graphics& g, juce::Rectangle<int> bounds);
@@ -55,6 +76,15 @@ private:
     double xToBeat(int x) const;
     int beatToX(double beat) const;
 
+    // Note hit testing - returns event index or -1 if no note at position
+    int getNoteAtPosition(int x, int y) const;
+    juce::Rectangle<int> getNoteRect(int eventIndex) const;
+
+    // Edge detection for resize
+    NoteEdge getNoteEdgeAtPosition(int x, int y, int& outNoteIndex) const;
+    void updateCursorForPosition(int x, int y);
+    void drawResizeGhost(juce::Graphics& g, juce::Rectangle<int> bounds);
+
     MidiRegion* midiRegion = nullptr;
 
     double pixelsPerBeat = 40.0;
@@ -62,10 +92,26 @@ private:
     int verticalScrollOffset = 60 * 12; // Start around middle C
     double horizontalScrollOffset = 0.0;
 
+    // For note selection
+    std::set<int> selectedNoteIndices;
+
     // For note editing
     bool isDragging = false;
+    bool isCreatingNote = false;  // Distinguish between dragging selection and creating a note
     int dragStartNote = -1;
     double dragStartBeat = 0.0;
+
+    // For note resizing
+    bool isResizingNote = false;
+    int resizeNoteIndex = -1;
+    double resizeOriginalEndBeat = 0.0;
+    double resizeCurrentEndBeat = 0.0;
+
+    // For velocity editing (drag vertically on note)
+    bool isEditingVelocity = false;
+    int velocityEditNoteIndex = -1;
+    int velocityEditStartY = 0;
+    float velocityEditOriginalVelocity = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PianoRoll)
 };

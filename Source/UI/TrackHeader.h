@@ -16,6 +16,8 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent& event) override;
+    bool keyPressed(const juce::KeyPress& key) override;
 
     void setTrack(Track* track);
     Track* getTrack() const { return trackPtr; }
@@ -25,9 +27,12 @@ public:
     std::function<void(Track*)> onSoloChanged;
     std::function<void(Track*)> onArmChanged;
     std::function<void(Track*)> onTrackSelected;
+    std::function<void(Track*)> onDeleteTrack;
 
 private:
     void updateFromTrack();
+    void showContextMenu();
+    void showDeleteConfirmation();
 
     Track* trackPtr = nullptr;
 
@@ -35,6 +40,12 @@ private:
     juce::TextButton muteButton { "M" };
     juce::TextButton soloButton { "S" };
     juce::TextButton armButton { "R" };
+
+    // Context menu item IDs
+    enum MenuItemIds
+    {
+        DeleteTrackId = 1
+    };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TrackHeader)
 };

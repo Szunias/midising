@@ -32,7 +32,13 @@ public:
     // Mouse handling
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+    void mouseMove(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
+
+    // Keyboard handling
+    bool keyPressed(const juce::KeyPress& key) override;
 
     // FileDragAndDropTarget interface
     bool isInterestedInFileDrag(const juce::StringArray& files) override;
@@ -60,6 +66,11 @@ public:
     void zoomIn();
     void zoomOut();
 
+    // Region selection
+    Region* getSelectedRegion() const { return selectedRegion; }
+    int getSelectedTrackIndex() const { return selectedTrackIndex; }
+    void clearSelection();
+
     // Track header width
     static constexpr int HEADER_WIDTH = 150;
     static constexpr int RULER_HEIGHT = 30;
@@ -74,6 +85,10 @@ private:
     int getTrackIndexAtY(int y) const;
     void importAudioFileToTrack(const juce::File& file, int trackIndex, int x);
     void importMidiFileToTrack(const juce::File& file, int trackIndex, int x);
+
+    // Region hit testing
+    Region* getRegionAtPosition(int x, int y, int& outTrackIndex) const;
+    juce::Rectangle<int> getRegionBounds(Region* region, int trackIndex) const;
 
     int sampleToPixel(int64_t samples) const;
     int64_t pixelToSample(int x) const;
@@ -96,6 +111,66 @@ private:
     bool isDraggingFile = false;
     
     MidiEngine* midiEnginePtr = nullptr;
+
+    // Region selection/hover state
+    Region* selectedRegion = nullptr;
+    int selectedTrackIndex = -1;
+    Region* hoveredRegion = nullptr;
+    int hoveredTrackIndex = -1;
+
+    // Edge detection for region resize
+    enum class RegionEdge { None, Left, Right };
+    static constexpr int EDGE_DETECT_WIDTH = 8;  // Pixels from edge to detect resize
+
+    // Region dragging state
+    bool isDraggingRegion = false;
+    int64_t dragStartSampleOffset = 0;  // Offset from mouse to region start
+    int64_t dragOriginalPosition = 0;   // Original position before drag
+    int64_t dragCurrentPosition = 0;    // Current dragged position (for visual feedback)
+    bool snapToGrid = true;             // Enable grid snapping
+
+    // Region edge resize state
+    bool isResizingRegion = false;
+    RegionEdge resizeEdge = RegionEdge::None;
+    int64_t resizeOriginalStart = 0;    // Original start position before resize
+    int64_t resizeOriginalLength = 0;   // Original length before resize
+    int64_t resizeOriginalOffset = 0;   // Original offset before resize
+    int64_t resizeCurrentStart = 0;     // Current start during resize
+    int64_t resizeCurrentLength = 0;    // Current length during resize
+
+    // Helper methods for region dragging and resizing
+    int64_t snapPositionToGrid(int64_t samplePosition) const;
+    void drawDragGhost(juce::Graphics& g);
+    void drawResizeGhost(juce::Graphics& g);
+    RegionEdge getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const;
+    void updateCursorForPosition(int x, int y);
+
+    // Context menu and clipboard operations
+    void showContextMenu(const juce::MouseEvent& e);
+    void cutSelectedRegion();
+    void copySelectedRegion();
+    void pasteRegion(int64_t pastePosition);
+    void deleteSelectedRegion();
+    void splitSelectedRegion(int64_t splitPosition);
+
+    // Clipboard data structure for copy/paste
+    struct ClipboardData
+    {
+        bool hasData = false;
+        bool isAudioRegion = true;  // true = audio, false = MIDI
+        juce::String regionName;
+        int64_t regionLength = 0;
+        int64_t regionOffset = 0;
+        // Audio region data
+        juce::AudioBuffer<float> audioBuffer;
+        juce::String filePath;
+        int64_t thumbnailHash = 0;
+        // MIDI region data
+        juce::MidiMessageSequence midiSequence;
+    };
+
+    ClipboardData clipboard;
+    int64_t lastClickSamplePosition = 0;  // For paste position
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimelineView)
 };

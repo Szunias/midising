@@ -85,3 +85,119 @@ void MidiTrack::clearRegions()
 {
     regions.clear();
 }
+
+// ========== MIDI Recording Implementation ==========
+
+bool MidiTrack::startRecording(int64_t startPositionInSamples)
+{
+    // Can only start recording if track is armed
+    if (!isArmed())
+        return false;
+
+    // Stop any existing recording first
+    if (recording.load())
+        stopRecording();
+
+    // Clear the recording buffer
+    {
+        juce::ScopedLock sl(recordingLock);
+        recordingBuffer.clear();
+    }
+
+    // Set up recording state
+    recordingStartPosition.store(startPositionInSamples);
+    recording.store(true);
+
+    return true;
+}
+
+MidiRegion* MidiTrack::stopRecording()
+{
+    if (!recording.load())
+        return nullptr;
+
+    recording.store(false);
+
+    // Create a new region from the recorded messages
+    juce::MidiMessageSequence capturedSequence;
+    int64_t startPos = recordingStartPosition.load();
+    int64_t endPos = startPos;
+
+    {
+        juce::ScopedLock sl(recordingLock);
+
+        if (recordingBuffer.getNumEvents() == 0)
+        {
+            recordingBuffer.clear();
+            return nullptr;
+        }
+
+        // Copy the recorded messages
+        capturedSequence = recordingBuffer;
+
+        // Find the end position (last event timestamp + some buffer)
+        for (int i = 0; i < recordingBuffer.getNumEvents(); ++i)
+        {
+            auto* event = recordingBuffer.getEventPointer(i);
+            if (event != nullptr)
+            {
+                int64_t eventEndTime = startPos + static_cast<int64_t>(event->message.getTimeStamp());
+                if (eventEndTime > endPos)
+                    endPos = eventEndTime;
+            }
+        }
+
+        // Clear the recording buffer
+        recordingBuffer.clear();
+    }
+
+    // Add some padding after the last note (0.5 seconds worth of samples)
+    int64_t paddingSamples = static_cast<int64_t>(currentSampleRate * 0.5);
+    int64_t regionLength = (endPos - startPos) + paddingSamples;
+
+    // Ensure minimum region length (1 second)
+    int64_t minLength = static_cast<int64_t>(currentSampleRate);
+    if (regionLength < minLength)
+        regionLength = minLength;
+
+    // Create the new region
+    auto newRegion = std::make_unique<MidiRegion>(startPos, regionLength);
+    newRegion->setName("Recorded MIDI");
+    newRegion->setMidiSequence(capturedSequence);
+
+    // Add to regions and return pointer
+    MidiRegion* regionPtr = newRegion.get();
+    addRegion(std::move(newRegion));
+
+    return regionPtr;
+}
+
+void MidiTrack::addRecordedMessage(const juce::MidiMessage& message, int64_t timestampInSamples)
+{
+    if (!recording.load())
+        return;
+
+    // Convert absolute timestamp to relative (from recording start)
+    int64_t startPos = recordingStartPosition.load();
+    double relativeTimestamp = static_cast<double>(timestampInSamples - startPos);
+
+    // Clamp to non-negative (in case message arrives before recording start position)
+    if (relativeTimestamp < 0.0)
+        relativeTimestamp = 0.0;
+
+    // Create a copy of the message with the relative timestamp
+    juce::MidiMessage timestampedMessage = message;
+    timestampedMessage.setTimeStamp(relativeTimestamp);
+
+    // Add to buffer (thread-safe)
+    {
+        juce::ScopedLock sl(recordingLock);
+        recordingBuffer.addEvent(timestampedMessage);
+    }
+}
+
+int MidiTrack::getNumRecordedMessages() const
+{
+    juce::ScopedLock sl(recordingLock);
+    return recordingBuffer.getNumEvents();
+}

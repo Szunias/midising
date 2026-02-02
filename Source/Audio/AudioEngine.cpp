@@ -47,10 +47,10 @@ void AudioEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferTo
     }
     wasRecordingLastBlock = isCurrentlyRecording;
 
-    // If recording, write input to file
+    // Capture input for recording before any processing
     if (isCurrentlyRecording && recorder.isRecording())
     {
-        recorder.writeAudioBlock(*bufferToFill.buffer);
+        recordInputBlock(*bufferToFill.buffer);
     }
 
     // If not playing or recording, just output silence
@@ -142,6 +142,16 @@ void AudioEngine::stopRecording()
     {
         recorder.stopRecording();
         transport.stop();
+    }
+}
+
+void AudioEngine::recordInputBlock(const juce::AudioBuffer<float>& inputBuffer)
+{
+    // Capture input buffer for recording before any processing is applied
+    // This ensures we record the raw input signal
+    if (recorder.isRecording() && inputBuffer.getNumChannels() > 0)
+    {
+        recorder.writeAudioBlock(inputBuffer);
     }
 }
 

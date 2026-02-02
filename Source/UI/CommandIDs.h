@@ -11,4 +11,12 @@ namespace CommandIDs
     static const int projectNew  = 0x1007;
     static const int saveAs      = 0x1008;
     static const int openRecent  = 0x1009;
+    static const int audioSettings = 0x100A;
+
+    // Export
+    static const int exportAudio   = 0x100B;
+
+    // Track menu commands
+    static const int addAudioTrack = 0x2001;
+    static const int addMidiTrack  = 0x2002;
 }

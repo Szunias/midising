@@ -72,6 +72,7 @@ public:
     void saveProject();
     void saveProjectAs();
     void openProject();
+    void exportAudio();
 
 private:
     void updateWindowTitle();
@@ -79,6 +80,7 @@ private:
     void createDemoTracks();
     void setupCommands();
     void createNewProject();
+    void showAudioSettings();
 
     juce::ApplicationCommandManager commandManager;
     juce::MenuBarComponent menuBar;
