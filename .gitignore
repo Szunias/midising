@@ -8,3 +8,20 @@
 .worktrees/
 .security-key
 logs/security/
+
+# Build directories
+build/
+out/
+cmake-build-*/
+.vs/
+.idea/
+
+# Binary files
+*.exe
+*.lib
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.exp
+*.idb

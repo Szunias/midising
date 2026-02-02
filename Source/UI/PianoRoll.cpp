@@ -1,0 +1,260 @@
+#include "PianoRoll.h"
+
+PianoRoll::PianoRoll()
+{
+}
+
+void PianoRoll::paint(juce::Graphics& g)
+{
+    g.fillAll(MidiSingLookAndFeel::backgroundDark);
+
+    auto bounds = getLocalBounds();
+
+    // Draw piano keyboard on left
+    auto keyboardBounds = bounds.removeFromLeft(KEYBOARD_WIDTH);
+    drawKeyboard(g, keyboardBounds);
+
+    // Draw note grid and notes
+    drawNoteGrid(g, bounds);
+    drawNotes(g, bounds);
+}
+
+void PianoRoll::resized()
+{
+}
+
+void PianoRoll::mouseDown(const juce::MouseEvent& e)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    if (e.x > KEYBOARD_WIDTH)
+    {
+        dragStartNote = yToNote(e.y);
+        dragStartBeat = xToBeat(e.x);
+        isDragging = true;
+    }
+}
+
+void PianoRoll::mouseDrag(const juce::MouseEvent& e)
+{
+    juce::ignoreUnused(e);
+    // Could show preview of note being drawn
+}
+
+void PianoRoll::mouseUp(const juce::MouseEvent& e)
+{
+    if (!isDragging || midiRegion == nullptr)
+    {
+        isDragging = false;
+        return;
+    }
+
+    int endNote = yToNote(e.y);
+    double endBeat = xToBeat(e.x);
+
+    // Create note from drag start to end
+    if (dragStartNote == endNote && endBeat > dragStartBeat)
+    {
+        auto& seq = midiRegion->getMidiSequence();
+        
+        // Convert beats to ticks (assuming 960 ticks per beat)
+        double ticksPerBeat = 960.0;
+        double startTicks = dragStartBeat * ticksPerBeat;
+        double endTicks = endBeat * ticksPerBeat;
+        
+        // Add note on
+        seq.addEvent(juce::MidiMessage::noteOn(1, dragStartNote, 0.8f).withTimeStamp(startTicks));
+        // Add note off
+        seq.addEvent(juce::MidiMessage::noteOff(1, dragStartNote, 0.0f).withTimeStamp(endTicks));
+        seq.updateMatchedPairs();
+        
+        repaint();
+    }
+
+    isDragging = false;
+}
+
+void PianoRoll::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    if (e.mods.isCtrlDown())
+    {
+        // Horizontal zoom
+        if (wheel.deltaY > 0)
+            setPixelsPerBeat(pixelsPerBeat * 1.1);
+        else if (wheel.deltaY < 0)
+            setPixelsPerBeat(pixelsPerBeat / 1.1);
+    }
+    else if (e.mods.isShiftDown())
+    {
+        // Horizontal scroll
+        horizontalScrollOffset -= wheel.deltaY * 50.0;
+        horizontalScrollOffset = juce::jmax(0.0, horizontalScrollOffset);
+        repaint();
+    }
+    else
+    {
+        // Vertical scroll
+        verticalScrollOffset -= static_cast<int>(wheel.deltaY * 50.0f);
+        verticalScrollOffset = juce::jlimit(0, NUM_NOTES * noteHeight - getHeight(), verticalScrollOffset);
+        repaint();
+    }
+}
+
+void PianoRoll::drawKeyboard(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    g.setColour(MidiSingLookAndFeel::backgroundMid);
+    g.fillRect(bounds);
+
+    // Draw keys from top (high notes) to bottom (low notes)
+    for (int note = 0; note < NUM_NOTES; ++note)
+    {
+        int y = noteToY(note);
+        if (y < -noteHeight || y > bounds.getHeight())
+            continue;
+
+        bool isBlack = isBlackKey(note);
+        
+        // Key background
+        g.setColour(isBlack ? juce::Colour(0xff2a2a2a) : juce::Colour(0xfff0f0f0));
+        int keyWidth = isBlack ? bounds.getWidth() * 2 / 3 : bounds.getWidth();
+        g.fillRect(bounds.getX(), y, keyWidth - 1, noteHeight - 1);
+
+        // Note name for C notes
+        if (note % 12 == 0)
+        {
+            g.setColour(juce::Colours::black);
+            g.setFont(9.0f);
+            g.drawText(getNoteName(note), bounds.getX() + 2, y, 30, noteHeight,
+                       juce::Justification::centredLeft);
+        }
+    }
+
+    // Right border
+    g.setColour(MidiSingLookAndFeel::borderColour);
+    g.drawLine(static_cast<float>(bounds.getRight() - 1), static_cast<float>(bounds.getY()),
+               static_cast<float>(bounds.getRight() - 1), static_cast<float>(bounds.getBottom()));
+}
+
+void PianoRoll::drawNoteGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    // Draw horizontal lines (note rows)
+    for (int note = 0; note < NUM_NOTES; ++note)
+    {
+        int y = noteToY(note);
+        if (y < -noteHeight || y > bounds.getHeight())
+            continue;
+
+        // Alternating row colours
+        bool isBlack = isBlackKey(note);
+        g.setColour(isBlack ? MidiSingLookAndFeel::backgroundDark.darker(0.3f)
+                            : MidiSingLookAndFeel::backgroundMid);
+        g.fillRect(bounds.getX(), y, bounds.getWidth(), noteHeight);
+
+        // Row separator
+        g.setColour(MidiSingLookAndFeel::borderColour.withAlpha(0.3f));
+        g.drawHorizontalLine(y + noteHeight - 1, static_cast<float>(bounds.getX()),
+                             static_cast<float>(bounds.getRight()));
+    }
+
+    // Draw vertical lines (beat grid)
+    double startBeat = horizontalScrollOffset / pixelsPerBeat;
+    double endBeat = startBeat + bounds.getWidth() / pixelsPerBeat;
+
+    for (int beat = static_cast<int>(startBeat); beat <= static_cast<int>(endBeat) + 1; ++beat)
+    {
+        int x = beatToX(beat);
+        if (x < bounds.getX() || x > bounds.getRight())
+            continue;
+
+        bool isBar = (beat % 4) == 0;
+        g.setColour(isBar ? MidiSingLookAndFeel::borderColour
+                          : MidiSingLookAndFeel::borderColour.withAlpha(0.3f));
+        g.drawLine(static_cast<float>(x), static_cast<float>(bounds.getY()),
+                   static_cast<float>(x), static_cast<float>(bounds.getBottom()),
+                   isBar ? 1.0f : 0.5f);
+    }
+}
+
+void PianoRoll::drawNotes(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    const auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+
+    for (int i = 0; i < seq.getNumEvents(); ++i)
+    {
+        auto* event = seq.getEventPointer(i);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        int noteNumber = event->message.getNoteNumber();
+        double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+        // Find matching note off
+        double endBeat = startBeat + 0.5; // Default length
+        if (event->noteOffObject != nullptr)
+        {
+            endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+        }
+
+        // Calculate position
+        int x = beatToX(startBeat);
+        int y = noteToY(noteNumber);
+        int width = beatToX(endBeat) - x;
+
+        if (x > bounds.getRight() || x + width < bounds.getX())
+            continue;
+        if (y < -noteHeight || y > bounds.getHeight())
+            continue;
+
+        // Draw note
+        auto noteRect = juce::Rectangle<int>(x, y + 1, juce::jmax(4, width - 1), noteHeight - 2);
+        
+        // Note colour based on velocity
+        float velocity = event->message.getFloatVelocity();
+        auto noteColour = MidiSingLookAndFeel::accentColour.withAlpha(0.7f + velocity * 0.3f);
+        
+        g.setColour(noteColour);
+        g.fillRoundedRectangle(noteRect.toFloat(), 2.0f);
+
+        g.setColour(noteColour.brighter(0.3f));
+        g.drawRoundedRectangle(noteRect.toFloat(), 2.0f, 1.0f);
+    }
+}
+
+bool PianoRoll::isBlackKey(int noteNumber) const
+{
+    int note = noteNumber % 12;
+    return note == 1 || note == 3 || note == 6 || note == 8 || note == 10;
+}
+
+juce::String PianoRoll::getNoteName(int noteNumber) const
+{
+    static const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    int octave = (noteNumber / 12) - 1;
+    return juce::String(names[noteNumber % 12]) + juce::String(octave);
+}
+
+int PianoRoll::noteToY(int noteNumber) const
+{
+    // Higher notes at top (lower Y)
+    return (NUM_NOTES - 1 - noteNumber) * noteHeight - verticalScrollOffset;
+}
+
+int PianoRoll::yToNote(int y) const
+{
+    return NUM_NOTES - 1 - (y + verticalScrollOffset) / noteHeight;
+}
+
+double PianoRoll::xToBeat(int x) const
+{
+    return (x - KEYBOARD_WIDTH + horizontalScrollOffset) / pixelsPerBeat;
+}
+
+int PianoRoll::beatToX(double beat) const
+{
+    return KEYBOARD_WIDTH + static_cast<int>(beat * pixelsPerBeat - horizontalScrollOffset);
+}
