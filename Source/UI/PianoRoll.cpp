@@ -30,9 +30,47 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e)
 
     if (e.x > KEYBOARD_WIDTH)
     {
+        // Check if clicking on an existing note
+        int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+        if (clickedNoteIndex >= 0)
+        {
+            // Clicked on a note - handle selection
+            if (e.mods.isShiftDown())
+            {
+                // Shift+click: toggle selection (multi-select)
+                if (selectedNoteIndices.count(clickedNoteIndex) > 0)
+                {
+                    selectedNoteIndices.erase(clickedNoteIndex);
+                }
+                else
+                {
+                    selectedNoteIndices.insert(clickedNoteIndex);
+                }
+            }
+            else
+            {
+                // Regular click: select only this note (clear previous selection)
+                selectedNoteIndices.clear();
+                selectedNoteIndices.insert(clickedNoteIndex);
+            }
+
+            isDragging = false;
+            isCreatingNote = false;
+            repaint();
+            return;
+        }
+
+        // Clicked on empty space - clear selection and start creating a new note
+        if (!e.mods.isShiftDown())
+        {
+            clearSelection();
+        }
+
         dragStartNote = yToNote(e.y);
         dragStartBeat = xToBeat(e.x);
         isDragging = true;
+        isCreatingNote = true;
     }
 }
 
@@ -44,9 +82,10 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& e)
 
 void PianoRoll::mouseUp(const juce::MouseEvent& e)
 {
-    if (!isDragging || midiRegion == nullptr)
+    if (!isDragging || !isCreatingNote || midiRegion == nullptr)
     {
         isDragging = false;
+        isCreatingNote = false;
         return;
     }
 
@@ -57,22 +96,23 @@ void PianoRoll::mouseUp(const juce::MouseEvent& e)
     if (dragStartNote == endNote && endBeat > dragStartBeat)
     {
         auto& seq = midiRegion->getMidiSequence();
-        
+
         // Convert beats to ticks (assuming 960 ticks per beat)
         double ticksPerBeat = 960.0;
         double startTicks = dragStartBeat * ticksPerBeat;
         double endTicks = endBeat * ticksPerBeat;
-        
+
         // Add note on
         seq.addEvent(juce::MidiMessage::noteOn(1, dragStartNote, 0.8f).withTimeStamp(startTicks));
         // Add note off
         seq.addEvent(juce::MidiMessage::noteOff(1, dragStartNote, 0.0f).withTimeStamp(endTicks));
         seq.updateMatchedPairs();
-        
+
         repaint();
     }
 
     isDragging = false;
+    isCreatingNote = false;
 }
 
 void PianoRoll::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -212,16 +252,34 @@ void PianoRoll::drawNotes(juce::Graphics& g, juce::Rectangle<int> bounds)
 
         // Draw note
         auto noteRect = juce::Rectangle<int>(x, y + 1, juce::jmax(4, width - 1), noteHeight - 2);
-        
-        // Note colour based on velocity
+
+        // Check if this note is selected
+        bool isSelected = isNoteSelected(i);
+
+        // Note colour based on velocity and selection state
         float velocity = event->message.getFloatVelocity();
         auto noteColour = MidiSingLookAndFeel::accentColour.withAlpha(0.7f + velocity * 0.3f);
-        
+
+        if (isSelected)
+        {
+            // Selected notes are brighter with a highlighted border
+            noteColour = noteColour.brighter(0.4f);
+        }
+
         g.setColour(noteColour);
         g.fillRoundedRectangle(noteRect.toFloat(), 2.0f);
 
-        g.setColour(noteColour.brighter(0.3f));
-        g.drawRoundedRectangle(noteRect.toFloat(), 2.0f, 1.0f);
+        // Draw border - thicker and brighter for selected notes
+        if (isSelected)
+        {
+            g.setColour(juce::Colours::white);
+            g.drawRoundedRectangle(noteRect.toFloat(), 2.0f, 2.0f);
+        }
+        else
+        {
+            g.setColour(noteColour.brighter(0.3f));
+            g.drawRoundedRectangle(noteRect.toFloat(), 2.0f, 1.0f);
+        }
     }
 }
 
@@ -257,4 +315,93 @@ double PianoRoll::xToBeat(int x) const
 int PianoRoll::beatToX(double beat) const
 {
     return KEYBOARD_WIDTH + static_cast<int>(beat * pixelsPerBeat - horizontalScrollOffset);
+}
+
+void PianoRoll::clearSelection()
+{
+    if (!selectedNoteIndices.empty())
+    {
+        selectedNoteIndices.clear();
+        repaint();
+    }
+}
+
+bool PianoRoll::isNoteSelected(int eventIndex) const
+{
+    return selectedNoteIndices.count(eventIndex) > 0;
+}
+
+int PianoRoll::getNoteAtPosition(int x, int y) const
+{
+    if (midiRegion == nullptr || x <= KEYBOARD_WIDTH)
+        return -1;
+
+    const auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+
+    // Iterate through all note events and check if position is inside
+    for (int i = 0; i < seq.getNumEvents(); ++i)
+    {
+        auto* event = seq.getEventPointer(i);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        int noteNumber = event->message.getNoteNumber();
+        double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+        // Find matching note off
+        double endBeat = startBeat + 0.5; // Default length
+        if (event->noteOffObject != nullptr)
+        {
+            endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+        }
+
+        // Calculate note bounds
+        int noteX = beatToX(startBeat);
+        int noteY = noteToY(noteNumber);
+        int noteWidth = beatToX(endBeat) - noteX;
+        noteWidth = juce::jmax(4, noteWidth - 1);
+
+        juce::Rectangle<int> noteRect(noteX, noteY + 1, noteWidth, noteHeight - 2);
+
+        if (noteRect.contains(x, y))
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+juce::Rectangle<int> PianoRoll::getNoteRect(int eventIndex) const
+{
+    if (midiRegion == nullptr)
+        return juce::Rectangle<int>();
+
+    const auto& seq = midiRegion->getMidiSequence();
+    if (eventIndex < 0 || eventIndex >= seq.getNumEvents())
+        return juce::Rectangle<int>();
+
+    auto* event = seq.getEventPointer(eventIndex);
+    if (event == nullptr || !event->message.isNoteOn())
+        return juce::Rectangle<int>();
+
+    double ticksPerBeat = 960.0;
+    int noteNumber = event->message.getNoteNumber();
+    double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+    // Find matching note off
+    double endBeat = startBeat + 0.5;
+    if (event->noteOffObject != nullptr)
+    {
+        endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+    }
+
+    // Calculate note bounds
+    int noteX = beatToX(startBeat);
+    int noteY = noteToY(noteNumber);
+    int noteWidth = beatToX(endBeat) - noteX;
+    noteWidth = juce::jmax(4, noteWidth - 1);
+
+    return juce::Rectangle<int>(noteX, noteY + 1, noteWidth, noteHeight - 2);
 }

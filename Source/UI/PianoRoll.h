@@ -4,6 +4,7 @@
 #include "LookAndFeel.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <set>
 
 /**
  * PianoRoll is an editor for MIDI notes.
@@ -25,7 +26,7 @@ public:
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
     // Set the MIDI region to edit
-    void setMidiRegion(MidiRegion* region) { midiRegion = region; repaint(); }
+    void setMidiRegion(MidiRegion* region) { midiRegion = region; clearSelection(); repaint(); }
     MidiRegion* getMidiRegion() const { return midiRegion; }
 
     // View settings
@@ -39,6 +40,12 @@ public:
     int getVerticalScrollOffset() const { return verticalScrollOffset; }
     void setHorizontalScrollOffset(double offset) { horizontalScrollOffset = juce::jmax(0.0, offset); repaint(); }
     double getHorizontalScrollOffset() const { return horizontalScrollOffset; }
+
+    // Selection
+    void clearSelection();
+    bool isNoteSelected(int eventIndex) const;
+    const std::set<int>& getSelectedNotes() const { return selectedNoteIndices; }
+    int getNumSelectedNotes() const { return static_cast<int>(selectedNoteIndices.size()); }
 
     static constexpr int KEYBOARD_WIDTH = 60;
     static constexpr int NUM_NOTES = 128;
@@ -55,6 +62,10 @@ private:
     double xToBeat(int x) const;
     int beatToX(double beat) const;
 
+    // Note hit testing - returns event index or -1 if no note at position
+    int getNoteAtPosition(int x, int y) const;
+    juce::Rectangle<int> getNoteRect(int eventIndex) const;
+
     MidiRegion* midiRegion = nullptr;
 
     double pixelsPerBeat = 40.0;
@@ -62,8 +73,12 @@ private:
     int verticalScrollOffset = 60 * 12; // Start around middle C
     double horizontalScrollOffset = 0.0;
 
+    // For note selection
+    std::set<int> selectedNoteIndices;
+
     // For note editing
     bool isDragging = false;
+    bool isCreatingNote = false;  // Distinguish between dragging selection and creating a note
     int dragStartNote = -1;
     double dragStartBeat = 0.0;
 
