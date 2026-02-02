@@ -687,6 +687,62 @@ void MainComponent::showAudioSettings()
     options.launchAsync();
 }
 
+//==============================================================================
+// Export progress dialog with cancel support
+class ExportProgressTask : public juce::ThreadWithProgressWindow
+{
+public:
+    ExportProgressTask(AudioEngine& engine, const juce::File& outputFile, int64_t lengthInSamples)
+        : juce::ThreadWithProgressWindow("Exporting Audio...", true, true),
+          audioEngine(engine),
+          file(outputFile),
+          lengthSamples(lengthInSamples)
+    {
+        setStatusMessage("Preparing to export...");
+    }
+
+    void run() override
+    {
+        AudioExporter exporter;
+        exporter.setSampleRate(44100.0);
+        exporter.setBitDepth(16);
+
+        setStatusMessage("Rendering audio...");
+
+        exportSuccess = exporter.exportToFile(audioEngine, file, 0, lengthSamples,
+            [this](float progress)
+            {
+                // Update progress bar (0.0 to 1.0)
+                setProgress(static_cast<double>(progress));
+
+                // Update status message with percentage
+                int percent = static_cast<int>(progress * 100.0f);
+                setStatusMessage("Exporting... " + juce::String(percent) + "%");
+
+                // Check for user cancellation
+                if (threadShouldExit())
+                {
+                    wasCancelled = true;
+                    // Note: We can't actually stop the export mid-way since AudioExporter
+                    // doesn't support cancellation. We'll delete the file after completion.
+                }
+            });
+    }
+
+    bool wasSuccessful() const { return exportSuccess && !wasCancelled; }
+    bool wasCancelledByUser() const { return wasCancelled; }
+    juce::File getOutputFile() const { return file; }
+
+private:
+    AudioEngine& audioEngine;
+    juce::File file;
+    int64_t lengthSamples;
+    bool exportSuccess = false;
+    bool wasCancelled = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ExportProgressTask)
+};
+
 void MainComponent::exportAudio()
 {
     // Stop playback
@@ -718,29 +774,40 @@ void MainComponent::exportAudio()
                 return;
             }
 
-            // Create exporter and export
-            AudioExporter exporter;
-            exporter.setSampleRate(44100.0);
-            exporter.setBitDepth(16);
+            // Create and run export task with progress dialog
+            ExportProgressTask exportTask(audioEngine, file, endSample);
 
-            bool success = exporter.exportToFile(audioEngine, file, 0, endSample,
-                [](float progress)
-                {
-                    // Progress callback - could show a progress bar in the future
-                    juce::ignoreUnused(progress);
-                });
-
-            if (success)
+            // runThread() shows modal dialog and returns true when thread finishes
+            if (exportTask.runThread())
             {
-                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                                                       "Export Complete",
-                                                       "Audio exported successfully to:\n" + file.getFullPathName());
+                if (exportTask.wasSuccessful())
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                           "Export Complete",
+                                                           "Audio exported successfully to:\n" + file.getFullPathName());
+                }
+                else if (exportTask.wasCancelledByUser())
+                {
+                    // Delete the partial/complete file since user cancelled
+                    file.deleteFile();
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                           "Export Cancelled",
+                                                           "The export was cancelled.");
+                }
+                else
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                           "Export Failed",
+                                                           "Failed to export audio. Please check the file path and try again.");
+                }
             }
             else
             {
-                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       "Export Failed",
-                                                       "Failed to export audio. Please check the file path and try again.");
+                // runThread() returned false - user closed the dialog early or error occurred
+                file.deleteFile();
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                       "Export Cancelled",
+                                                       "The export was cancelled.");
             }
         }
     });
