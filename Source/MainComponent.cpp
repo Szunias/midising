@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "Audio/AudioTrack.h"
+#include <cmath>
 #include "MIDI/MidiTrack.h"
 #include "Actions/TrackActions.h"
 #include "Tests/TestRunner.h"
@@ -51,17 +52,8 @@ MainComponent::MainComponent()
     // Create some demo tracks so the timeline isn't empty
     createDemoTracks();
 
-    // Request audio permissions if needed (mobile)
-    if (juce::RuntimePermissions::isRequired(juce::RuntimePermissions::recordAudio)
-        && !juce::RuntimePermissions::isGranted(juce::RuntimePermissions::recordAudio))
-    {
-        juce::RuntimePermissions::request(juce::RuntimePermissions::recordAudio,
-            [&](bool granted) { setAudioChannels(granted ? 2 : 0, 2); });
-    }
-    else
-    {
-        setAudioChannels(2, 2);
-    }
+    // Setup audio device manager with crash protection
+    setupAudioDeviceManager();
 
     // Register global key listener
     getLookAndFeel().setUsingNativeAlertWindows(true);
@@ -70,6 +62,9 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
+    // Remove device change listener before shutdown
+    deviceManager.removeChangeListener(this);
+
     removeKeyListener(this);
     setLookAndFeel(nullptr);
     shutdownAudio();
@@ -687,6 +682,10 @@ void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
 
 void MainComponent::showAudioSettings()
 {
+    // Save current device state before opening settings
+    // This allows us to restore if the new device fails
+    saveDeviceState();
+
     // Pass the MidiEngine as the MIDI input callback so that MIDI devices
     // selected in the settings panel will send events to the MidiEngine
     auto settingsPanel = std::make_unique<SettingsPanel>(deviceManager, &audioEngine.getMidiEngine());
@@ -700,6 +699,185 @@ void MainComponent::showAudioSettings()
     options.resizable = true;
 
     options.launchAsync();
+}
+
+//==============================================================================
+// Audio Device Management with Crash Protection
+//==============================================================================
+
+void MainComponent::setupAudioDeviceManager()
+{
+    // Request audio permissions if needed (mobile)
+    if (juce::RuntimePermissions::isRequired(juce::RuntimePermissions::recordAudio)
+        && !juce::RuntimePermissions::isGranted(juce::RuntimePermissions::recordAudio))
+    {
+        juce::RuntimePermissions::request(juce::RuntimePermissions::recordAudio,
+            [this](bool granted) {
+                try
+                {
+                    setAudioChannels(granted ? 2 : 0, 2);
+                    // Register for device change notifications
+                    deviceManager.addChangeListener(this);
+                    // Save initial working state
+                    saveDeviceState();
+                }
+                catch (...)
+                {
+                    handleDeviceError("Failed to initialize audio device");
+                }
+            });
+    }
+    else
+    {
+        try
+        {
+            setAudioChannels(2, 2);
+            // Register for device change notifications
+            deviceManager.addChangeListener(this);
+            // Save initial working state
+            saveDeviceState();
+        }
+        catch (...)
+        {
+            handleDeviceError("Failed to initialize audio device");
+        }
+    }
+}
+
+void MainComponent::saveDeviceState()
+{
+    // Store the current device configuration as XML
+    // This allows us to restore if device switching fails
+    lastKnownGoodDeviceState = deviceManager.createStateXml();
+
+    // Also store audio parameters
+    if (auto* device = deviceManager.getCurrentAudioDevice())
+    {
+        lastSampleRate = device->getCurrentSampleRate();
+        lastBlockSize = device->getCurrentBufferSizeSamples();
+    }
+}
+
+void MainComponent::restoreDeviceState()
+{
+    if (lastKnownGoodDeviceState != nullptr)
+    {
+        // Attempt to restore the previous device configuration
+        juce::String error = deviceManager.initialise(
+            2,      // numInputChannels
+            2,      // numOutputChannels
+            lastKnownGoodDeviceState.get(),
+            true    // selectDefaultDeviceOnFailure
+        );
+
+        if (error.isNotEmpty())
+        {
+            // If restore also fails, try to use default device
+            error = deviceManager.initialise(2, 2, nullptr, true);
+
+            if (error.isNotEmpty())
+            {
+                handleDeviceError("Could not restore audio device: " + error);
+            }
+        }
+    }
+}
+
+void MainComponent::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &deviceManager)
+    {
+        handleDeviceChange();
+    }
+}
+
+void MainComponent::handleDeviceChange()
+{
+    // Prevent re-entrant calls during device switching
+    if (isChangingDevice.exchange(true))
+        return;
+
+    // Stop transport to prevent audio callbacks during device switch
+    // This is CRITICAL for ASIO driver stability
+    bool wasPlaying = audioEngine.getTransport().isPlaying();
+    bool wasRecording = audioEngine.isRecording();
+
+    audioEngine.getTransport().stop();
+    if (wasRecording)
+        audioEngine.stopRecording();
+
+    // Give the audio system time to fully stop
+    juce::Thread::sleep(50);
+
+    auto* currentDevice = deviceManager.getCurrentAudioDevice();
+
+    if (currentDevice != nullptr)
+    {
+        try
+        {
+            double newSampleRate = currentDevice->getCurrentSampleRate();
+            int newBlockSize = currentDevice->getCurrentBufferSizeSamples();
+
+            // Check if sample rate or block size changed
+            bool sampleRateChanged = (std::abs(newSampleRate - lastSampleRate) > 0.1);
+            bool blockSizeChanged = (newBlockSize != lastBlockSize);
+
+            if (sampleRateChanged || blockSizeChanged)
+            {
+                // Re-prepare the audio engine with new settings
+                audioEngine.releaseResources();
+                audioEngine.prepareToPlay(newBlockSize, newSampleRate);
+                timelineView.setSampleRate(newSampleRate);
+
+                lastSampleRate = newSampleRate;
+                lastBlockSize = newBlockSize;
+            }
+
+            // Device switch successful - save this as known good state
+            saveDeviceState();
+
+            // Resume playback if it was playing before
+            if (wasPlaying)
+            {
+                audioEngine.getTransport().play();
+            }
+        }
+        catch (const std::exception& e)
+        {
+            handleDeviceError(juce::String("Device error: ") + e.what());
+            restoreDeviceState();
+        }
+        catch (...)
+        {
+            handleDeviceError("Unknown error during device switch");
+            restoreDeviceState();
+        }
+    }
+    else
+    {
+        // No device available - try to restore previous state
+        handleDeviceError("Audio device disconnected");
+        restoreDeviceState();
+    }
+
+    isChangingDevice.store(false);
+}
+
+void MainComponent::handleDeviceError(const juce::String& errorMessage)
+{
+    // Log the error
+    juce::Logger::writeToLog("Audio Device Error: " + errorMessage);
+
+    // Show error message to user on the message thread
+    juce::MessageManager::callAsync([errorMessage]()
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Audio Device Error",
+            errorMessage + "\n\nThe previous device settings will be restored if possible.",
+            "OK"
+        );
+    });
 }
 
 //==============================================================================

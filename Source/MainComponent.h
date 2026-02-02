@@ -22,10 +22,16 @@
 #include "Utils/RecentFilesManager.h"
 
 //==============================================================================
+/**
+ * MainComponent is the root component of the DAW.
+ * Implements robust audio device management with crash protection
+ * for switching between ASIO, DirectSound, and WASAPI drivers.
+ */
 class MainComponent : public juce::AudioAppComponent,
                       public juce::KeyListener,
                       public juce::ApplicationCommandTarget,
-                      public juce::MenuBarModel
+                      public juce::MenuBarModel,
+                      public juce::ChangeListener
 {
 public:
     MainComponent();
@@ -53,6 +59,9 @@ public:
     juce::StringArray getMenuBarNames() override;
     juce::PopupMenu getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName) override;
     void menuItemSelected(int menuItemID, int topLevelMenuIndex) override;
+
+    // ChangeListener override - handles audio device changes
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     // Access to audio engine
     AudioEngine& getAudioEngine() { return audioEngine; }
@@ -82,6 +91,13 @@ private:
     void createNewProject();
     void showAudioSettings();
 
+    // Audio device management with crash protection
+    void setupAudioDeviceManager();
+    void saveDeviceState();
+    void restoreDeviceState();
+    void handleDeviceChange();
+    void handleDeviceError(const juce::String& errorMessage);
+
     juce::ApplicationCommandManager commandManager;
     juce::MenuBarComponent menuBar;
 
@@ -96,6 +112,12 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
     bool hasUnsavedChanges_ = false;
     juce::File currentProjectFile;
+
+    // Audio device state management for crash protection
+    std::unique_ptr<juce::XmlElement> lastKnownGoodDeviceState;
+    std::atomic<bool> isChangingDevice { false };
+    double lastSampleRate = 44100.0;
+    int lastBlockSize = 512;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
