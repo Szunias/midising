@@ -1,5 +1,6 @@
 #include "TimelineView.h"
 #include "../Utils/TimeConversion.h"
+#include <cmath>
 
 TimelineView::TimelineView()
 {
@@ -35,6 +36,9 @@ void TimelineView::paint(juce::Graphics& g)
         drawTrackLane(g, laneBounds, i);
     }
 
+    // Draw drag ghost for visual feedback during region dragging
+    drawDragGhost(g);
+
     // Draw playhead on top of everything
     drawPlayhead(g);
 }
@@ -67,6 +71,16 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
         // Select the clicked region
         selectedRegion = region;
         selectedTrackIndex = trackIndex;
+
+        // Start dragging the region
+        isDraggingRegion = true;
+        dragOriginalPosition = region->getStartPosition();
+        dragCurrentPosition = dragOriginalPosition;
+
+        // Calculate offset from mouse position to region start
+        int64_t mouseSample = pixelToSample(e.x);
+        dragStartSampleOffset = mouseSample - dragOriginalPosition;
+
         repaint();
         return;
     }
@@ -83,16 +97,52 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
 
 void TimelineView::mouseDrag(const juce::MouseEvent& e)
 {
-    // If a region is selected, don't drag playhead (region drag will be implemented later)
-    if (selectedRegion != nullptr)
-        return;
+    // Handle region dragging
+    if (isDraggingRegion && selectedRegion != nullptr)
+    {
+        // Calculate new position based on mouse, accounting for initial offset
+        int64_t mouseSample = pixelToSample(e.x);
+        int64_t newPosition = mouseSample - dragStartSampleOffset;
 
+        // Clamp to non-negative
+        newPosition = juce::jmax(int64_t(0), newPosition);
+
+        // Snap to grid if enabled
+        if (snapToGrid)
+        {
+            newPosition = snapPositionToGrid(newPosition);
+        }
+
+        // Update drag position for visual feedback
+        dragCurrentPosition = newPosition;
+        repaint();
+        return;
+    }
+
+    // If no region is being dragged, allow playhead scrubbing
     if (transportPtr != nullptr && e.x > HEADER_WIDTH)
     {
         int64_t newPos = pixelToSample(e.x);
         transportPtr->setPlayheadPosition(juce::jmax(int64_t(0), newPos));
         repaint();
     }
+}
+
+void TimelineView::mouseUp(const juce::MouseEvent& e)
+{
+    juce::ignoreUnused(e);
+
+    // Finalize region drag
+    if (isDraggingRegion && selectedRegion != nullptr)
+    {
+        // Apply the new position to the region
+        selectedRegion->setStartPosition(dragCurrentPosition);
+        isDraggingRegion = false;
+        repaint();
+        return;
+    }
+
+    isDraggingRegion = false;
 }
 
 void TimelineView::mouseMove(const juce::MouseEvent& e)
@@ -736,4 +786,48 @@ void TimelineView::clearSelection()
         selectedTrackIndex = -1;
         repaint();
     }
+}
+
+int64_t TimelineView::snapPositionToGrid(int64_t samplePosition) const
+{
+    if (timelinePtr == nullptr)
+        return samplePosition;
+
+    // Snap to beat boundaries
+    double beats = timelinePtr->samplesToBeats(samplePosition);
+
+    // Round to nearest beat
+    double snappedBeats = std::round(beats);
+
+    return timelinePtr->beatsToSamples(snappedBeats);
+}
+
+void TimelineView::drawDragGhost(juce::Graphics& g)
+{
+    if (!isDraggingRegion || selectedRegion == nullptr || selectedTrackIndex < 0)
+        return;
+
+    // Calculate ghost region bounds using the drag current position
+    int64_t length = selectedRegion->getLength();
+    int64_t endSample = dragCurrentPosition + length;
+
+    int x1 = HEADER_WIDTH + sampleToPixel(dragCurrentPosition) - static_cast<int>(horizontalScrollOffset);
+    int x2 = HEADER_WIDTH + sampleToPixel(endSample) - static_cast<int>(horizontalScrollOffset);
+    int w = x2 - x1;
+
+    int trackY = RULER_HEIGHT + selectedTrackIndex * trackHeight;
+    juce::Rectangle<int> ghostBounds(x1, trackY + 2, w, trackHeight - 4);
+
+    // Draw semi-transparent ghost of the region
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.3f));
+    g.fillRect(ghostBounds);
+
+    // Draw ghost border
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.8f));
+    g.drawRect(ghostBounds, 2);
+
+    // Draw snap indicator line at the start position
+    g.setColour(MidiSingLookAndFeel::accentColour);
+    g.drawLine(static_cast<float>(x1), static_cast<float>(RULER_HEIGHT),
+               static_cast<float>(x1), static_cast<float>(getHeight()), 1.0f);
 }

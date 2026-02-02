@@ -32,6 +32,7 @@ public:
     // Mouse handling
     void mouseDown(const juce::MouseEvent& e) override;
     void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
     void mouseMove(const juce::MouseEvent& e) override;
     void mouseExit(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
@@ -113,6 +114,17 @@ private:
     int selectedTrackIndex = -1;
     Region* hoveredRegion = nullptr;
     int hoveredTrackIndex = -1;
+
+    // Region dragging state
+    bool isDraggingRegion = false;
+    int64_t dragStartSampleOffset = 0;  // Offset from mouse to region start
+    int64_t dragOriginalPosition = 0;   // Original position before drag
+    int64_t dragCurrentPosition = 0;    // Current dragged position (for visual feedback)
+    bool snapToGrid = true;             // Enable grid snapping
+
+    // Helper methods for region dragging
+    int64_t snapPositionToGrid(int64_t samplePosition) const;
+    void drawDragGhost(juce::Graphics& g);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimelineView)
 };
