@@ -5,12 +5,14 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <set>
+#include <vector>
 
 /**
  * PianoRoll is an editor for MIDI notes.
  * Shows piano keys on left, note grid, and allows note editing.
  * Supports multiple editing tools: Draw, Erase, Select, Split, Mute.
  * Supports quantization with snap-to-grid for various note values.
+ * Supports controller lanes for CC editing (Mod Wheel, Sustain, Pitch Bend).
  */
 class PianoRoll : public juce::Component
 {
@@ -34,6 +36,14 @@ public:
         QuarterTriplet, // 1/4 triplet (2/3 beat)
         EighthTriplet,  // 1/8 triplet (1/3 beat)
         SixteenthTriplet // 1/16 triplet (1/6 beat)
+    };
+
+    // Controller lane types for CC editing
+    enum class CCLaneType
+    {
+        ModWheel,       // CC1 - Modulation wheel
+        Sustain,        // CC64 - Sustain pedal
+        PitchBend       // Pitch bend (not a CC, but a separate MIDI message type)
     };
 
     PianoRoll();
@@ -105,9 +115,26 @@ public:
     // Apply quantization to selected notes
     void quantizeSelectedNotes();
 
+    // CC Lane management
+    void setCCLaneVisible(CCLaneType laneType, bool visible);
+    bool isCCLaneVisible(CCLaneType laneType) const;
+    void toggleCCLane(CCLaneType laneType);
+    int getNumVisibleCCLanes() const;
+
+    // Get CC controller number for lane type
+    static int getCCNumberForLaneType(CCLaneType laneType);
+    static juce::String getCCLaneName(CCLaneType laneType);
+
+    // CC editing operations
+    void addCCPoint(CCLaneType laneType, double beat, int value);
+    void deleteCCPointsInRange(CCLaneType laneType, double startBeat, double endBeat);
+    void clearCCLane(CCLaneType laneType);
+
     static constexpr int KEYBOARD_WIDTH = 60;
     static constexpr int NUM_NOTES = 128;
     static constexpr int EDGE_DETECT_WIDTH = 8; // Pixels for edge detection
+    static constexpr int CC_LANE_HEIGHT = 80;   // Height of each CC lane
+    static constexpr int CC_LANE_HEADER_WIDTH = 60; // Width of CC lane label area
 
     // Note edge enum for resize operations
     enum class NoteEdge
@@ -142,6 +169,26 @@ private:
     void drawBoxSelection(juce::Graphics& g, juce::Rectangle<int> bounds);
     void drawMutedNotes(juce::Graphics& g, juce::Rectangle<int> bounds);
     void drawQuantizeGrid(juce::Graphics& g, juce::Rectangle<int> bounds);
+
+    // CC Lane drawing and editing helpers
+    void drawCCLanes(juce::Graphics& g, juce::Rectangle<int> bounds);
+    void drawCCLane(juce::Graphics& g, juce::Rectangle<int> bounds, CCLaneType laneType);
+    void drawCCLaneHeader(juce::Graphics& g, juce::Rectangle<int> bounds, CCLaneType laneType);
+    void drawCCLaneGrid(juce::Graphics& g, juce::Rectangle<int> bounds);
+    void drawCCAutomation(juce::Graphics& g, juce::Rectangle<int> bounds, CCLaneType laneType);
+
+    // CC Lane hit testing
+    int getCCLaneAtY(int y) const;
+    CCLaneType getCCLaneTypeAtIndex(int index) const;
+    bool isPointInCCLane(int x, int y) const;
+    int ccValueToY(int value, juce::Rectangle<int> laneBounds) const;
+    int yToCCValue(int y, juce::Rectangle<int> laneBounds) const;
+    juce::Rectangle<int> getCCLaneBounds(int laneIndex) const;
+
+    // CC editing mouse handlers
+    void handleCCLaneMouseDown(const juce::MouseEvent& e);
+    void handleCCLaneMouseDrag(const juce::MouseEvent& e);
+    void handleCCLaneMouseUp(const juce::MouseEvent& e);
 
     // Tool-specific mouse handlers
     void handleDrawToolMouseDown(const juce::MouseEvent& e);
@@ -196,6 +243,18 @@ private:
     // Quantization state
     bool quantizeEnabled = true;  // Snap to grid enabled by default
     QuantizeValue quantizeValue = QuantizeValue::Sixteenth;  // Default to 1/16 notes
+
+    // CC Lane visibility state (ModWheel, Sustain, PitchBend)
+    bool ccLaneVisible[3] = { false, false, false };
+
+    // CC editing state
+    bool isEditingCC = false;
+    CCLaneType currentCCLaneType = CCLaneType::ModWheel;
+    int ccEditLaneIndex = -1;
+    double ccEditStartBeat = 0.0;
+    int ccEditStartValue = 0;
+    bool isDraggingInCCLane = false;
+    double lastCCEditBeat = 0.0;  // For smooth drawing during drag
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PianoRoll)
 };

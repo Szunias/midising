@@ -14,6 +14,10 @@ void PianoRoll::paint(juce::Graphics& g)
 
     auto bounds = getLocalBounds();
 
+    // Calculate CC lanes area at the bottom
+    int ccLanesHeight = getNumVisibleCCLanes() * CC_LANE_HEIGHT;
+    auto ccLanesBounds = bounds.removeFromBottom(ccLanesHeight);
+
     // Draw piano keyboard on left
     auto keyboardBounds = bounds.removeFromLeft(KEYBOARD_WIDTH);
     drawKeyboard(g, keyboardBounds);
@@ -27,6 +31,12 @@ void PianoRoll::paint(juce::Graphics& g)
 
     // Draw box selection rectangle for Select tool
     drawBoxSelection(g, bounds);
+
+    // Draw CC lanes at the bottom
+    if (ccLanesHeight > 0)
+    {
+        drawCCLanes(g, ccLanesBounds);
+    }
 }
 
 void PianoRoll::resized()
@@ -40,6 +50,13 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e)
 
     if (midiRegion == nullptr)
         return;
+
+    // Check if clicking in CC lane area
+    if (isPointInCCLane(e.x, e.y))
+    {
+        handleCCLaneMouseDown(e);
+        return;
+    }
 
     if (e.x > KEYBOARD_WIDTH)
     {
@@ -67,6 +84,13 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e)
 
 void PianoRoll::mouseDrag(const juce::MouseEvent& e)
 {
+    // Handle CC lane editing
+    if (isDraggingInCCLane && midiRegion != nullptr)
+    {
+        handleCCLaneMouseDrag(e);
+        return;
+    }
+
     // Handle velocity editing - drag up to increase, down to decrease
     if (isEditingVelocity && velocityEditNoteIndex >= 0 && midiRegion != nullptr)
     {
@@ -137,6 +161,13 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& e)
 
 void PianoRoll::mouseUp(const juce::MouseEvent& e)
 {
+    // Finalize CC lane editing
+    if (isDraggingInCCLane)
+    {
+        handleCCLaneMouseUp(e);
+        return;
+    }
+
     // Finalize velocity editing
     if (isEditingVelocity)
     {
@@ -1434,4 +1465,518 @@ void PianoRoll::drawQuantizeGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
         g.drawLine(static_cast<float>(x), static_cast<float>(bounds.getY()),
                    static_cast<float>(x), static_cast<float>(bounds.getBottom()), 0.5f);
     }
+}
+
+// ============================================================================
+// CC Lane Management
+// ============================================================================
+
+void PianoRoll::setCCLaneVisible(CCLaneType laneType, bool visible)
+{
+    int index = static_cast<int>(laneType);
+    if (index >= 0 && index < 3)
+    {
+        ccLaneVisible[index] = visible;
+        repaint();
+    }
+}
+
+bool PianoRoll::isCCLaneVisible(CCLaneType laneType) const
+{
+    int index = static_cast<int>(laneType);
+    if (index >= 0 && index < 3)
+    {
+        return ccLaneVisible[index];
+    }
+    return false;
+}
+
+void PianoRoll::toggleCCLane(CCLaneType laneType)
+{
+    setCCLaneVisible(laneType, !isCCLaneVisible(laneType));
+}
+
+int PianoRoll::getNumVisibleCCLanes() const
+{
+    int count = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (ccLaneVisible[i])
+            ++count;
+    }
+    return count;
+}
+
+int PianoRoll::getCCNumberForLaneType(CCLaneType laneType)
+{
+    switch (laneType)
+    {
+        case CCLaneType::ModWheel:   return 1;   // CC1 - Modulation
+        case CCLaneType::Sustain:    return 64;  // CC64 - Sustain pedal
+        case CCLaneType::PitchBend:  return -1;  // Special: pitch bend is not a CC
+        default:                     return -1;
+    }
+}
+
+juce::String PianoRoll::getCCLaneName(CCLaneType laneType)
+{
+    switch (laneType)
+    {
+        case CCLaneType::ModWheel:   return "Mod Wheel";
+        case CCLaneType::Sustain:    return "Sustain";
+        case CCLaneType::PitchBend:  return "Pitch Bend";
+        default:                     return "Unknown";
+    }
+}
+
+// ============================================================================
+// CC Lane Drawing
+// ============================================================================
+
+void PianoRoll::drawCCLanes(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    // Draw separator line between notes and CC lanes
+    g.setColour(MidiSingLookAndFeel::borderColour);
+    g.drawLine(static_cast<float>(bounds.getX()), static_cast<float>(bounds.getY()),
+               static_cast<float>(bounds.getRight()), static_cast<float>(bounds.getY()), 2.0f);
+
+    int laneIndex = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (ccLaneVisible[i])
+        {
+            auto laneBounds = getCCLaneBounds(laneIndex);
+            CCLaneType laneType = static_cast<CCLaneType>(i);
+
+            // Draw header area
+            auto headerBounds = laneBounds.removeFromLeft(CC_LANE_HEADER_WIDTH);
+            drawCCLaneHeader(g, headerBounds, laneType);
+
+            // Draw the lane content area
+            drawCCLane(g, laneBounds, laneType);
+
+            ++laneIndex;
+        }
+    }
+}
+
+void PianoRoll::drawCCLaneHeader(juce::Graphics& g, juce::Rectangle<int> bounds, CCLaneType laneType)
+{
+    // Background
+    g.setColour(MidiSingLookAndFeel::backgroundMid);
+    g.fillRect(bounds);
+
+    // Border
+    g.setColour(MidiSingLookAndFeel::borderColour);
+    g.drawRect(bounds, 1);
+
+    // Label
+    g.setColour(MidiSingLookAndFeel::textColour);
+    g.setFont(10.0f);
+    g.drawText(getCCLaneName(laneType), bounds.reduced(4, 0),
+               juce::Justification::centredLeft, true);
+
+    // Draw value labels (0, 64, 127)
+    g.setColour(MidiSingLookAndFeel::textDimColour);
+    g.setFont(8.0f);
+    g.drawText("127", bounds.getX() + 2, bounds.getY() + 12, 30, 10,
+               juce::Justification::left, false);
+    g.drawText("0", bounds.getX() + 2, bounds.getBottom() - 18, 30, 10,
+               juce::Justification::left, false);
+}
+
+void PianoRoll::drawCCLane(juce::Graphics& g, juce::Rectangle<int> bounds, CCLaneType laneType)
+{
+    // Background
+    g.setColour(MidiSingLookAndFeel::backgroundDark.brighter(0.05f));
+    g.fillRect(bounds);
+
+    // Draw grid
+    drawCCLaneGrid(g, bounds);
+
+    // Draw automation curve
+    drawCCAutomation(g, bounds, laneType);
+
+    // Border
+    g.setColour(MidiSingLookAndFeel::borderColour);
+    g.drawRect(bounds, 1);
+}
+
+void PianoRoll::drawCCLaneGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    // Draw horizontal center line (value 64)
+    int centerY = bounds.getY() + bounds.getHeight() / 2;
+    g.setColour(MidiSingLookAndFeel::borderColour.withAlpha(0.5f));
+    g.drawHorizontalLine(centerY, static_cast<float>(bounds.getX()),
+                         static_cast<float>(bounds.getRight()));
+
+    // Draw vertical beat lines
+    double startBeat = horizontalScrollOffset / pixelsPerBeat;
+    double endBeat = startBeat + bounds.getWidth() / pixelsPerBeat;
+
+    for (int beat = static_cast<int>(startBeat); beat <= static_cast<int>(endBeat) + 1; ++beat)
+    {
+        int x = beatToX(beat);
+        if (x < bounds.getX() || x > bounds.getRight())
+            continue;
+
+        bool isBar = (beat % 4) == 0;
+        g.setColour(isBar ? MidiSingLookAndFeel::borderColour
+                          : MidiSingLookAndFeel::borderColour.withAlpha(0.3f));
+        g.drawLine(static_cast<float>(x), static_cast<float>(bounds.getY()),
+                   static_cast<float>(x), static_cast<float>(bounds.getBottom()),
+                   isBar ? 1.0f : 0.5f);
+    }
+}
+
+void PianoRoll::drawCCAutomation(juce::Graphics& g, juce::Rectangle<int> bounds, CCLaneType laneType)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    const auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+    int ccNumber = getCCNumberForLaneType(laneType);
+
+    // Collect CC points for this lane type
+    struct CCPoint
+    {
+        double beat;
+        int value;
+    };
+    std::vector<CCPoint> points;
+
+    for (int i = 0; i < seq.getNumEvents(); ++i)
+    {
+        auto* event = seq.getEventPointer(i);
+        if (event == nullptr)
+            continue;
+
+        const auto& msg = event->message;
+
+        if (laneType == CCLaneType::PitchBend && msg.isPitchWheel())
+        {
+            // Pitch bend: convert from 0-16383 to 0-127 range for display
+            int pitchValue = msg.getPitchWheelValue();
+            int displayValue = juce::jmap(pitchValue, 0, 16383, 0, 127);
+            double beat = msg.getTimeStamp() / ticksPerBeat;
+            points.push_back({ beat, displayValue });
+        }
+        else if (msg.isController() && msg.getControllerNumber() == ccNumber)
+        {
+            double beat = msg.getTimeStamp() / ticksPerBeat;
+            int value = msg.getControllerValue();
+            points.push_back({ beat, value });
+        }
+    }
+
+    if (points.empty())
+    {
+        // Draw default line at 0 (or 64 for pitch bend center)
+        int defaultValue = (laneType == CCLaneType::PitchBend) ? 64 : 0;
+        int y = ccValueToY(defaultValue, bounds);
+        g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.3f));
+        g.drawHorizontalLine(y, static_cast<float>(bounds.getX()),
+                             static_cast<float>(bounds.getRight()));
+        return;
+    }
+
+    // Sort points by beat position
+    std::sort(points.begin(), points.end(), [](const CCPoint& a, const CCPoint& b) {
+        return a.beat < b.beat;
+    });
+
+    // Draw the automation curve as step lines with points
+    juce::Path path;
+    bool pathStarted = false;
+
+    // Draw from start to first point
+    if (!points.empty())
+    {
+        int startY = ccValueToY(points[0].value, bounds);
+        path.startNewSubPath(static_cast<float>(bounds.getX()), static_cast<float>(startY));
+        pathStarted = true;
+    }
+
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        int x = beatToX(points[i].beat);
+        int y = ccValueToY(points[i].value, bounds);
+
+        if (pathStarted)
+        {
+            // Step to new x position at current y level
+            path.lineTo(static_cast<float>(x), path.getCurrentPosition().y);
+            // Then step to new y value
+            path.lineTo(static_cast<float>(x), static_cast<float>(y));
+        }
+
+        // Draw point marker
+        g.setColour(MidiSingLookAndFeel::accentColour);
+        g.fillEllipse(static_cast<float>(x - 3), static_cast<float>(y - 3), 6.0f, 6.0f);
+    }
+
+    // Extend to the end of visible area
+    if (!points.empty())
+    {
+        path.lineTo(static_cast<float>(bounds.getRight()), path.getCurrentPosition().y);
+    }
+
+    // Draw the path
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.7f));
+    g.strokePath(path, juce::PathStrokeType(1.5f));
+
+    // Fill area under the curve
+    juce::Path fillPath = path;
+    fillPath.lineTo(static_cast<float>(bounds.getRight()), static_cast<float>(bounds.getBottom()));
+    fillPath.lineTo(static_cast<float>(bounds.getX()), static_cast<float>(bounds.getBottom()));
+    fillPath.closeSubPath();
+
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.15f));
+    g.fillPath(fillPath);
+}
+
+// ============================================================================
+// CC Lane Hit Testing
+// ============================================================================
+
+int PianoRoll::getCCLaneAtY(int y) const
+{
+    int numVisible = getNumVisibleCCLanes();
+    if (numVisible == 0)
+        return -1;
+
+    int ccLanesStartY = getHeight() - (numVisible * CC_LANE_HEIGHT);
+
+    if (y < ccLanesStartY)
+        return -1;
+
+    int relativeY = y - ccLanesStartY;
+    int laneIndex = relativeY / CC_LANE_HEIGHT;
+
+    if (laneIndex >= numVisible)
+        return -1;
+
+    return laneIndex;
+}
+
+PianoRoll::CCLaneType PianoRoll::getCCLaneTypeAtIndex(int index) const
+{
+    int currentIndex = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (ccLaneVisible[i])
+        {
+            if (currentIndex == index)
+                return static_cast<CCLaneType>(i);
+            ++currentIndex;
+        }
+    }
+    return CCLaneType::ModWheel; // Default fallback
+}
+
+bool PianoRoll::isPointInCCLane(int x, int y) const
+{
+    int numVisible = getNumVisibleCCLanes();
+    if (numVisible == 0)
+        return false;
+
+    int ccLanesStartY = getHeight() - (numVisible * CC_LANE_HEIGHT);
+    return y >= ccLanesStartY && x > CC_LANE_HEADER_WIDTH;
+}
+
+int PianoRoll::ccValueToY(int value, juce::Rectangle<int> laneBounds) const
+{
+    // Map value (0-127) to Y coordinate (higher values at top)
+    int padding = 4; // Small padding from edges
+    int usableHeight = laneBounds.getHeight() - (padding * 2);
+    int y = laneBounds.getBottom() - padding - (value * usableHeight / 127);
+    return juce::jlimit(laneBounds.getY() + padding, laneBounds.getBottom() - padding, y);
+}
+
+int PianoRoll::yToCCValue(int y, juce::Rectangle<int> laneBounds) const
+{
+    // Map Y coordinate to value (0-127)
+    int padding = 4;
+    int usableHeight = laneBounds.getHeight() - (padding * 2);
+    int relativeY = laneBounds.getBottom() - padding - y;
+    int value = (relativeY * 127) / usableHeight;
+    return juce::jlimit(0, 127, value);
+}
+
+juce::Rectangle<int> PianoRoll::getCCLaneBounds(int laneIndex) const
+{
+    int numVisible = getNumVisibleCCLanes();
+    if (laneIndex < 0 || laneIndex >= numVisible)
+        return juce::Rectangle<int>();
+
+    int ccLanesStartY = getHeight() - (numVisible * CC_LANE_HEIGHT);
+    int y = ccLanesStartY + (laneIndex * CC_LANE_HEIGHT);
+
+    return juce::Rectangle<int>(0, y, getWidth(), CC_LANE_HEIGHT);
+}
+
+// ============================================================================
+// CC Lane Mouse Handlers
+// ============================================================================
+
+void PianoRoll::handleCCLaneMouseDown(const juce::MouseEvent& e)
+{
+    int laneIndex = getCCLaneAtY(e.y);
+    if (laneIndex < 0)
+        return;
+
+    ccEditLaneIndex = laneIndex;
+    currentCCLaneType = getCCLaneTypeAtIndex(laneIndex);
+    isDraggingInCCLane = true;
+
+    // Calculate beat and value from position
+    auto laneBounds = getCCLaneBounds(laneIndex);
+    laneBounds.removeFromLeft(CC_LANE_HEADER_WIDTH);
+
+    double beat = xToBeat(e.x);
+    int value = yToCCValue(e.y, laneBounds);
+
+    // Apply quantization if enabled
+    beat = quantizeBeatPosition(beat);
+
+    ccEditStartBeat = beat;
+    ccEditStartValue = value;
+    lastCCEditBeat = beat;
+
+    // Add the initial CC point
+    addCCPoint(currentCCLaneType, beat, value);
+    repaint();
+}
+
+void PianoRoll::handleCCLaneMouseDrag(const juce::MouseEvent& e)
+{
+    if (ccEditLaneIndex < 0)
+        return;
+
+    auto laneBounds = getCCLaneBounds(ccEditLaneIndex);
+    laneBounds.removeFromLeft(CC_LANE_HEADER_WIDTH);
+
+    double beat = xToBeat(e.x);
+    int value = yToCCValue(e.y, laneBounds);
+
+    // Apply quantization if enabled
+    beat = quantizeBeatPosition(beat);
+
+    // Only add point if we've moved to a new grid position (when quantized)
+    // or moved significantly (when not quantized)
+    double beatDelta = std::abs(beat - lastCCEditBeat);
+    double minDelta = quantizeEnabled ? getQuantizeGridSize() * 0.5 : 0.0625;
+
+    if (beatDelta >= minDelta || beat != lastCCEditBeat)
+    {
+        addCCPoint(currentCCLaneType, beat, value);
+        lastCCEditBeat = beat;
+        repaint();
+    }
+}
+
+void PianoRoll::handleCCLaneMouseUp(const juce::MouseEvent& /*e*/)
+{
+    isDraggingInCCLane = false;
+    ccEditLaneIndex = -1;
+    repaint();
+}
+
+// ============================================================================
+// CC Lane Editing Operations
+// ============================================================================
+
+void PianoRoll::addCCPoint(CCLaneType laneType, double beat, int value)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+    double timestamp = beat * ticksPerBeat;
+
+    if (laneType == CCLaneType::PitchBend)
+    {
+        // Convert from 0-127 display range to 0-16383 pitch bend range
+        int pitchValue = juce::jmap(value, 0, 127, 0, 16383);
+        juce::MidiMessage pitchMsg = juce::MidiMessage::pitchWheel(1, pitchValue);
+        pitchMsg.setTimeStamp(timestamp);
+        seq.addEvent(pitchMsg);
+    }
+    else
+    {
+        int ccNumber = getCCNumberForLaneType(laneType);
+        if (ccNumber >= 0)
+        {
+            juce::MidiMessage ccMsg = juce::MidiMessage::controllerEvent(1, ccNumber, value);
+            ccMsg.setTimeStamp(timestamp);
+            seq.addEvent(ccMsg);
+        }
+    }
+
+    seq.sort();
+}
+
+void PianoRoll::deleteCCPointsInRange(CCLaneType laneType, double startBeat, double endBeat)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+    int ccNumber = getCCNumberForLaneType(laneType);
+
+    double startTicks = startBeat * ticksPerBeat;
+    double endTicks = endBeat * ticksPerBeat;
+
+    // Collect indices to delete (in reverse order to avoid index shifting)
+    std::vector<int> indicesToDelete;
+
+    for (int i = 0; i < seq.getNumEvents(); ++i)
+    {
+        auto* event = seq.getEventPointer(i);
+        if (event == nullptr)
+            continue;
+
+        const auto& msg = event->message;
+        double timestamp = msg.getTimeStamp();
+
+        if (timestamp < startTicks || timestamp > endTicks)
+            continue;
+
+        bool shouldDelete = false;
+
+        if (laneType == CCLaneType::PitchBend && msg.isPitchWheel())
+        {
+            shouldDelete = true;
+        }
+        else if (msg.isController() && msg.getControllerNumber() == ccNumber)
+        {
+            shouldDelete = true;
+        }
+
+        if (shouldDelete)
+        {
+            indicesToDelete.push_back(i);
+        }
+    }
+
+    // Delete in reverse order
+    std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
+    for (int index : indicesToDelete)
+    {
+        seq.deleteEvent(index, false);
+    }
+
+    repaint();
+}
+
+void PianoRoll::clearCCLane(CCLaneType laneType)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    // Delete all CC events for this lane type (entire range)
+    deleteCCPointsInRange(laneType, -1000.0, 10000.0);
 }
