@@ -25,6 +25,9 @@ public:
     void mouseUp(const juce::MouseEvent& e) override;
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
+    // Keyboard handling for shortcuts
+    bool keyPressed(const juce::KeyPress& key) override;
+
     // Set the MIDI region to edit
     void setMidiRegion(MidiRegion* region) { midiRegion = region; clearSelection(); repaint(); }
     MidiRegion* getMidiRegion() const { return midiRegion; }
@@ -46,6 +49,7 @@ public:
     bool isNoteSelected(int eventIndex) const;
     const std::set<int>& getSelectedNotes() const { return selectedNoteIndices; }
     int getNumSelectedNotes() const { return static_cast<int>(selectedNoteIndices.size()); }
+    void deleteSelectedNotes();
 
     static constexpr int KEYBOARD_WIDTH = 60;
     static constexpr int NUM_NOTES = 128;

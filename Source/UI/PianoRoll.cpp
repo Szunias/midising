@@ -1,7 +1,10 @@
 #include "PianoRoll.h"
+#include <algorithm>
+#include <vector>
 
 PianoRoll::PianoRoll()
 {
+    setWantsKeyboardFocus(true); // Enable keyboard focus for shortcuts
 }
 
 void PianoRoll::paint(juce::Graphics& g)
@@ -25,6 +28,9 @@ void PianoRoll::resized()
 
 void PianoRoll::mouseDown(const juce::MouseEvent& e)
 {
+    // Grab keyboard focus for shortcuts
+    grabKeyboardFocus();
+
     if (midiRegion == nullptr)
         return;
 
@@ -404,4 +410,79 @@ juce::Rectangle<int> PianoRoll::getNoteRect(int eventIndex) const
     noteWidth = juce::jmax(4, noteWidth - 1);
 
     return juce::Rectangle<int>(noteX, noteY + 1, noteWidth, noteHeight - 2);
+}
+
+bool PianoRoll::keyPressed(const juce::KeyPress& key)
+{
+    // Delete key - delete selected notes
+    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+    {
+        if (!selectedNoteIndices.empty())
+        {
+            deleteSelectedNotes();
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void PianoRoll::deleteSelectedNotes()
+{
+    if (midiRegion == nullptr || selectedNoteIndices.empty())
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+
+    // Collect all events to delete (both note-on and note-off)
+    // We need to delete in reverse order to maintain valid indices
+    std::vector<int> indicesToDelete;
+
+    for (int eventIndex : selectedNoteIndices)
+    {
+        if (eventIndex >= 0 && eventIndex < seq.getNumEvents())
+        {
+            auto* event = seq.getEventPointer(eventIndex);
+            if (event != nullptr && event->message.isNoteOn())
+            {
+                // Add note-on index
+                indicesToDelete.push_back(eventIndex);
+
+                // Find and add the matching note-off index
+                if (event->noteOffObject != nullptr)
+                {
+                    // Find the index of the note-off event
+                    for (int i = 0; i < seq.getNumEvents(); ++i)
+                    {
+                        if (seq.getEventPointer(i) == event->noteOffObject)
+                        {
+                            indicesToDelete.push_back(i);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort indices in descending order to delete from end to start
+    // This prevents index shifting issues during deletion
+    std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
+
+    // Remove duplicates
+    indicesToDelete.erase(std::unique(indicesToDelete.begin(), indicesToDelete.end()), indicesToDelete.end());
+
+    // Delete events in reverse order
+    for (int index : indicesToDelete)
+    {
+        seq.deleteEvent(index, false);
+    }
+
+    // Update matched pairs after deletion
+    seq.updateMatchedPairs();
+
+    // Clear selection since the notes are deleted
+    selectedNoteIndices.clear();
+
+    repaint();
 }
