@@ -1,5 +1,6 @@
 #include "AudioTrack.h"
 #include <cmath>
+#include <algorithm>
 
 AudioTrack::AudioTrack(const juce::String& name)
     : Track(name, TrackType::Audio)
@@ -31,18 +32,32 @@ void AudioTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample,
 
     bool hasInput = false;
 
+    // First pass: collect active regions and sort by start position for crossfade detection
+    std::vector<AudioRegion*> activeRegions;
     for (auto& region : regions)
     {
-        // Check if region overlaps with current playback range
-        if (region->getEndPosition() <= startPos || region->getStartPosition() >= endPos)
-            continue; // No overlap
+        if (region->getEndPosition() > startPos && region->getStartPosition() < endPos)
+        {
+            activeRegions.push_back(region.get());
+        }
+    }
 
+    // Sort by start position for proper overlap detection
+    std::sort(activeRegions.begin(), activeRegions.end(),
+              [](const AudioRegion* a, const AudioRegion* b) {
+                  return a->getStartPosition() < b->getStartPosition();
+              });
+
+    // Process each active region with automatic crossfade support
+    for (size_t regionIdx = 0; regionIdx < activeRegions.size(); ++regionIdx)
+    {
+        AudioRegion* region = activeRegions[regionIdx];
         hasInput = true;
 
-        // Calculate the overlap
+        // Calculate the overlap with playback range
         int64_t regionStart = region->getStartPosition();
         int64_t regionEnd = region->getEndPosition();
-        
+
         int64_t copyStart = juce::jmax(startPos, regionStart);
         int64_t copyEnd = juce::jmin(endPos, regionEnd);
         int numToCopy = static_cast<int>(copyEnd - copyStart);
@@ -63,32 +78,86 @@ void AudioTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample,
             }
         }
 
-        // Apply fade in/out envelopes
+        // Get manual fade settings
         int64_t fadeInLen = region->getFadeInLength();
         int64_t fadeOutLen = region->getFadeOutLength();
 
-        if (fadeInLen > 0 || fadeOutLen > 0)
+        // Detect automatic crossfade with previous overlapping region
+        int64_t autoCrossfadeInStart = -1;
+        int64_t autoCrossfadeInLen = 0;
+        if (regionIdx > 0)
+        {
+            AudioRegion* prevRegion = activeRegions[regionIdx - 1];
+            int64_t prevEnd = prevRegion->getEndPosition();
+            if (prevEnd > regionStart)
+            {
+                // Regions overlap - calculate automatic crossfade zone
+                int64_t overlapLength = prevEnd - regionStart;
+                autoCrossfadeInLen = juce::jmin(overlapLength, DEFAULT_CROSSFADE_SAMPLES);
+                autoCrossfadeInStart = regionStart;
+            }
+        }
+
+        // Detect automatic crossfade with next overlapping region
+        int64_t autoCrossfadeOutStart = -1;
+        int64_t autoCrossfadeOutLen = 0;
+        if (regionIdx + 1 < activeRegions.size())
+        {
+            AudioRegion* nextRegion = activeRegions[regionIdx + 1];
+            int64_t nextStart = nextRegion->getStartPosition();
+            if (regionEnd > nextStart)
+            {
+                // Regions overlap - calculate automatic crossfade zone
+                int64_t overlapLength = regionEnd - nextStart;
+                autoCrossfadeOutLen = juce::jmin(overlapLength, DEFAULT_CROSSFADE_SAMPLES);
+                autoCrossfadeOutStart = regionEnd - autoCrossfadeOutLen;
+            }
+        }
+
+        // Apply fade in/out envelopes (both manual and automatic crossfades)
+        bool needsFadeProcessing = (fadeInLen > 0 || fadeOutLen > 0 ||
+                                    autoCrossfadeInLen > 0 || autoCrossfadeOutLen > 0);
+
+        if (needsFadeProcessing)
         {
             // Apply fades sample by sample for the copied range
             for (int i = 0; i < numToCopy; ++i)
             {
+                // Absolute timeline position
+                int64_t timelinePos = copyStart + i;
                 // Position within the region (relative to region start)
                 int64_t posInRegion = copyStart - regionStart + i;
 
                 float gain = 1.0f;
 
-                // Apply fade in (linear ramp from 0 to 1)
+                // Apply manual fade in (linear ramp from 0 to 1)
                 if (fadeInLen > 0 && posInRegion < fadeInLen)
                 {
                     gain *= static_cast<float>(posInRegion) / static_cast<float>(fadeInLen);
                 }
 
-                // Apply fade out (linear ramp from 1 to 0)
+                // Apply manual fade out (linear ramp from 1 to 0)
                 int64_t fadeOutStart = region->getLength() - fadeOutLen;
                 if (fadeOutLen > 0 && posInRegion >= fadeOutStart)
                 {
                     int64_t posInFadeOut = posInRegion - fadeOutStart;
                     gain *= 1.0f - (static_cast<float>(posInFadeOut) / static_cast<float>(fadeOutLen));
+                }
+
+                // Apply automatic crossfade-in (equal-power fade for smooth overlap)
+                if (autoCrossfadeInLen > 0 && timelinePos >= autoCrossfadeInStart &&
+                    timelinePos < autoCrossfadeInStart + autoCrossfadeInLen)
+                {
+                    int64_t posInCrossfade = timelinePos - autoCrossfadeInStart;
+                    gain *= CrossfadeUtils::calculateFadeInGain(posInCrossfade, autoCrossfadeInLen);
+                }
+
+                // Apply automatic crossfade-out (equal-power fade for smooth overlap)
+                if (autoCrossfadeOutLen > 0 && timelinePos >= autoCrossfadeOutStart &&
+                    timelinePos < autoCrossfadeOutStart + autoCrossfadeOutLen)
+                {
+                    int64_t posInCrossfade = timelinePos - autoCrossfadeOutStart;
+                    gain *= CrossfadeUtils::calculateFadeOutGain(posInCrossfade, autoCrossfadeOutLen);
                 }
 
                 // Apply gain to all channels at this sample position
@@ -109,7 +178,7 @@ void AudioTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample,
     if (hasInput || effectChain.getNumEffects() > 0)
     {
         effectChain.processBlock(trackBuffer);
-        
+
         // Sum execution result to main buffer
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
         {
