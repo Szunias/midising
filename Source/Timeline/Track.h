@@ -4,6 +4,11 @@
 #include <juce_core/juce_core.h>
 #include <juce_graphics/juce_graphics.h>
 #include <atomic>
+#include <vector>
+#include <memory>
+
+// Forward declaration
+class AutomationLane;
 
 /**
  * Type of track (Audio or MIDI)
@@ -50,6 +55,19 @@ public:
     virtual void processBlock(juce::AudioBuffer<float>& buffer, int startSample, int numSamples) = 0;
     virtual void releaseResources() = 0;
 
+    // Automation lane management
+    AutomationLane* addAutomationLane(const juce::String& parameterName);
+    void removeAutomationLane(size_t index);
+    size_t getNumAutomationLanes() const { return automationLanes.size(); }
+    AutomationLane* getAutomationLane(size_t index);
+    const AutomationLane* getAutomationLane(size_t index) const;
+    AutomationLane* findAutomationLane(const juce::String& parameterName);
+    const AutomationLane* findAutomationLane(const juce::String& parameterName) const;
+
+    // Get automated parameter values at a position
+    float getAutomatedVolume(int64_t position) const;
+    float getAutomatedPan(int64_t position) const;
+
 private:
     juce::String name;
     TrackType type;
@@ -62,6 +80,9 @@ private:
     std::atomic<bool> muted { false };
     std::atomic<bool> soloed { false };
     std::atomic<bool> armed { false };
+
+    // Automation lanes for this track
+    std::vector<std::unique_ptr<AutomationLane>> automationLanes;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Track)
 };

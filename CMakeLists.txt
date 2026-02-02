@@ -42,6 +42,8 @@ target_sources(MidiSing
         Source/Timeline/Region.cpp
         Source/Timeline/Timeline.h
         Source/Timeline/Timeline.cpp
+        Source/Timeline/AutomationLane.h
+        Source/Timeline/AutomationLane.cpp
         # Audio
         Source/Audio/Transport.h
         Source/Audio/Mixer.h
