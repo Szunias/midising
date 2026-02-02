@@ -142,5 +142,32 @@ private:
     RegionEdge getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const;
     void updateCursorForPosition(int x, int y);
 
+    // Context menu and clipboard operations
+    void showContextMenu(const juce::MouseEvent& e);
+    void cutSelectedRegion();
+    void copySelectedRegion();
+    void pasteRegion(int64_t pastePosition);
+    void deleteSelectedRegion();
+    void splitSelectedRegion(int64_t splitPosition);
+
+    // Clipboard data structure for copy/paste
+    struct ClipboardData
+    {
+        bool hasData = false;
+        bool isAudioRegion = true;  // true = audio, false = MIDI
+        juce::String regionName;
+        int64_t regionLength = 0;
+        int64_t regionOffset = 0;
+        // Audio region data
+        juce::AudioBuffer<float> audioBuffer;
+        juce::String filePath;
+        int64_t thumbnailHash = 0;
+        // MIDI region data
+        juce::MidiMessageSequence midiSequence;
+    };
+
+    ClipboardData clipboard;
+    int64_t lastClickSamplePosition = 0;  // For paste position
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimelineView)
 };

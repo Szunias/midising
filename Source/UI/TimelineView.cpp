@@ -65,6 +65,28 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
     if (timelinePtr == nullptr || transportPtr == nullptr)
         return;
 
+    // Store click position for paste operations
+    lastClickSamplePosition = pixelToSample(e.x);
+
+    // Handle right-click for context menu
+    if (e.mods.isPopupMenu())
+    {
+        int trackIndex = -1;
+        Region* region = getRegionAtPosition(e.x, e.y, trackIndex);
+
+        if (region != nullptr)
+        {
+            // Select the clicked region first
+            selectedRegion = region;
+            selectedTrackIndex = trackIndex;
+            repaint();
+        }
+
+        // Show context menu (works on regions or empty timeline area)
+        showContextMenu(e);
+        return;
+    }
+
     // First, check if clicking on a region edge for resizing
     int trackIndex = -1;
     Region* edgeRegion = nullptr;
@@ -1077,4 +1099,281 @@ void TimelineView::updateCursorForPosition(int x, int y)
         // Normal cursor
         setMouseCursor(juce::MouseCursor::NormalCursor);
     }
+}
+
+void TimelineView::showContextMenu(const juce::MouseEvent& e)
+{
+    juce::PopupMenu menu;
+
+    // Menu item IDs
+    enum MenuIDs
+    {
+        CutRegion = 1,
+        CopyRegion,
+        PasteRegion,
+        DeleteRegion,
+        SplitRegion
+    };
+
+    bool hasSelection = (selectedRegion != nullptr && selectedTrackIndex >= 0);
+    bool canPaste = clipboard.hasData;
+
+    // Add menu items
+    menu.addItem(CutRegion, "Cut", hasSelection);
+    menu.addItem(CopyRegion, "Copy", hasSelection);
+    menu.addItem(PasteRegion, "Paste", canPaste);
+    menu.addSeparator();
+    menu.addItem(DeleteRegion, "Delete", hasSelection);
+    menu.addSeparator();
+    menu.addItem(SplitRegion, "Split", hasSelection);
+
+    // Show menu and handle selection
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+        [this, clickX = e.x](int result)
+        {
+            switch (result)
+            {
+            case CutRegion:
+                cutSelectedRegion();
+                break;
+            case CopyRegion:
+                copySelectedRegion();
+                break;
+            case PasteRegion:
+                pasteRegion(lastClickSamplePosition);
+                break;
+            case DeleteRegion:
+                deleteSelectedRegion();
+                break;
+            case SplitRegion:
+                splitSelectedRegion(lastClickSamplePosition);
+                break;
+            default:
+                break;
+            }
+        });
+}
+
+void TimelineView::cutSelectedRegion()
+{
+    if (selectedRegion == nullptr || selectedTrackIndex < 0)
+        return;
+
+    // Copy first, then delete
+    copySelectedRegion();
+    deleteSelectedRegion();
+}
+
+void TimelineView::copySelectedRegion()
+{
+    if (selectedRegion == nullptr || selectedTrackIndex < 0 || timelinePtr == nullptr)
+        return;
+
+    // Store region data in clipboard
+    clipboard.regionName = selectedRegion->getName();
+    clipboard.regionLength = selectedRegion->getLength();
+    clipboard.regionOffset = selectedRegion->getOffset();
+
+    // Check if it's an audio region or MIDI region
+    if (auto* audioRegion = dynamic_cast<AudioRegion*>(selectedRegion))
+    {
+        clipboard.isAudioRegion = true;
+        clipboard.audioBuffer.makeCopyOf(audioRegion->getAudioBuffer());
+        clipboard.filePath = audioRegion->getFilePath();
+        clipboard.thumbnailHash = audioRegion->getThumbnailHash();
+        clipboard.hasData = true;
+    }
+    else if (auto* midiRegion = dynamic_cast<MidiRegion*>(selectedRegion))
+    {
+        clipboard.isAudioRegion = false;
+        clipboard.midiSequence = midiRegion->getMidiSequence();
+        clipboard.hasData = true;
+    }
+}
+
+void TimelineView::pasteRegion(int64_t pastePosition)
+{
+    if (!clipboard.hasData || timelinePtr == nullptr || selectedTrackIndex < 0)
+        return;
+
+    // Snap paste position to grid if enabled
+    if (snapToGrid)
+    {
+        pastePosition = snapPositionToGrid(pastePosition);
+    }
+
+    // Get the target track
+    Track* track = timelinePtr->getTrack(selectedTrackIndex);
+    if (track == nullptr)
+        return;
+
+    if (clipboard.isAudioRegion)
+    {
+        // Paste audio region
+        auto* audioTrack = dynamic_cast<AudioTrack*>(track);
+        if (audioTrack == nullptr)
+            return;
+
+        auto newRegion = std::make_unique<AudioRegion>(pastePosition, clipboard.regionLength);
+        newRegion->setAudioBuffer(clipboard.audioBuffer);
+        newRegion->setName(clipboard.regionName + " (copy)");
+        newRegion->setOffset(clipboard.regionOffset);
+        if (clipboard.filePath.isNotEmpty())
+            newRegion->setFilePath(clipboard.filePath);
+
+        audioTrack->addRegion(std::move(newRegion));
+    }
+    else
+    {
+        // Paste MIDI region
+        auto* midiTrack = dynamic_cast<MidiTrack*>(track);
+        if (midiTrack == nullptr)
+            return;
+
+        auto newRegion = std::make_unique<MidiRegion>(pastePosition, clipboard.regionLength);
+        newRegion->setMidiSequence(clipboard.midiSequence);
+        newRegion->setName(clipboard.regionName + " (copy)");
+        newRegion->setOffset(clipboard.regionOffset);
+
+        midiTrack->addRegion(std::move(newRegion));
+    }
+
+    repaint();
+}
+
+void TimelineView::deleteSelectedRegion()
+{
+    if (selectedRegion == nullptr || selectedTrackIndex < 0 || timelinePtr == nullptr)
+        return;
+
+    Track* track = timelinePtr->getTrack(selectedTrackIndex);
+    if (track == nullptr)
+        return;
+
+    // Find and remove the region from its track
+    if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
+    {
+        for (int i = 0; i < audioTrack->getNumRegions(); ++i)
+        {
+            if (audioTrack->getRegion(i) == selectedRegion)
+            {
+                audioTrack->removeRegion(i);
+                break;
+            }
+        }
+    }
+    else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
+    {
+        for (int i = 0; i < midiTrack->getNumRegions(); ++i)
+        {
+            if (midiTrack->getRegion(i) == selectedRegion)
+            {
+                midiTrack->removeRegion(i);
+                break;
+            }
+        }
+    }
+
+    // Clear selection
+    selectedRegion = nullptr;
+    selectedTrackIndex = -1;
+    repaint();
+}
+
+void TimelineView::splitSelectedRegion(int64_t splitPosition)
+{
+    if (selectedRegion == nullptr || selectedTrackIndex < 0 || timelinePtr == nullptr)
+        return;
+
+    // Ensure split position is within the region
+    int64_t regionStart = selectedRegion->getStartPosition();
+    int64_t regionEnd = selectedRegion->getEndPosition();
+
+    if (splitPosition <= regionStart || splitPosition >= regionEnd)
+        return;
+
+    // Snap split position to grid if enabled
+    if (snapToGrid)
+    {
+        splitPosition = snapPositionToGrid(splitPosition);
+        // Re-check bounds after snapping
+        if (splitPosition <= regionStart || splitPosition >= regionEnd)
+            return;
+    }
+
+    Track* track = timelinePtr->getTrack(selectedTrackIndex);
+    if (track == nullptr)
+        return;
+
+    // Calculate lengths for the two parts
+    int64_t firstPartLength = splitPosition - regionStart;
+    int64_t secondPartLength = regionEnd - splitPosition;
+    int64_t originalOffset = selectedRegion->getOffset();
+
+    if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
+    {
+        auto* audioRegion = dynamic_cast<AudioRegion*>(selectedRegion);
+        if (audioRegion == nullptr)
+            return;
+
+        // Create second part (new region after split point)
+        auto secondRegion = std::make_unique<AudioRegion>(splitPosition, secondPartLength);
+        secondRegion->setAudioBuffer(audioRegion->getAudioBuffer());
+        secondRegion->setName(audioRegion->getName() + " (split)");
+        secondRegion->setOffset(originalOffset + firstPartLength);
+        if (audioRegion->getFilePath().isNotEmpty())
+            secondRegion->setFilePath(audioRegion->getFilePath());
+
+        // Modify the original region (first part)
+        audioRegion->setLength(firstPartLength);
+
+        // Add the second region
+        audioTrack->addRegion(std::move(secondRegion));
+    }
+    else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
+    {
+        auto* midiRegion = dynamic_cast<MidiRegion*>(selectedRegion);
+        if (midiRegion == nullptr)
+            return;
+
+        // For MIDI, we need to split the sequence
+        const auto& originalSequence = midiRegion->getMidiSequence();
+        juce::MidiMessageSequence firstPartSequence;
+        juce::MidiMessageSequence secondPartSequence;
+
+        // Split MIDI events between the two sequences
+        for (int i = 0; i < originalSequence.getNumEvents(); ++i)
+        {
+            auto* event = originalSequence.getEventPointer(i);
+            double eventTime = event->message.getTimeStamp();
+
+            // Events are relative to region start, so compare with firstPartLength
+            if (eventTime < static_cast<double>(firstPartLength))
+            {
+                firstPartSequence.addEvent(event->message);
+            }
+            else
+            {
+                // Adjust timestamp for second part (relative to new region start)
+                auto newMessage = event->message;
+                newMessage.setTimeStamp(eventTime - static_cast<double>(firstPartLength));
+                secondPartSequence.addEvent(newMessage);
+            }
+        }
+
+        // Create second part
+        auto secondRegion = std::make_unique<MidiRegion>(splitPosition, secondPartLength);
+        secondRegion->setMidiSequence(secondPartSequence);
+        secondRegion->setName(midiRegion->getName() + " (split)");
+        secondRegion->setOffset(0);
+
+        // Modify the original region
+        midiRegion->setLength(firstPartLength);
+        midiRegion->setMidiSequence(firstPartSequence);
+
+        // Add the second region
+        midiTrack->addRegion(std::move(secondRegion));
+    }
+
+    repaint();
 }
