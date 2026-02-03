@@ -494,3 +494,101 @@ bool AudioTrack::getMonitoringBuffer(juce::AudioBuffer<float>& outputBuffer) con
     return true;
 }
 
+//==============================================================================
+// Insert Slot Management
+//==============================================================================
+
+int AudioTrack::addInsert(std::unique_ptr<Effect> effect)
+{
+    if (effectChain.getNumEffects() >= MAX_INSERT_SLOTS)
+        return -1; // All slots full
+
+    int slotIndex = effectChain.getNumEffects();
+    effectChain.addEffect(std::move(effect));
+    return slotIndex;
+}
+
+bool AudioTrack::addInsertAtSlot(int slotIndex, std::unique_ptr<Effect> effect)
+{
+    if (slotIndex < 0 || slotIndex > effectChain.getNumEffects())
+        return false;
+
+    if (effectChain.getNumEffects() >= MAX_INSERT_SLOTS)
+        return false;
+
+    // Add to chain - effects are processed in order so we add at the end
+    // and then move if needed
+    effectChain.addEffect(std::move(effect));
+
+    // If not adding at the end, move to correct position
+    int currentIndex = effectChain.getNumEffects() - 1;
+    if (currentIndex != slotIndex)
+    {
+        effectChain.moveEffect(currentIndex, slotIndex);
+    }
+
+    return true;
+}
+
+void AudioTrack::removeInsert(int slotIndex)
+{
+    if (slotIndex >= 0 && slotIndex < effectChain.getNumEffects())
+    {
+        effectChain.removeEffect(slotIndex);
+    }
+}
+
+void AudioTrack::moveInsert(int fromSlot, int toSlot)
+{
+    effectChain.moveEffect(fromSlot, toSlot);
+}
+
+Effect* AudioTrack::getInsert(int slotIndex)
+{
+    if (slotIndex >= 0 && slotIndex < effectChain.getNumEffects())
+    {
+        return effectChain.getEffect(slotIndex);
+    }
+    return nullptr;
+}
+
+const Effect* AudioTrack::getInsert(int slotIndex) const
+{
+    if (slotIndex >= 0 && slotIndex < effectChain.getNumEffects())
+    {
+        // Cast away constness for the getter since EffectChain doesn't have const getEffect
+        return const_cast<EffectChain&>(effectChain).getEffect(slotIndex);
+    }
+    return nullptr;
+}
+
+bool AudioTrack::isInsertSlotEmpty(int slotIndex) const
+{
+    // A slot is empty if it's beyond the current number of effects
+    return slotIndex >= effectChain.getNumEffects();
+}
+
+void AudioTrack::clearInserts()
+{
+    effectChain.clear();
+}
+
+void AudioTrack::setInsertBypassed(int slotIndex, bool bypassed)
+{
+    Effect* effect = getInsert(slotIndex);
+    if (effect != nullptr)
+    {
+        effect->setBypass(bypassed);
+    }
+}
+
+bool AudioTrack::isInsertBypassed(int slotIndex) const
+{
+    const Effect* effect = getInsert(slotIndex);
+    if (effect != nullptr)
+    {
+        return effect->isBypassed();
+    }
+    return false;
+}
+

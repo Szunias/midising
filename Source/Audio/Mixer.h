@@ -8,6 +8,25 @@
 /**
  * Mixer processes and sums all tracks with gain, pan, mute, solo.
  * Designed for real-time audio processing (no allocations in process).
+ *
+ * Channel Strip Signal Flow:
+ * ========================
+ *
+ * For each track:
+ *   1. INPUT:     Audio from regions / recording input
+ *   2. INSERT FX: Up to 8 effect slots processed in series (in AudioTrack)
+ *   3. FADER:     Volume control (0.0 to 2.0, unity = 1.0)
+ *   4. PAN:       Stereo position (-1.0 left to +1.0 right)
+ *   5. OUTPUT:    Mixed to master bus (or group bus when routing is added)
+ *
+ * Master Bus:
+ *   - All track outputs summed
+ *   - Master volume applied
+ *   - Peak metering with clip detection
+ *
+ * Thread Safety:
+ *   - All parameters use std::atomic for lock-free access
+ *   - No memory allocation in processBlock
  */
 class Mixer
 {
@@ -30,8 +49,9 @@ public:
 
     /**
      * Process and sum all tracks into the output buffer.
-     * Respects mute, solo, gain, and pan settings.
-     * 
+     * Implements the channel strip signal flow:
+     *   Track.processBlock (regions + insert FX) -> Fader -> Pan -> Mix to Output
+     *
      * @param timeline The timeline containing tracks
      * @param outputBuffer The output buffer to write to
      * @param startSample The start sample position in the timeline
@@ -61,10 +81,11 @@ public:
                 continue;
 
             // Clear work buffer and let track fill it
+            // Track.processBlock handles: regions/input -> insert FX chain
             workBuffer.clear();
             track->processBlock(workBuffer, static_cast<int>(startSample), numSamples);
 
-            // Apply gain and pan, then mix into output
+            // Apply fader (volume) and pan, then mix into output
             float volume = track->getVolume();
             float pan = track->getPan();
 
@@ -73,22 +94,22 @@ public:
             float leftGain = volume * std::cos(angle);
             float rightGain = volume * std::sin(angle);
 
-            // Mix into output
+            // Mix into output (will route to groups/busses when implemented)
             int numChannels = juce::jmin(outputBuffer.getNumChannels(), 2);
-            
+
             if (numChannels >= 1)
             {
                 outputBuffer.addFrom(0, 0, workBuffer, 0, 0, numSamples, leftGain);
             }
             if (numChannels >= 2)
             {
-                outputBuffer.addFrom(1, 0, workBuffer, 
-                                     workBuffer.getNumChannels() > 1 ? 1 : 0, 
+                outputBuffer.addFrom(1, 0, workBuffer,
+                                     workBuffer.getNumChannels() > 1 ? 1 : 0,
                                      0, numSamples, rightGain);
             }
         }
 
-        // Apply master volume
+        // Apply master volume (master bus processing)
         outputBuffer.applyGain(masterVolume.load());
     }
 

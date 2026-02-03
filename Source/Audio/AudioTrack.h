@@ -21,10 +21,18 @@ struct InputChannelConfig
 /**
  * AudioTrack is a track that plays and records audio.
  * Contains audio regions and handles audio playback/recording.
+ *
+ * Signal Flow:
+ *   Input (Regions/Recording) -> Insert FX Slots -> [Output to Mixer for Volume/Pan]
+ *
+ * The mixer then applies: Fader (Volume) -> Pan -> Bus Sends -> Output
  */
 class AudioTrack : public Track
 {
 public:
+    /** Maximum number of insert effect slots per channel strip */
+    static constexpr int MAX_INSERT_SLOTS = 8;
+
     AudioTrack(const juce::String& name = "Audio Track");
     ~AudioTrack() override = default;
 
@@ -80,12 +88,50 @@ public:
     // Load audio from file and create region
     bool loadAudioFile(const juce::File& file, int64_t startPosition);
 
-    // Effects
+    // Effects / Insert Slots
+    // Insert slots provide up to MAX_INSERT_SLOTS (8) effect processors in the signal chain
+    // Signal path: Audio Input -> Insert Slots (in order) -> Output
     EffectChain& getEffectChain() { return effectChain; }
     const EffectChain& getEffectChain() const { return effectChain; }
 
+    // Insert slot management
+    /** Add effect to the next available insert slot. Returns slot index, or -1 if all slots full. */
+    int addInsert(std::unique_ptr<Effect> effect);
+
+    /** Add effect at specific slot index. Returns true if successful. */
+    bool addInsertAtSlot(int slotIndex, std::unique_ptr<Effect> effect);
+
+    /** Remove effect from specified slot. */
+    void removeInsert(int slotIndex);
+
+    /** Move effect from one slot to another. */
+    void moveInsert(int fromSlot, int toSlot);
+
+    /** Get effect at slot (nullptr if empty). */
+    Effect* getInsert(int slotIndex);
+    const Effect* getInsert(int slotIndex) const;
+
+    /** Get number of active inserts (non-empty slots). */
+    int getNumActiveInserts() const { return effectChain.getNumEffects(); }
+
+    /** Check if an insert slot is empty. */
+    bool isInsertSlotEmpty(int slotIndex) const;
+
+    /** Check if insert slots are full. */
+    bool areInsertSlotsFull() const { return effectChain.getNumEffects() >= MAX_INSERT_SLOTS; }
+
+    /** Clear all insert slots. */
+    void clearInserts();
+
+    /** Bypass/unbypass insert at slot. */
+    void setInsertBypassed(int slotIndex, bool bypassed);
+    bool isInsertBypassed(int slotIndex) const;
+
 private:
     std::vector<std::unique_ptr<AudioRegion>> regions;
+
+    // Insert FX chain - processes up to MAX_INSERT_SLOTS effects in series
+    // Effects are applied after reading from regions, before output to mixer
     EffectChain effectChain;
 
     // Input routing configuration
