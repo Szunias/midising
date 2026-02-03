@@ -18,6 +18,7 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& event) override;
+    void mouseDoubleClick(const juce::MouseEvent& event) override;
     bool keyPressed(const juce::KeyPress& key) override;
 
     void setTrack(Track* track);
@@ -33,12 +34,14 @@ public:
     std::function<void(Track*)> onTrackSelected;
     std::function<void(Track*)> onDeleteTrack;
     std::function<void(int, const juce::String&)> onToggleAutomationLane;
+    std::function<void(Track*)> onTrackPropertiesChanged;
 
 private:
     void updateFromTrack();
     void showContextMenu(juce::Point<int> screenPosition);
     void showDeleteConfirmation();
     void showAutomationMenu();
+    void showPropertiesDialog();
 
     Track* trackPtr = nullptr;
     int trackIndex = -1;
