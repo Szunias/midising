@@ -1,4 +1,5 @@
 #include "TimelineView.h"
+#include "Cursors.h"
 #include "../Utils/TimeConversion.h"
 #include <cmath>
 
@@ -455,8 +456,8 @@ void TimelineView::mouseExit(const juce::MouseEvent& /*e*/)
         repaint();
     }
 
-    // Reset cursor
-    setMouseCursor(juce::MouseCursor::NormalCursor);
+    // Reset cursor to current tool mode's cursor
+    setMouseCursor(Cursors::getCursorForTool(currentToolMode));
 }
 
 void TimelineView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -1674,30 +1675,40 @@ void TimelineView::updateCursorForPosition(int x, int y)
     // Update current zone for potential status display
     currentSmartToolZone = zone;
 
-    switch (zone)
+    // In Select mode, use smart tool cursor logic based on zone
+    // In other modes, use the tool-specific cursor
+    if (currentToolMode == ToolMode::Select)
     {
-    case SmartToolZone::TrimLeft:
-    case SmartToolZone::TrimRight:
-        // Horizontal resize cursor for trim operations
-        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-        break;
+        switch (zone)
+        {
+        case SmartToolZone::TrimLeft:
+        case SmartToolZone::TrimRight:
+            // Horizontal resize cursor for trim operations
+            setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+            break;
 
-    case SmartToolZone::Move:
-        // Pointing hand or drag cursor for move operations
-        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
-        break;
+        case SmartToolZone::Move:
+            // Pointing hand or drag cursor for move operations
+            setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+            break;
 
-    case SmartToolZone::FadeIn:
-    case SmartToolZone::FadeOut:
-        // Use crosshair cursor for fade operations (diagonal resize would be ideal)
-        setMouseCursor(juce::MouseCursor::CrosshairCursor);
-        break;
+        case SmartToolZone::FadeIn:
+        case SmartToolZone::FadeOut:
+            // Use crosshair cursor for fade operations (diagonal resize would be ideal)
+            setMouseCursor(juce::MouseCursor::CrosshairCursor);
+            break;
 
-    case SmartToolZone::None:
-    default:
-        // Normal cursor when not over a region
-        setMouseCursor(juce::MouseCursor::NormalCursor);
-        break;
+        case SmartToolZone::None:
+        default:
+            // Normal cursor when not over a region
+            setMouseCursor(juce::MouseCursor::NormalCursor);
+            break;
+        }
+    }
+    else
+    {
+        // Use the cursor associated with the current tool mode
+        setMouseCursor(Cursors::getCursorForTool(currentToolMode));
     }
 }
 
@@ -2232,6 +2243,18 @@ void TimelineView::setAutomationMode(AutomationMode mode)
         if (onAutomationModeChanged)
             onAutomationModeChanged(mode);
 
+        repaint();
+    }
+}
+
+void TimelineView::setToolMode(ToolMode mode)
+{
+    if (currentToolMode != mode)
+    {
+        currentToolMode = mode;
+
+        // Update cursor to reflect new tool mode
+        setMouseCursor(Cursors::getCursorForTool(mode));
         repaint();
     }
 }

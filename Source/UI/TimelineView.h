@@ -10,6 +10,7 @@
 #include "../Audio/WaveformCache.h"
 #include "LookAndFeel.h"
 #include "TrackHeader.h"
+#include "ToolBar.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <vector>
 #include <memory>
@@ -95,6 +96,10 @@ public:
     // Automation editing
     void addAutomationPoint(int trackIndex, const juce::String& paramName, int64_t position, float value);
     void deleteAutomationPointsInRange(int trackIndex, const juce::String& paramName, int64_t start, int64_t end);
+
+    // Tool mode management
+    void setToolMode(ToolMode mode);
+    ToolMode getToolMode() const { return currentToolMode; }
 
     // Callbacks for track header
     std::function<void(AutomationMode)> onAutomationModeChanged;
@@ -275,6 +280,9 @@ private:
 
     // FileChooser for import dialogs (must persist during async operation)
     std::unique_ptr<juce::FileChooser> fileChooser;
+
+    // Tool mode state (from ToolBar)
+    ToolMode currentToolMode = ToolMode::Select;
 
     // Automation mode and editing state
     AutomationMode automationMode = AutomationMode::Read;
