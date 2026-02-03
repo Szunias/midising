@@ -1730,7 +1730,7 @@ void TimelineView::handleDoubleClickOnEmptyArea(int trackIndex, int clickX)
     }
 
     // Create a 4-bar region (16 beats in 4/4 time)
-    const double bpm = transportPtr != nullptr ? transportPtr->getTempo() : 120.0;
+    const double bpm = transportPtr != nullptr ? transportPtr->getBPM() : 120.0;
     const double beatsPerBar = 4.0;
     const double numBars = 4.0;
     const double totalBeats = beatsPerBar * numBars;  // 16 beats for 4 bars
@@ -2446,8 +2446,8 @@ void TimelineView::duplicateTrack(int trackIndex)
         newTrack->setColour(audioSource->getColour());
         newTrack->setVolume(audioSource->getVolume());
         newTrack->setPan(audioSource->getPan());
-        newTrack->setMute(audioSource->isMuted());
-        newTrack->setSolo(audioSource->isSoloed());
+        newTrack->setMuted(audioSource->isMuted());
+        newTrack->setSoloed(audioSource->isSoloed());
 
         // Copy all regions
         for (int i = 0; i < audioSource->getNumRegions(); ++i)
@@ -2479,8 +2479,8 @@ void TimelineView::duplicateTrack(int trackIndex)
         newTrack->setColour(midiSource->getColour());
         newTrack->setVolume(midiSource->getVolume());
         newTrack->setPan(midiSource->getPan());
-        newTrack->setMute(midiSource->isMuted());
-        newTrack->setSolo(midiSource->isSoloed());
+        newTrack->setMuted(midiSource->isMuted());
+        newTrack->setSoloed(midiSource->isSoloed());
 
         // Copy all regions
         for (int i = 0; i < midiSource->getNumRegions(); ++i)
