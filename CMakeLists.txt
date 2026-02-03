@@ -71,6 +71,8 @@ target_sources(MidiSing
         Source/UI/LookAndFeel.h
         Source/UI/TransportBar.h
         Source/UI/TransportBar.cpp
+        Source/UI/ToolBar.h
+        Source/UI/ToolBar.cpp
         Source/UI/TrackHeader.h
         Source/UI/TrackHeader.cpp
         Source/UI/TimelineView.h
