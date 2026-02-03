@@ -1734,27 +1734,31 @@ void TimelineView::handleDoubleClickOnEmptyArea(int trackIndex, int clickX)
     const double totalBeats = beatsPerBar * numBars;  // 16 beats for 4 bars
     const int64_t regionLength = static_cast<int64_t>((60.0 / bpm) * totalBeats * sampleRate);
 
-    // This will be fully implemented in subtask-5-3
-    // For now, create the appropriate region type based on track type
+    // Create the appropriate region type based on track type
     if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
     {
-        // Create empty audio region
+        // Create empty AudioRegion on Audio track
         auto newRegion = std::make_unique<AudioRegion>(clickSample, regionLength);
         newRegion->setName("New Audio Region");
+
+        // Initialize empty audio buffer (silent)
+        juce::AudioBuffer<float> emptyBuffer(2, static_cast<int>(regionLength));
+        emptyBuffer.clear();
+        newRegion->setAudioBuffer(emptyBuffer);
+
         selectedRegion = newRegion.get();
         selectedTrackIndex = trackIndex;
         audioTrack->addRegion(std::move(newRegion));
-        DBG("Created 4-bar Audio region via double-click");
     }
     else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
     {
-        // Create empty MIDI region
+        // Create empty MidiRegion on MIDI track
         auto newRegion = std::make_unique<MidiRegion>(clickSample, regionLength);
         newRegion->setName("New MIDI Region");
+
         selectedRegion = newRegion.get();
         selectedTrackIndex = trackIndex;
         midiTrack->addRegion(std::move(newRegion));
-        DBG("Created 4-bar MIDI region via double-click");
     }
 
     repaint();
