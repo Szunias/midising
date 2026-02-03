@@ -66,9 +66,10 @@ TransportBar::TransportBar()
     bpmLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
     addAndMakeVisible(bpmLabel);
 
-    // Position label
+    // Position label - use monospace font to prevent width jumping when digits change
     positionLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
-    positionLabel.setFont(juce::Font(16.0f, juce::Font::bold));
+    juce::Font monoFont(juce::Font::getDefaultMonospacedFontName(), 16.0f, juce::Font::bold);
+    positionLabel.setFont(monoFont);
     positionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(positionLabel);
 
