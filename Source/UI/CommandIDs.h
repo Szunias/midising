@@ -27,4 +27,11 @@ namespace CommandIDs
     static const int toggleBrowser   = 0x3001;
     static const int toggleMixer     = 0x3002;
     static const int togglePianoRoll = 0x3003;
+
+    // Tool mode commands
+    static const int toolSelect      = 0x4001;
+    static const int toolDraw        = 0x4002;
+    static const int toolSplit       = 0x4003;
+    static const int toolErase       = 0x4004;
+    static const int toolMute        = 0x4005;
 }
