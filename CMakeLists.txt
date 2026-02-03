@@ -120,6 +120,8 @@ target_sources(MidiSing
         Source/Effects/ParametricEQ.cpp
         Source/Effects/VCACompressor.h
         Source/Effects/VCACompressor.cpp
+        Source/Effects/StereoDelay.h
+        Source/Effects/StereoDelay.cpp
         Source/UI/EffectRackUI.h
         Source/UI/EffectRackUI.cpp
         # Tests
