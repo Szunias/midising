@@ -111,11 +111,12 @@ public:
         setColour(juce::FileBrowserComponent::filenameBoxTextColourId, textColour);
 
         // CodeEditorComponent colours (for potential scripting features)
-        setColour(juce::CodeEditorComponent::backgroundColourId, backgroundDark);
-        setColour(juce::CodeEditorComponent::highlightColourId, accentColour.withAlpha(0.3f));
-        setColour(juce::CodeEditorComponent::defaultTextColourId, textColour);
-        setColour(juce::CodeEditorComponent::lineNumberBackgroundId, backgroundMid);
-        setColour(juce::CodeEditorComponent::lineNumberTextId, textDimColour);
+        // Note: Commented out - requires juce_gui_extra module
+        // setColour(juce::CodeEditorComponent::backgroundColourId, backgroundDark);
+        // setColour(juce::CodeEditorComponent::highlightColourId, accentColour.withAlpha(0.3f));
+        // setColour(juce::CodeEditorComponent::defaultTextColourId, textColour);
+        // setColour(juce::CodeEditorComponent::lineNumberBackgroundId, backgroundMid);
+        // setColour(juce::CodeEditorComponent::lineNumberTextId, textDimColour);
 
         // PropertyComponent colours (for settings panels)
         setColour(juce::PropertyComponent::backgroundColourId, backgroundDark);
@@ -138,7 +139,8 @@ public:
         setColour(juce::Toolbar::editingModeOutlineColourId, accentColour);
 
         // Keyboard focus indicator
-        setColour(juce::KeyboardFocusIndicator::focusColourId, accentColour);
+        // Note: Commented out - KeyboardFocusIndicator not available in all JUCE versions
+        // setColour(juce::KeyboardFocusIndicator::focusColourId, accentColour);
 
         // Slider text box colours
         setColour(juce::Slider::textBoxTextColourId, textColour);
@@ -694,7 +696,7 @@ public:
                                                   : juce::TabbedButtonBar::tabTextColourId));
 
         auto textArea = button.getTextArea().toFloat();
-        g.setFont(button.getFont());
+        g.setFont(juce::Font(14.0f));  // Fixed: button.getFont() not available in JUCE
         g.drawFittedText(button.getButtonText(), textArea.toNearestInt(),
                          juce::Justification::centred, 1);
     }
@@ -948,30 +950,29 @@ public:
 
     juce::Button* createDocumentWindowButton(int buttonType) override
     {
-        auto button = new juce::Button("");
-
         juce::Path shape;
+        juce::Colour normalColour = buttonBackground;
+        juce::Colour overColour = backgroundLight;
+        juce::Colour downColour = accentColour;
 
         if (buttonType == juce::DocumentWindow::closeButton)
         {
-            shape.addLineSegment({ 0.0f, 0.0f, 1.0f, 1.0f }, 0.0f);
-            shape.addLineSegment({ 1.0f, 0.0f, 0.0f, 1.0f }, 0.0f);
-            button->setColour(juce::TextButton::buttonColourId, recordColour.withAlpha(0.0f));
-            button->setColour(juce::TextButton::buttonOnColourId, recordColour);
+            shape.addLineSegment({ 0.0f, 0.0f, 1.0f, 1.0f }, 0.1f);
+            shape.addLineSegment({ 1.0f, 0.0f, 0.0f, 1.0f }, 0.1f);
+            normalColour = recordColour.withAlpha(0.0f);
+            overColour = recordColour.withAlpha(0.5f);
+            downColour = recordColour;
         }
         else if (buttonType == juce::DocumentWindow::minimiseButton)
         {
-            shape.addLineSegment({ 0.0f, 0.5f, 1.0f, 0.5f }, 0.0f);
-            button->setColour(juce::TextButton::buttonColourId, buttonBackground);
-            button->setColour(juce::TextButton::buttonOnColourId, accentColour);
+            shape.addLineSegment({ 0.0f, 0.5f, 1.0f, 0.5f }, 0.1f);
         }
         else if (buttonType == juce::DocumentWindow::maximiseButton)
         {
             shape.addRectangle(0.0f, 0.0f, 1.0f, 1.0f);
-            button->setColour(juce::TextButton::buttonColourId, buttonBackground);
-            button->setColour(juce::TextButton::buttonOnColourId, accentColour);
         }
 
+        auto button = new juce::ShapeButton("", normalColour, overColour, downColour);
         button->setShape(shape, true, true, false);
 
         return button;
