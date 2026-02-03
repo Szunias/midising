@@ -506,9 +506,74 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
         return;
     }
 
+    // Finalize Draw tool region creation
+    if (isDrawingRegion && drawTrackIndex >= 0 && timelinePtr != nullptr)
+    {
+        // Calculate final sample positions from mouse coordinates
+        int64_t startSample = pixelToSample(drawStartX);
+        int64_t endSample = pixelToSample(e.x);
+
+        // Snap to grid if enabled
+        if (snapToGrid)
+        {
+            startSample = snapPositionToGrid(startSample);
+            endSample = snapPositionToGrid(endSample);
+        }
+
+        // Ensure start < end (allow dragging in either direction)
+        if (endSample < startSample)
+            std::swap(startSample, endSample);
+
+        // Enforce minimum length (1 beat worth of samples)
+        int64_t minLength = timelinePtr->beatsToSamples(1.0);
+        if (endSample - startSample < minLength)
+            endSample = startSample + minLength;
+
+        int64_t regionLength = endSample - startSample;
+
+        // Get the track and create appropriate region type
+        Track* track = timelinePtr->getTrack(drawTrackIndex);
+        if (track != nullptr && regionLength > 0)
+        {
+            if (track->getType() == TrackType::Audio)
+            {
+                // Create empty AudioRegion on audio track
+                auto* audioTrack = static_cast<AudioTrack*>(track);
+                auto newRegion = std::make_unique<AudioRegion>(startSample, regionLength);
+                newRegion->setName("New Audio Region");
+
+                // Initialize empty audio buffer (silent)
+                juce::AudioBuffer<float> emptyBuffer(2, static_cast<int>(regionLength));
+                emptyBuffer.clear();
+                newRegion->setAudioBuffer(emptyBuffer);
+
+                audioTrack->addRegion(std::move(newRegion));
+            }
+            else if (track->getType() == TrackType::MIDI)
+            {
+                // Create empty MidiRegion on MIDI track
+                auto* midiTrack = static_cast<MidiTrack*>(track);
+                auto newRegion = std::make_unique<MidiRegion>(startSample, regionLength);
+                newRegion->setName("New MIDI Region");
+
+                midiTrack->addRegion(std::move(newRegion));
+            }
+        }
+
+        // Reset drawing state
+        isDrawingRegion = false;
+        drawTrackIndex = -1;
+        drawStartX = 0;
+        ghostPreviewBounds = juce::Rectangle<int>();
+
+        repaint();
+        return;
+    }
+
     isDraggingRegion = false;
     isResizingRegion = false;
     isEditingFade = false;
+    isDrawingRegion = false;
 }
 
 void TimelineView::mouseMove(const juce::MouseEvent& e)
