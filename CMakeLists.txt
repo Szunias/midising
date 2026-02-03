@@ -118,6 +118,8 @@ target_sources(MidiSing
         Source/Effects/ReverbEffect.cpp
         Source/Effects/ParametricEQ.h
         Source/Effects/ParametricEQ.cpp
+        Source/Effects/VCACompressor.h
+        Source/Effects/VCACompressor.cpp
         Source/UI/EffectRackUI.h
         Source/UI/EffectRackUI.cpp
         # Tests
