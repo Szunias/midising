@@ -1,6 +1,7 @@
 #include "TimelineView.h"
 #include "Cursors.h"
 #include "../Utils/TimeConversion.h"
+#include <algorithm>
 #include <cmath>
 
 TimelineView::TimelineView()
@@ -385,6 +386,47 @@ void TimelineView::mouseDrag(const juce::MouseEvent& e)
 
         // Update drag position for visual feedback
         dragCurrentPosition = newPosition;
+        repaint();
+        return;
+    }
+
+    // Handle Draw tool region creation - update ghost preview
+    if (isDrawingRegion && drawTrackIndex >= 0 && timelinePtr != nullptr)
+    {
+        // Convert start and current X to sample positions
+        int64_t startSample = pixelToSample(drawStartX);
+        int64_t endSample = pixelToSample(e.x);
+
+        // Snap to grid if enabled
+        if (snapToGrid)
+        {
+            startSample = snapPositionToGrid(startSample);
+            endSample = snapPositionToGrid(endSample);
+        }
+
+        // Ensure start < end (allow dragging in either direction)
+        if (endSample < startSample)
+            std::swap(startSample, endSample);
+
+        // Enforce minimum length (1 beat worth of samples)
+        int64_t minLength = timelinePtr->beatsToSamples(1.0);
+        if (endSample - startSample < minLength)
+            endSample = startSample + minLength;
+
+        // Calculate track Y position
+        int trackY = RULER_HEIGHT;
+        for (int i = 0; i < drawTrackIndex; ++i)
+        {
+            trackY += getTotalTrackHeight(i);
+        }
+
+        // Convert samples back to screen pixels for ghost preview
+        int startPixel = sampleToPixel(startSample) - static_cast<int>(horizontalScrollOffset) + HEADER_WIDTH;
+        int endPixel = sampleToPixel(endSample) - static_cast<int>(horizontalScrollOffset) + HEADER_WIDTH;
+
+        // Update ghost preview bounds
+        ghostPreviewBounds = juce::Rectangle<int>(startPixel, trackY, endPixel - startPixel, trackHeight);
+
         repaint();
         return;
     }
