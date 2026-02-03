@@ -30,7 +30,10 @@ MainComponent::MainComponent()
     transportBar.setTransport(&audioEngine.getTransport());
     setupTransportCallbacks();
     addAndMakeVisible(transportBar);
-    
+
+    // Setup tool bar (below transport bar)
+    addAndMakeVisible(toolBar);
+
     // Setup status bar
     addAndMakeVisible(statusBar);
     
@@ -194,6 +197,9 @@ void MainComponent::resized()
 
     // Transport bar below menu bar
     transportBar.setBounds(bounds.removeFromTop(50));
+
+    // Tool bar below transport bar
+    toolBar.setBounds(bounds.removeFromTop(40));
 
     // Status bar at bottom
     statusBar.setBounds(bounds.removeFromBottom(24));
@@ -1336,11 +1342,12 @@ void MainComponent::updateSplitterPositions()
         // Calculate available height for bottom panel
         int menuHeight = juce::LookAndFeel::getDefaultLookAndFeel().getDefaultMenuBarHeight();
         int transportHeight = 50;
+        int toolBarHeight = 40;
         int statusHeight = 24;
         int spectrumHeight = 60;
         int minTimelineHeight = 200;
 
-        int availableHeight = getHeight() - menuHeight - transportHeight - statusHeight - spectrumHeight;
+        int availableHeight = getHeight() - menuHeight - transportHeight - toolBarHeight - statusHeight - spectrumHeight;
         int maxBottomHeight = availableHeight - minTimelineHeight;
 
         bottomSplitter->setLimits(100, juce::jmax(100, maxBottomHeight));
