@@ -32,12 +32,14 @@
  * MainComponent is the root component of the DAW.
  * Implements robust audio device management with crash protection
  * for switching between ASIO, DirectSound, and WASAPI drivers.
+ * Includes auto-save functionality with crash recovery support.
  */
 class MainComponent : public juce::AudioAppComponent,
                       public juce::KeyListener,
                       public juce::ApplicationCommandTarget,
                       public juce::MenuBarModel,
-                      public juce::ChangeListener
+                      public juce::ChangeListener,
+                      public juce::Timer
 {
 public:
     MainComponent();
@@ -68,6 +70,9 @@ public:
 
     // ChangeListener override - handles audio device changes
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
+
+    // Timer override - handles auto-save
+    void timerCallback() override;
 
     // Access to audio engine
     AudioEngine& getAudioEngine() { return audioEngine; }
@@ -111,6 +116,14 @@ private:
     void toggleMixerPanel();
     void togglePianoRollPanel();
     void updatePanelLayout();
+
+    // Auto-save and recovery system
+    void setupAutoSave();
+    void performAutoSave();
+    void checkForRecoveryFile();
+    void deleteRecoveryFile();
+    juce::File getRecoveryFile() const;
+    juce::File getAutoSaveFolder() const;
 
     juce::ApplicationCommandManager commandManager;
     juce::MenuBarComponent menuBar;
@@ -160,6 +173,11 @@ private:
     // Splitter setup
     void setupSplitters();
     void updateSplitterPositions();
+
+    // Auto-save settings
+    static constexpr int autoSaveIntervalMs = 5 * 60 * 1000;  // 5 minutes in milliseconds
+    std::atomic<bool> autoSaveEnabled { true };
+    juce::Time lastAutoSaveTime;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

@@ -66,16 +66,28 @@ MainComponent::MainComponent()
     // Register global key listener
     getLookAndFeel().setUsingNativeAlertWindows(true);
     addKeyListener(this);
+
+    // Setup auto-save system and check for recovery files
+    setupAutoSave();
 }
 
 MainComponent::~MainComponent()
 {
+    // Stop auto-save timer
+    stopTimer();
+
     // Remove device change listener before shutdown
     deviceManager.removeChangeListener(this);
 
     removeKeyListener(this);
     setLookAndFeel(nullptr);
     shutdownAudio();
+
+    // Clean up recovery file on normal exit if no unsaved changes
+    if (!hasUnsavedChanges_)
+    {
+        deleteRecoveryFile();
+    }
 }
 
 void MainComponent::updateWindowTitle()
@@ -412,6 +424,9 @@ void MainComponent::saveProject()
 
             // Add to recent files after successful save
             recentFilesManager.addFile(file);
+
+            // Delete recovery file since we have a successful manual save
+            deleteRecoveryFile();
         }
     });
 }
@@ -448,6 +463,9 @@ void MainComponent::saveProjectAs()
 
             // Add to recent files after successful save
             recentFilesManager.addFile(file);
+
+            // Delete recovery file since we have a successful manual save
+            deleteRecoveryFile();
         }
     });
 }
@@ -522,6 +540,9 @@ void MainComponent::collectAllAndSave()
 
                 // Add to recent files after successful save
                 recentFilesManager.addFile(projectFile);
+
+                // Delete recovery file since we have a successful manual save
+                deleteRecoveryFile();
 
                 // Show success message
                 juce::String message = "Project saved successfully.";
@@ -1451,5 +1472,190 @@ void MainComponent::exportAudio()
             }
         }
     });
+}
+
+//==============================================================================
+// Auto-Save and Recovery System
+//==============================================================================
+
+juce::File MainComponent::getAutoSaveFolder() const
+{
+    // Use the application data directory for auto-save files
+    auto appDataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
+    return appDataDir.getChildFile("MidiSing").getChildFile("AutoSave");
+}
+
+juce::File MainComponent::getRecoveryFile() const
+{
+    return getAutoSaveFolder().getChildFile("recovery.midising");
+}
+
+void MainComponent::setupAutoSave()
+{
+    // Create auto-save folder if it doesn't exist
+    auto autoSaveFolder = getAutoSaveFolder();
+    if (!autoSaveFolder.exists())
+    {
+        autoSaveFolder.createDirectory();
+    }
+
+    // Check for existing recovery file (from previous crash)
+    checkForRecoveryFile();
+
+    // Start the auto-save timer
+    lastAutoSaveTime = juce::Time::getCurrentTime();
+    startTimer(autoSaveIntervalMs);
+
+    juce::Logger::writeToLog("Auto-save system initialized (interval: 5 minutes)");
+}
+
+void MainComponent::timerCallback()
+{
+    // Only auto-save if there are unsaved changes
+    if (autoSaveEnabled.load() && hasUnsavedChanges_)
+    {
+        performAutoSave();
+    }
+}
+
+void MainComponent::performAutoSave()
+{
+    auto recoveryFile = getRecoveryFile();
+
+    // Create a temporary file first, then move to avoid corruption
+    auto tempFile = recoveryFile.getSiblingFile("recovery_temp.midising");
+
+    try
+    {
+        // Save the project to the temp file
+        ProjectSerializer::saveProject(audioEngine.getTimeline(), audioEngine.getTransport(), tempFile);
+
+        // If we have a current project file, store its path in a companion file
+        // so we know where to suggest saving on recovery
+        if (currentProjectFile != juce::File())
+        {
+            auto infoFile = getAutoSaveFolder().getChildFile("recovery_info.txt");
+            infoFile.replaceWithText(currentProjectFile.getFullPathName());
+        }
+
+        // Move temp file to recovery file (atomic on most file systems)
+        if (tempFile.existsAsFile())
+        {
+            if (recoveryFile.existsAsFile())
+            {
+                recoveryFile.deleteFile();
+            }
+            tempFile.moveFileTo(recoveryFile);
+        }
+
+        lastAutoSaveTime = juce::Time::getCurrentTime();
+
+        juce::Logger::writeToLog("Auto-save completed: " + recoveryFile.getFullPathName());
+    }
+    catch (...)
+    {
+        juce::Logger::writeToLog("Auto-save failed");
+        // Clean up temp file if it exists
+        if (tempFile.existsAsFile())
+        {
+            tempFile.deleteFile();
+        }
+    }
+}
+
+void MainComponent::checkForRecoveryFile()
+{
+    auto recoveryFile = getRecoveryFile();
+
+    if (!recoveryFile.existsAsFile())
+        return;
+
+    // Get the timestamp of the recovery file
+    auto recoveryTime = recoveryFile.getLastModificationTime();
+    auto formattedTime = recoveryTime.formatted("%Y-%m-%d %H:%M:%S");
+
+    // Check if there's info about the original project
+    juce::String originalProjectInfo;
+    auto infoFile = getAutoSaveFolder().getChildFile("recovery_info.txt");
+    if (infoFile.existsAsFile())
+    {
+        juce::String originalPath = infoFile.loadFileAsString().trim();
+        if (originalPath.isNotEmpty())
+        {
+            juce::File originalFile(originalPath);
+            originalProjectInfo = "\n\nOriginal project: " + originalFile.getFileName();
+        }
+    }
+
+    // Show recovery prompt
+    auto options = juce::MessageBoxOptions()
+        .withIconType(juce::MessageBoxIconType::QuestionIcon)
+        .withTitle("Recover Unsaved Work")
+        .withMessage("MidiSing found auto-saved work from a previous session.\n\n"
+                     "Last auto-save: " + formattedTime +
+                     originalProjectInfo +
+                     "\n\nWould you like to recover this work?")
+        .withButton("Recover")
+        .withButton("Discard");
+
+    juce::AlertWindow::showAsync(options, [this, recoveryFile](int result)
+    {
+        if (result == 1)  // Recover
+        {
+            // Load the recovery file
+            audioEngine.getTransport().stop();
+            undoManager.clearUndoHistory();
+
+            ProjectSerializer::loadProject(audioEngine.getTimeline(),
+                                          audioEngine.getTransport(),
+                                          &audioEngine.getMidiEngine(),
+                                          recoveryFile);
+
+            // Update views
+            timelineView.resized();
+            timelineView.repaint();
+            transportBar.repaint();
+
+            // Mark as having unsaved changes since this is recovered work
+            setHasUnsavedChanges(true);
+
+            // Check if we have info about the original project file
+            auto infoFile = getAutoSaveFolder().getChildFile("recovery_info.txt");
+            if (infoFile.existsAsFile())
+            {
+                juce::String originalPath = infoFile.loadFileAsString().trim();
+                if (originalPath.isNotEmpty())
+                {
+                    juce::File originalFile(originalPath);
+                    // Set the project file so user can easily save to same location
+                    setCurrentProjectFile(originalFile);
+                }
+            }
+
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                   "Recovery Complete",
+                                                   "Your work has been recovered. Please save your project to preserve these changes.");
+        }
+        else  // Discard
+        {
+            deleteRecoveryFile();
+        }
+    });
+}
+
+void MainComponent::deleteRecoveryFile()
+{
+    auto recoveryFile = getRecoveryFile();
+    if (recoveryFile.existsAsFile())
+    {
+        recoveryFile.deleteFile();
+    }
+
+    // Also delete the info file
+    auto infoFile = getAutoSaveFolder().getChildFile("recovery_info.txt");
+    if (infoFile.existsAsFile())
+    {
+        infoFile.deleteFile();
+    }
 }
 
