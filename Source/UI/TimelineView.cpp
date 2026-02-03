@@ -940,7 +940,8 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
             
             double regionHeight = static_cast<double>(regionBounds.getHeight());
             double noteHeight = juce::jmax(2.0, regionHeight / 24.0); // Rough approximation
-            
+            juce::ignoreUnused(noteHeight);  // Currently unused, kept for future note length visualization
+
             // Calculate relative offset of the region
             int64_t regionOffset = region->getOffset();
 
@@ -966,10 +967,11 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
                      // But drawing NoteOns is simpler. Let's try to get length.
                      
                      double noteLengthSamples = 0;
+                     juce::ignoreUnused(noteLengthSamples);  // Kept for future note length visualization
                      // Rough check for note length or assume default for now to be safe/fast
                      // Really we should iterate matches pairs if updated.
                      // But sequence is straight list.
-                     
+
                      // Just draw simple dots/lines for note ons
                      int noteX = x1 + sampleToPixel(noteStart) - sampleToPixel(0);
                      int noteY = regionBounds.getY() + static_cast<int>(regionHeight * (1.0 - (event->message.getNoteNumber() / 128.0)));
