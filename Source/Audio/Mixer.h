@@ -2,6 +2,7 @@
 
 #include "../Timeline/Track.h"
 #include "../Timeline/Timeline.h"
+#include "SendReturn.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <cmath>
 
@@ -17,10 +18,17 @@
  *   2. INSERT FX: Up to 8 effect slots processed in series (in AudioTrack)
  *   3. FADER:     Volume control (0.0 to 2.0, unity = 1.0)
  *   4. PAN:       Stereo position (-1.0 left to +1.0 right)
- *   5. OUTPUT:    Mixed to master bus (or group bus when routing is added)
+ *   5. SENDS:     Routes copy to aux tracks (pre or post fader)
+ *   6. OUTPUT:    Mixed to master bus (or group bus when routing is added)
+ *
+ * Aux Tracks (Send/Return):
+ *   - Receives audio from track sends
+ *   - Processes through insert FX chain (e.g., reverb)
+ *   - Output mixed to master bus
  *
  * Master Bus:
  *   - All track outputs summed
+ *   - All aux track outputs summed
  *   - Master volume applied
  *   - Peak metering with clip detection
  *
@@ -42,9 +50,12 @@ public:
     {
         currentSampleRate = sampleRate;
         currentBlockSize = samplesPerBlock;
-        
+
         // Pre-allocate work buffer (stereo)
         workBuffer.setSize(2, samplesPerBlock);
+
+        // Pre-allocate aux work buffer for send/return processing
+        auxWorkBuffer.setSize(2, samplesPerBlock);
     }
 
     /**
@@ -61,6 +72,9 @@ public:
                       int64_t startSample, int numSamples)
     {
         outputBuffer.clear();
+
+        // Clear all aux track input buffers before processing sends
+        clearAuxInputBuffers(timeline);
 
         bool anySoloed = timeline.hasAnySoloedTrack();
 
@@ -85,14 +99,20 @@ public:
             workBuffer.clear();
             track->processBlock(workBuffer, static_cast<int>(startSample), numSamples);
 
-            // Apply fader (volume) and pan, then mix into output
+            // Get volume and pan for fader calculations
             float volume = track->getVolume();
             float pan = track->getPan();
+
+            // Route pre-fader sends (before volume is applied)
+            routeSends(timeline, *track, workBuffer, numSamples, volume, true);
 
             // Calculate stereo pan gains (constant power panning)
             float angle = (pan + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
             float leftGain = volume * std::cos(angle);
             float rightGain = volume * std::sin(angle);
+
+            // Route post-fader sends (with volume applied)
+            routeSends(timeline, *track, workBuffer, numSamples, volume, false);
 
             // Mix into output (will route to groups/busses when implemented)
             int numChannels = juce::jmin(outputBuffer.getNumChannels(), 2);
@@ -108,6 +128,9 @@ public:
                                      0, numSamples, rightGain);
             }
         }
+
+        // Process aux tracks and mix their output to master
+        processAuxTracks(timeline, outputBuffer, numSamples);
 
         // Apply master volume (master bus processing)
         outputBuffer.applyGain(masterVolume.load());
@@ -186,12 +209,131 @@ public:
     void releaseResources()
     {
         workBuffer.setSize(0, 0);
+        auxWorkBuffer.setSize(0, 0);
     }
 
 private:
+    /**
+     * Clear all aux track input buffers.
+     * Called at the start of each processBlock.
+     */
+    void clearAuxInputBuffers(Timeline& timeline)
+    {
+        for (int i = 0; i < timeline.getNumAuxTracks(); ++i)
+        {
+            AuxTrack* auxTrack = timeline.getAuxTrack(i);
+            if (auxTrack != nullptr)
+            {
+                auxTrack->clearInputBuffer();
+            }
+        }
+    }
+
+    /**
+     * Route sends from a track to aux tracks.
+     *
+     * @param timeline The timeline containing aux tracks
+     * @param track The source track with sends
+     * @param sourceBuffer The track's audio buffer
+     * @param numSamples Number of samples to process
+     * @param trackVolume The track's volume (used for post-fader sends)
+     * @param preFaderOnly If true, only process pre-fader sends; if false, only post-fader
+     */
+    void routeSends(Timeline& timeline, Track& track,
+                    const juce::AudioBuffer<float>& sourceBuffer,
+                    int numSamples, float trackVolume, bool preFaderOnly)
+    {
+        const SendManager& sendMgr = track.getSendManager();
+
+        for (int sendIdx = 0; sendIdx < sendMgr.getNumSends(); ++sendIdx)
+        {
+            const Send* send = sendMgr.getSend(sendIdx);
+            if (send == nullptr)
+                continue;
+
+            // Skip if not enabled or no destination
+            if (!send->enabled.load() || send->destAuxIndex < 0)
+                continue;
+
+            // Check pre/post fader mode
+            bool isPreFader = send->preFader.load();
+            if (isPreFader != preFaderOnly)
+                continue;
+
+            // Get destination aux track
+            AuxTrack* auxTrack = timeline.getAuxTrack(send->destAuxIndex);
+            if (auxTrack == nullptr)
+                continue;
+
+            // Calculate send gain
+            float sendLevel = send->sendLevel.load();
+            float gain = isPreFader ? sendLevel : (sendLevel * trackVolume);
+
+            // Add audio to aux track's input buffer
+            auxTrack->addToInputBuffer(sourceBuffer, gain, numSamples);
+        }
+    }
+
+    /**
+     * Process all aux tracks and mix their output to the master buffer.
+     *
+     * @param timeline The timeline containing aux tracks
+     * @param outputBuffer The master output buffer
+     * @param numSamples Number of samples to process
+     */
+    void processAuxTracks(Timeline& timeline, juce::AudioBuffer<float>& outputBuffer, int numSamples)
+    {
+        bool anyAuxSoloed = timeline.hasAnySoloedAuxTrack();
+
+        for (int i = 0; i < timeline.getNumAuxTracks(); ++i)
+        {
+            AuxTrack* auxTrack = timeline.getAuxTrack(i);
+            if (auxTrack == nullptr)
+                continue;
+
+            // Handle mute/solo logic for aux tracks
+            bool shouldPlay = true;
+            if (auxTrack->isMuted())
+                shouldPlay = false;
+            if (anyAuxSoloed && !auxTrack->isSoloed())
+                shouldPlay = false;
+
+            if (!shouldPlay)
+                continue;
+
+            // Clear aux work buffer and process accumulated input
+            auxWorkBuffer.clear();
+            auxTrack->processAccumulatedInput(auxWorkBuffer, numSamples);
+
+            // Apply aux track volume and pan
+            float volume = auxTrack->getVolume();
+            float pan = auxTrack->getPan();
+
+            // Calculate stereo pan gains (constant power panning)
+            float angle = (pan + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
+            float leftGain = volume * std::cos(angle);
+            float rightGain = volume * std::sin(angle);
+
+            // Mix aux output into master output
+            int numChannels = juce::jmin(outputBuffer.getNumChannels(), 2);
+
+            if (numChannels >= 1)
+            {
+                outputBuffer.addFrom(0, 0, auxWorkBuffer, 0, 0, numSamples, leftGain);
+            }
+            if (numChannels >= 2)
+            {
+                outputBuffer.addFrom(1, 0, auxWorkBuffer,
+                                     auxWorkBuffer.getNumChannels() > 1 ? 1 : 0,
+                                     0, numSamples, rightGain);
+            }
+        }
+    }
+
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     juce::AudioBuffer<float> workBuffer;
+    juce::AudioBuffer<float> auxWorkBuffer;  // For aux track processing
 
     std::atomic<float> masterVolume { 1.0f };
     std::atomic<float> peakLevelLeft { 0.0f };

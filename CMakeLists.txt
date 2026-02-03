@@ -47,6 +47,8 @@ target_sources(MidiSing
         # Audio
         Source/Audio/Transport.h
         Source/Audio/Mixer.h
+        Source/Audio/SendReturn.h
+        Source/Audio/SendReturn.cpp
         Source/Audio/AudioEngine.h
         Source/Audio/AudioEngine.cpp
         Source/Audio/AudioTrack.h

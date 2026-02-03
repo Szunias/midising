@@ -1,9 +1,83 @@
 #include "Timeline.h"
 #include "../Audio/AudioTrack.h"
+#include "../Audio/SendReturn.h"
 #include "../MIDI/MidiTrack.h"
 
 Timeline::Timeline()
 {
+}
+
+//==============================================================================
+// Aux Track Management
+//==============================================================================
+
+AuxTrack* Timeline::getAuxTrack(int index)
+{
+    if (index >= 0 && index < auxTracks.size())
+        return auxTracks[index];
+    return nullptr;
+}
+
+const AuxTrack* Timeline::getAuxTrack(int index) const
+{
+    if (index >= 0 && index < auxTracks.size())
+        return auxTracks[index];
+    return nullptr;
+}
+
+void Timeline::addAuxTrack(AuxTrack* auxTrack)
+{
+    if (auxTrack != nullptr)
+        auxTracks.add(auxTrack);
+}
+
+AuxTrack* Timeline::createAuxTrack(const juce::String& name)
+{
+    auto* auxTrack = new AuxTrack(name.isEmpty() ? "Aux " + juce::String(auxTracks.size() + 1) : name);
+    auxTracks.add(auxTrack);
+    return auxTrack;
+}
+
+void Timeline::removeAuxTrack(int index)
+{
+    if (index >= 0 && index < auxTracks.size())
+        auxTracks.remove(index);
+}
+
+void Timeline::moveAuxTrack(int fromIndex, int toIndex)
+{
+    auxTracks.move(fromIndex, toIndex);
+}
+
+void Timeline::clearAuxTracks()
+{
+    auxTracks.clear();
+}
+
+void Timeline::prepareAuxTracksToPlay(double rate, int samplesPerBlock)
+{
+    for (auto* auxTrack : auxTracks)
+    {
+        auxTrack->prepareToPlay(rate, samplesPerBlock);
+    }
+}
+
+void Timeline::releaseAuxTrackResources()
+{
+    for (auto* auxTrack : auxTracks)
+    {
+        auxTrack->releaseResources();
+    }
+}
+
+bool Timeline::hasAnySoloedAuxTrack() const
+{
+    for (auto* auxTrack : auxTracks)
+    {
+        if (auxTrack->isSoloed())
+            return true;
+    }
+    return false;
 }
 
 int64_t Timeline::getEndSample() const

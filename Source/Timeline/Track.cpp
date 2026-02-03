@@ -1,5 +1,6 @@
 #include "Track.h"
 #include "AutomationLane.h"
+#include "../Audio/SendReturn.h"
 
 // Predefined track colors for visual variety
 static const juce::Colour trackColours[] = {
@@ -18,9 +19,12 @@ static int colourIndex = 0;
 Track::Track(const juce::String& trackName, TrackType trackType)
     : name(trackName),
       type(trackType),
-      colour(trackColours[colourIndex++ % 8])
+      colour(trackColours[colourIndex++ % 8]),
+      sendManager(std::make_unique<SendManager>())
 {
 }
+
+Track::~Track() = default;
 
 AutomationLane* Track::addAutomationLane(const juce::String& parameterName)
 {
@@ -102,4 +106,32 @@ float Track::getAutomatedPan(int64_t position) const
         return panLane->getScaledValueAtPosition(position);
     }
     return pan.load();
+}
+
+//==============================================================================
+// Send routing
+//==============================================================================
+
+SendManager& Track::getSendManager()
+{
+    return *sendManager;
+}
+
+const SendManager& Track::getSendManager() const
+{
+    return *sendManager;
+}
+
+bool Track::hasActiveSends() const
+{
+    if (sendManager == nullptr)
+        return false;
+
+    for (int i = 0; i < sendManager->getNumSends(); ++i)
+    {
+        const auto* send = sendManager->getSend(i);
+        if (send != nullptr && send->enabled.load() && send->destAuxIndex >= 0)
+            return true;
+    }
+    return false;
 }

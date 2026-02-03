@@ -7,8 +7,9 @@
 #include <vector>
 #include <memory>
 
-// Forward declaration
+// Forward declarations
 class AutomationLane;
+class SendManager;
 
 /**
  * Type of track (Audio or MIDI)
@@ -27,7 +28,7 @@ class Track
 {
 public:
     Track(const juce::String& name, TrackType type);
-    virtual ~Track() = default;
+    virtual ~Track();
 
     // Getters
     juce::String getName() const { return name; }
@@ -68,6 +69,22 @@ public:
     float getAutomatedVolume(int64_t position) const;
     float getAutomatedPan(int64_t position) const;
 
+    //==========================================================================
+    // Send routing to aux tracks
+    //==========================================================================
+
+    /**
+     * Get the send manager for this track.
+     * The send manager handles routing to aux/return tracks.
+     */
+    SendManager& getSendManager();
+    const SendManager& getSendManager() const;
+
+    /**
+     * Check if this track has any active sends.
+     */
+    bool hasActiveSends() const;
+
 private:
     juce::String name;
     TrackType type;
@@ -83,6 +100,9 @@ private:
 
     // Automation lanes for this track
     std::vector<std::unique_ptr<AutomationLane>> automationLanes;
+
+    // Send routing to aux tracks
+    std::unique_ptr<SendManager> sendManager;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Track)
 };

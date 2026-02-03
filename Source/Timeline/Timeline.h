@@ -5,9 +5,12 @@
 #include <juce_core/juce_core.h>
 #include <memory>
 
+// Forward declaration
+class AuxTrack;
+
 /**
  * Timeline is the main container for all tracks in the DAW.
- * Manages BPM, time signature, and track ordering.
+ * Manages BPM, time signature, track ordering, and aux tracks for send/return routing.
  */
 class Timeline
 {
@@ -65,8 +68,70 @@ public:
     // Get the end sample position of the last region across all tracks
     int64_t getEndSample() const;
 
+    //==========================================================================
+    // Aux Track Management (Send/Return)
+    //==========================================================================
+
+    /**
+     * Get the number of aux tracks.
+     */
+    int getNumAuxTracks() const { return auxTracks.size(); }
+
+    /**
+     * Get an aux track by index.
+     * @param index Index of the aux track (0-based)
+     * @return Pointer to the aux track, or nullptr if invalid index
+     */
+    AuxTrack* getAuxTrack(int index);
+    const AuxTrack* getAuxTrack(int index) const;
+
+    /**
+     * Add a new aux track.
+     * @param auxTrack The aux track to add (timeline takes ownership)
+     */
+    void addAuxTrack(AuxTrack* auxTrack);
+
+    /**
+     * Create and add a new aux track with the given name.
+     * @param name Name for the new aux track
+     * @return Pointer to the newly created aux track
+     */
+    AuxTrack* createAuxTrack(const juce::String& name = "Aux");
+
+    /**
+     * Remove an aux track by index.
+     * @param index Index of the aux track to remove
+     */
+    void removeAuxTrack(int index);
+
+    /**
+     * Move an aux track from one position to another.
+     */
+    void moveAuxTrack(int fromIndex, int toIndex);
+
+    /**
+     * Clear all aux tracks.
+     */
+    void clearAuxTracks();
+
+    /**
+     * Prepare all aux tracks for playback.
+     */
+    void prepareAuxTracksToPlay(double sampleRate, int samplesPerBlock);
+
+    /**
+     * Release resources for all aux tracks.
+     */
+    void releaseAuxTrackResources();
+
+    /**
+     * Check if any aux track is soloed.
+     */
+    bool hasAnySoloedAuxTrack() const;
+
 private:
     juce::OwnedArray<Track> tracks;
+    juce::OwnedArray<AuxTrack> auxTracks;  // Aux/return tracks for send routing
     double bpm = 120.0;
     int beatsPerBar = 4;
     double sampleRate = 44100.0;
