@@ -639,6 +639,13 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::toggleBrowser);
     commands.add(CommandIDs::toggleMixer);
     commands.add(CommandIDs::togglePianoRoll);
+
+    // Tool mode commands
+    commands.add(CommandIDs::toolSelect);
+    commands.add(CommandIDs::toolDraw);
+    commands.add(CommandIDs::toolSplit);
+    commands.add(CommandIDs::toolErase);
+    commands.add(CommandIDs::toolMute);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -718,6 +725,29 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
         result.addDefaultKeypress('p', juce::ModifierKeys::commandModifier);
         result.setTicked(pianoRollVisible);
         break;
+
+    // Tool mode shortcuts
+    case CommandIDs::toolSelect:
+        result.setInfo("Select Tool", "Switch to selection tool", "Tools", 0);
+        result.addDefaultKeypress('v', 0);
+        break;
+    case CommandIDs::toolDraw:
+        result.setInfo("Draw Tool", "Switch to draw tool for creating regions", "Tools", 0);
+        result.addDefaultKeypress('d', 0);
+        break;
+    case CommandIDs::toolSplit:
+        result.setInfo("Split Tool", "Switch to split tool for cutting regions", "Tools", 0);
+        result.addDefaultKeypress('s', 0);
+        break;
+    case CommandIDs::toolErase:
+        result.setInfo("Erase Tool", "Switch to erase tool for deleting regions", "Tools", 0);
+        result.addDefaultKeypress('e', 0);
+        break;
+    case CommandIDs::toolMute:
+        result.setInfo("Mute Tool", "Switch to mute tool for muting regions", "Tools", 0);
+        result.addDefaultKeypress('m', 0);
+        break;
+
     default:
         break;
     }
