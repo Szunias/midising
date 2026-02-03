@@ -116,6 +116,7 @@ private:
     void toggleBrowserPanel();
     void toggleMixerPanel();
     void togglePianoRollPanel();
+    void showPianoRollWithRegion(MidiRegion* region);
     void updatePanelLayout();
 
     // Auto-save and recovery system

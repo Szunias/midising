@@ -104,6 +104,9 @@ public:
     // Callbacks for track header
     std::function<void(AutomationMode)> onAutomationModeChanged;
 
+    // Callback for double-click on MIDI region (to open Piano Roll)
+    std::function<void(MidiRegion*)> onMidiRegionDoubleClicked;
+
     // Track header width and layout constants
     static constexpr int HEADER_WIDTH = 150;
     static constexpr int RULER_HEIGHT = 30;

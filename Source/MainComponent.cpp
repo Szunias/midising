@@ -57,6 +57,12 @@ MainComponent::MainComponent()
     // Setup collapsible panels (Browser, Mixer, PianoRoll)
     setupCollapsiblePanels();
 
+    // Wire up timeline view callback for double-click on MIDI regions
+    timelineView.onMidiRegionDoubleClicked = [this](MidiRegion* region)
+    {
+        showPianoRollWithRegion(region);
+    };
+
     // Setup resizable splitters between panels
     setupSplitters();
 
@@ -1268,6 +1274,41 @@ void MainComponent::togglePianoRollPanel()
 
     // Update menu checkmarks
     commandManager.commandStatusChanged();
+}
+
+void MainComponent::showPianoRollWithRegion(MidiRegion* region)
+{
+    // Ensure piano roll panel is visible
+    if (!pianoRollVisible)
+    {
+        pianoRollVisible = true;
+
+        if (pianoRollPanel != nullptr)
+        {
+            pianoRollPanel->setVisible(true);
+        }
+
+        // If showing piano roll and mixer is visible, hide mixer
+        // (they share the same bottom space)
+        if (mixerVisible)
+        {
+            mixerVisible = false;
+            if (mixerPanel != nullptr)
+                mixerPanel->setVisible(false);
+        }
+
+        // Update layout
+        resized();
+
+        // Update menu checkmarks
+        commandManager.commandStatusChanged();
+    }
+
+    // Set the MIDI region on the piano roll
+    if (pianoRollContent != nullptr && region != nullptr)
+    {
+        pianoRollContent->setMidiRegion(region);
+    }
 }
 
 void MainComponent::updatePanelLayout()

@@ -1688,21 +1688,23 @@ void TimelineView::handleDoubleClickOnRegion(Region* region, int trackIndex)
     selectedRegion = region;
     selectedTrackIndex = trackIndex;
 
-    // Check if it's a MIDI region - if so, we should open Piano Roll
-    // This will be implemented in subtask-5-2 by adding a callback to MainComponent
+    // Check if it's a MIDI region - if so, open Piano Roll
     Track* track = timelinePtr->getTrack(trackIndex);
     if (track != nullptr)
     {
         if (dynamic_cast<MidiTrack*>(track) != nullptr)
         {
-            // MIDI region double-click: open Piano Roll (callback to be wired in subtask-5-2)
-            // For now, just select the region
-            DBG("Double-click on MIDI region - should open Piano Roll");
+            // MIDI region double-click: open Piano Roll with this region
+            auto* midiRegion = dynamic_cast<MidiRegion*>(region);
+            if (midiRegion != nullptr && onMidiRegionDoubleClicked)
+            {
+                onMidiRegionDoubleClicked(midiRegion);
+            }
         }
         else if (dynamic_cast<AudioTrack*>(track) != nullptr)
         {
             // Audio region double-click: could open waveform editor in the future
-            DBG("Double-click on Audio region");
+            // For now, just select the region
         }
     }
 
