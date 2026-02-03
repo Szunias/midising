@@ -85,6 +85,31 @@ public:
      */
     bool hasActiveSends() const;
 
+    //==========================================================================
+    // Output routing to group busses
+    //==========================================================================
+
+    /** Special value indicating output goes to master bus (no group routing) */
+    static constexpr int OUTPUT_TO_MASTER = -1;
+
+    /**
+     * Get the output group bus index.
+     * @return Index of the group bus, or OUTPUT_TO_MASTER (-1) for direct to master
+     */
+    int getOutputGroupBus() const { return outputGroupBusIndex.load(); }
+
+    /**
+     * Set the output group bus index.
+     * @param groupIndex Index of the group bus, or OUTPUT_TO_MASTER (-1) for direct to master
+     */
+    void setOutputGroupBus(int groupIndex) { outputGroupBusIndex.store(groupIndex); }
+
+    /**
+     * Check if this track outputs to a group bus.
+     * @return True if routed to a group, false if direct to master
+     */
+    bool isRoutedToGroup() const { return outputGroupBusIndex.load() >= 0; }
+
 private:
     juce::String name;
     TrackType type;
@@ -103,6 +128,9 @@ private:
 
     // Send routing to aux tracks
     std::unique_ptr<SendManager> sendManager;
+
+    // Output routing to group bus (-1 = master bus)
+    std::atomic<int> outputGroupBusIndex { OUTPUT_TO_MASTER };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Track)
 };

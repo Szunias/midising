@@ -1,6 +1,7 @@
 #include "Timeline.h"
 #include "../Audio/AudioTrack.h"
 #include "../Audio/SendReturn.h"
+#include "../Audio/GroupBus.h"
 #include "../MIDI/MidiTrack.h"
 
 Timeline::Timeline()
@@ -75,6 +76,101 @@ bool Timeline::hasAnySoloedAuxTrack() const
     for (auto* auxTrack : auxTracks)
     {
         if (auxTrack->isSoloed())
+            return true;
+    }
+    return false;
+}
+
+//==============================================================================
+// Group Bus Management
+//==============================================================================
+
+GroupBus* Timeline::getGroupBus(int index)
+{
+    if (index >= 0 && index < groupBusses.size())
+        return groupBusses[index];
+    return nullptr;
+}
+
+const GroupBus* Timeline::getGroupBus(int index) const
+{
+    if (index >= 0 && index < groupBusses.size())
+        return groupBusses[index];
+    return nullptr;
+}
+
+void Timeline::addGroupBus(GroupBus* groupBus)
+{
+    if (groupBus != nullptr)
+        groupBusses.add(groupBus);
+}
+
+GroupBus* Timeline::createGroupBus(const juce::String& name)
+{
+    auto* groupBus = new GroupBus(name.isEmpty() ? "Group " + juce::String(groupBusses.size() + 1) : name);
+    groupBusses.add(groupBus);
+    return groupBus;
+}
+
+void Timeline::removeGroupBus(int index)
+{
+    if (index >= 0 && index < groupBusses.size())
+    {
+        // Reset routing for any tracks that were routed to this group
+        for (auto* track : tracks)
+        {
+            if (track->getOutputGroupBus() == index)
+            {
+                track->setOutputGroupBus(Track::OUTPUT_TO_MASTER);
+            }
+            else if (track->getOutputGroupBus() > index)
+            {
+                // Adjust indices for tracks routed to higher-numbered groups
+                track->setOutputGroupBus(track->getOutputGroupBus() - 1);
+            }
+        }
+
+        groupBusses.remove(index);
+    }
+}
+
+void Timeline::moveGroupBus(int fromIndex, int toIndex)
+{
+    groupBusses.move(fromIndex, toIndex);
+}
+
+void Timeline::clearGroupBusses()
+{
+    // Reset all track routing to master
+    for (auto* track : tracks)
+    {
+        track->setOutputGroupBus(Track::OUTPUT_TO_MASTER);
+    }
+
+    groupBusses.clear();
+}
+
+void Timeline::prepareGroupBussesToPlay(double rate, int samplesPerBlock)
+{
+    for (auto* groupBus : groupBusses)
+    {
+        groupBus->prepareToPlay(rate, samplesPerBlock);
+    }
+}
+
+void Timeline::releaseGroupBusResources()
+{
+    for (auto* groupBus : groupBusses)
+    {
+        groupBus->releaseResources();
+    }
+}
+
+bool Timeline::hasAnySoloedGroupBus() const
+{
+    for (auto* groupBus : groupBusses)
+    {
+        if (groupBus->isSoloed())
             return true;
     }
     return false;

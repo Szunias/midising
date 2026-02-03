@@ -3,6 +3,7 @@
 #include "../Timeline/Track.h"
 #include "../Timeline/Timeline.h"
 #include "SendReturn.h"
+#include "GroupBus.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <cmath>
 
@@ -19,15 +20,23 @@
  *   3. FADER:     Volume control (0.0 to 2.0, unity = 1.0)
  *   4. PAN:       Stereo position (-1.0 left to +1.0 right)
  *   5. SENDS:     Routes copy to aux tracks (pre or post fader)
- *   6. OUTPUT:    Mixed to master bus (or group bus when routing is added)
+ *   6. OUTPUT:    Mixed to master bus or group bus (based on track routing)
  *
  * Aux Tracks (Send/Return):
  *   - Receives audio from track sends
  *   - Processes through insert FX chain (e.g., reverb)
  *   - Output mixed to master bus
  *
+ * Group Busses (Submixing):
+ *   - Tracks can be routed to group busses instead of master
+ *   - Group bus sums all routed track outputs
+ *   - Processes through insert FX chain (e.g., bus compression)
+ *   - Group fader/pan applied
+ *   - Output mixed to master bus
+ *
  * Master Bus:
- *   - All track outputs summed
+ *   - Direct track outputs summed (tracks not routed to groups)
+ *   - All group bus outputs summed
  *   - All aux track outputs summed
  *   - Master volume applied
  *   - Peak metering with clip detection
@@ -56,6 +65,9 @@ public:
 
         // Pre-allocate aux work buffer for send/return processing
         auxWorkBuffer.setSize(2, samplesPerBlock);
+
+        // Pre-allocate group work buffer for group bus processing
+        groupWorkBuffer.setSize(2, samplesPerBlock);
     }
 
     /**
@@ -75,6 +87,9 @@ public:
 
         // Clear all aux track input buffers before processing sends
         clearAuxInputBuffers(timeline);
+
+        // Clear all group bus input buffers before routing tracks
+        clearGroupInputBuffers(timeline);
 
         bool anySoloed = timeline.hasAnySoloedTrack();
 
@@ -114,20 +129,31 @@ public:
             // Route post-fader sends (with volume applied)
             routeSends(timeline, *track, workBuffer, numSamples, volume, false);
 
-            // Mix into output (will route to groups/busses when implemented)
-            int numChannels = juce::jmin(outputBuffer.getNumChannels(), 2);
-
-            if (numChannels >= 1)
+            // Route to output: either group bus or master
+            int groupBusIndex = track->getOutputGroupBus();
+            if (groupBusIndex >= 0)
             {
-                outputBuffer.addFrom(0, 0, workBuffer, 0, 0, numSamples, leftGain);
+                // Route to group bus
+                GroupBus* groupBus = timeline.getGroupBus(groupBusIndex);
+                if (groupBus != nullptr)
+                {
+                    groupBus->addToInputBuffer(workBuffer, leftGain, rightGain, numSamples);
+                }
+                else
+                {
+                    // Invalid group index - fall back to master
+                    routeToMaster(outputBuffer, numSamples, leftGain, rightGain);
+                }
             }
-            if (numChannels >= 2)
+            else
             {
-                outputBuffer.addFrom(1, 0, workBuffer,
-                                     workBuffer.getNumChannels() > 1 ? 1 : 0,
-                                     0, numSamples, rightGain);
+                // Route direct to master
+                routeToMaster(outputBuffer, numSamples, leftGain, rightGain);
             }
         }
+
+        // Process group busses and mix their output to master
+        processGroupBusses(timeline, outputBuffer, numSamples);
 
         // Process aux tracks and mix their output to master
         processAuxTracks(timeline, outputBuffer, numSamples);
@@ -210,6 +236,7 @@ public:
     {
         workBuffer.setSize(0, 0);
         auxWorkBuffer.setSize(0, 0);
+        groupWorkBuffer.setSize(0, 0);
     }
 
 private:
@@ -226,6 +253,43 @@ private:
             {
                 auxTrack->clearInputBuffer();
             }
+        }
+    }
+
+    /**
+     * Clear all group bus input buffers.
+     * Called at the start of each processBlock.
+     */
+    void clearGroupInputBuffers(Timeline& timeline)
+    {
+        for (int i = 0; i < timeline.getNumGroupBusses(); ++i)
+        {
+            GroupBus* groupBus = timeline.getGroupBus(i);
+            if (groupBus != nullptr)
+            {
+                groupBus->clearInputBuffer();
+            }
+        }
+    }
+
+    /**
+     * Route track output to master bus.
+     * Helper method to reduce code duplication.
+     */
+    void routeToMaster(juce::AudioBuffer<float>& outputBuffer, int numSamples,
+                       float leftGain, float rightGain)
+    {
+        int numChannels = juce::jmin(outputBuffer.getNumChannels(), 2);
+
+        if (numChannels >= 1)
+        {
+            outputBuffer.addFrom(0, 0, workBuffer, 0, 0, numSamples, leftGain);
+        }
+        if (numChannels >= 2)
+        {
+            outputBuffer.addFrom(1, 0, workBuffer,
+                                 workBuffer.getNumChannels() > 1 ? 1 : 0,
+                                 0, numSamples, rightGain);
         }
     }
 
@@ -271,6 +335,62 @@ private:
 
             // Add audio to aux track's input buffer
             auxTrack->addToInputBuffer(sourceBuffer, gain, numSamples);
+        }
+    }
+
+    /**
+     * Process all group busses and mix their output to the master buffer.
+     *
+     * @param timeline The timeline containing group busses
+     * @param outputBuffer The master output buffer
+     * @param numSamples Number of samples to process
+     */
+    void processGroupBusses(Timeline& timeline, juce::AudioBuffer<float>& outputBuffer, int numSamples)
+    {
+        bool anyGroupSoloed = timeline.hasAnySoloedGroupBus();
+
+        for (int i = 0; i < timeline.getNumGroupBusses(); ++i)
+        {
+            GroupBus* groupBus = timeline.getGroupBus(i);
+            if (groupBus == nullptr)
+                continue;
+
+            // Handle mute/solo logic for group busses
+            bool shouldPlay = true;
+            if (groupBus->isMuted())
+                shouldPlay = false;
+            if (anyGroupSoloed && !groupBus->isSoloed())
+                shouldPlay = false;
+
+            if (!shouldPlay)
+                continue;
+
+            // Clear group work buffer and process accumulated input
+            groupWorkBuffer.clear();
+            groupBus->processAccumulatedInput(groupWorkBuffer, numSamples);
+
+            // Apply group bus volume and pan
+            float volume = groupBus->getVolume();
+            float pan = groupBus->getPan();
+
+            // Calculate stereo pan gains (constant power panning)
+            float angle = (pan + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
+            float leftGain = volume * std::cos(angle);
+            float rightGain = volume * std::sin(angle);
+
+            // Mix group output into master output
+            int numChannels = juce::jmin(outputBuffer.getNumChannels(), 2);
+
+            if (numChannels >= 1)
+            {
+                outputBuffer.addFrom(0, 0, groupWorkBuffer, 0, 0, numSamples, leftGain);
+            }
+            if (numChannels >= 2)
+            {
+                outputBuffer.addFrom(1, 0, groupWorkBuffer,
+                                     groupWorkBuffer.getNumChannels() > 1 ? 1 : 0,
+                                     0, numSamples, rightGain);
+            }
         }
     }
 
@@ -333,7 +453,8 @@ private:
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     juce::AudioBuffer<float> workBuffer;
-    juce::AudioBuffer<float> auxWorkBuffer;  // For aux track processing
+    juce::AudioBuffer<float> auxWorkBuffer;    // For aux track processing
+    juce::AudioBuffer<float> groupWorkBuffer;  // For group bus processing
 
     std::atomic<float> masterVolume { 1.0f };
     std::atomic<float> peakLevelLeft { 0.0f };
