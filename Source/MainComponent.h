@@ -23,6 +23,7 @@
 #include "UI/FileBrowser.h"
 #include "UI/MixerPanel.h"
 #include "UI/PianoRoll.h"
+#include "UI/ResizableSplitter.h"
 #include "Utils/UndoManager.h"
 #include "Utils/RecentFilesManager.h"
 
@@ -150,6 +151,14 @@ private:
     int browserPanelWidth = 250;
     int mixerPanelHeight = 200;
     int pianoRollPanelHeight = 250;
+
+    // Resizable splitters between panels
+    std::unique_ptr<ResizableSplitter> browserSplitter;   // Vertical splitter for browser
+    std::unique_ptr<ResizableSplitter> bottomSplitter;    // Horizontal splitter for mixer/piano roll
+
+    // Splitter setup
+    void setupSplitters();
+    void updateSplitterPositions();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

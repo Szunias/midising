@@ -128,6 +128,7 @@ target_sources(MidiSing
         Source/UI/BrowserPanel.h
         Source/UI/FileBrowser.h
         Source/UI/FileBrowser.cpp
+        Source/UI/ResizableSplitter.h
         # Tests
         Source/Tests/TimeConversionTest.h
         Source/Tests/TimelineTest.h

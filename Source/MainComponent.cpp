@@ -54,6 +54,9 @@ MainComponent::MainComponent()
     // Setup collapsible panels (Browser, Mixer, PianoRoll)
     setupCollapsiblePanels();
 
+    // Setup resizable splitters between panels
+    setupSplitters();
+
     // Create some demo tracks so the timeline isn't empty
     createDemoTracks();
 
@@ -186,25 +189,62 @@ void MainComponent::resized()
     // Spectrum Display (small strip above status bar)
     spectrumDisplay.setBounds(bounds.removeFromBottom(60));
 
-    // Browser panel on the left (if visible)
+    // Browser panel on the left (if visible) with splitter
     if (browserVisible && browserPanel != nullptr)
     {
         browserPanel->setBounds(bounds.removeFromLeft(browserPanelWidth));
+
+        // Position browser splitter
+        if (browserSplitter != nullptr)
+        {
+            browserSplitter->setVisible(true);
+            browserSplitter->setBounds(bounds.removeFromLeft(browserSplitter->getThickness()));
+        }
+    }
+    else if (browserSplitter != nullptr)
+    {
+        browserSplitter->setVisible(false);
     }
 
-    // Piano roll panel at bottom (if visible) - takes priority over mixer
-    if (pianoRollVisible && pianoRollPanel != nullptr)
+    // Bottom panel splitter and panels
+    bool hasBottomPanel = (pianoRollVisible && pianoRollPanel != nullptr) ||
+                          (mixerVisible && mixerPanel != nullptr);
+
+    if (hasBottomPanel && bottomSplitter != nullptr)
     {
-        pianoRollPanel->setBounds(bounds.removeFromBottom(pianoRollPanelHeight));
+        // Piano roll panel at bottom (if visible) - takes priority over mixer
+        if (pianoRollVisible && pianoRollPanel != nullptr)
+        {
+            // Remove space for panel and splitter from bottom
+            auto panelBounds = bounds.removeFromBottom(pianoRollPanelHeight);
+            auto splitterBounds = bounds.removeFromBottom(bottomSplitter->getThickness());
+
+            pianoRollPanel->setBounds(panelBounds);
+            bottomSplitter->setBounds(splitterBounds);
+            bottomSplitter->setVisible(true);
+        }
+        // Mixer panel at bottom (if visible and piano roll is not)
+        else if (mixerVisible && mixerPanel != nullptr)
+        {
+            // Remove space for panel and splitter from bottom
+            auto panelBounds = bounds.removeFromBottom(mixerPanelHeight);
+            auto splitterBounds = bounds.removeFromBottom(bottomSplitter->getThickness());
+
+            mixerPanel->setBounds(panelBounds);
+            bottomSplitter->setBounds(splitterBounds);
+            bottomSplitter->setVisible(true);
+        }
     }
-    // Mixer panel at bottom (if visible and piano roll is not)
-    else if (mixerVisible && mixerPanel != nullptr)
+    else if (bottomSplitter != nullptr)
     {
-        mixerPanel->setBounds(bounds.removeFromBottom(mixerPanelHeight));
+        bottomSplitter->setVisible(false);
     }
 
     // Timeline view fills the rest
     timelineView.setBounds(bounds);
+
+    // Update splitter limits based on current layout
+    updateSplitterPositions();
 }
 
 void MainComponent::setupTransportCallbacks()
@@ -1097,6 +1137,93 @@ void MainComponent::updatePanelLayout()
 {
     // Force layout update
     resized();
+}
+
+//==============================================================================
+// Resizable Splitter System
+//==============================================================================
+
+void MainComponent::setupSplitters()
+{
+    // Create browser splitter (vertical - splits left from right)
+    browserSplitter = std::make_unique<ResizableSplitter>(ResizableSplitter::Orientation::Vertical);
+    browserSplitter->setCurrentPosition(browserPanelWidth);
+    browserSplitter->setLimits(150, 500);  // Min 150px, max 500px
+
+    browserSplitter->onDrag = [this](int newPosition)
+    {
+        browserPanelWidth = newPosition;
+        resized();
+    };
+
+    browserSplitter->onDragEnd = [this]()
+    {
+        // Could save panel sizes to user preferences here
+    };
+
+    addChildComponent(browserSplitter.get());
+
+    // Create bottom splitter (horizontal - splits top from bottom)
+    bottomSplitter = std::make_unique<ResizableSplitter>(ResizableSplitter::Orientation::Horizontal);
+    bottomSplitter->setLimits(100, 500);  // Min 100px, max 500px
+
+    bottomSplitter->onDrag = [this](int newPosition)
+    {
+        // Update the appropriate panel height based on which is visible
+        if (pianoRollVisible)
+        {
+            pianoRollPanelHeight = newPosition;
+        }
+        else if (mixerVisible)
+        {
+            mixerPanelHeight = newPosition;
+        }
+        resized();
+    };
+
+    bottomSplitter->onDragEnd = [this]()
+    {
+        // Could save panel sizes to user preferences here
+    };
+
+    addChildComponent(bottomSplitter.get());
+}
+
+void MainComponent::updateSplitterPositions()
+{
+    // Update browser splitter limits based on available width
+    if (browserSplitter != nullptr)
+    {
+        int maxBrowserWidth = getWidth() - 400;  // Leave at least 400px for timeline
+        browserSplitter->setLimits(150, juce::jmax(150, maxBrowserWidth));
+        browserSplitter->setCurrentPosition(browserPanelWidth);
+    }
+
+    // Update bottom splitter limits based on available height
+    if (bottomSplitter != nullptr)
+    {
+        // Calculate available height for bottom panel
+        int menuHeight = juce::LookAndFeel::getDefaultLookAndFeel().getDefaultMenuBarHeight();
+        int transportHeight = 50;
+        int statusHeight = 24;
+        int spectrumHeight = 60;
+        int minTimelineHeight = 200;
+
+        int availableHeight = getHeight() - menuHeight - transportHeight - statusHeight - spectrumHeight;
+        int maxBottomHeight = availableHeight - minTimelineHeight;
+
+        bottomSplitter->setLimits(100, juce::jmax(100, maxBottomHeight));
+
+        // Set current position based on which panel is visible
+        if (pianoRollVisible)
+        {
+            bottomSplitter->setCurrentPosition(pianoRollPanelHeight);
+        }
+        else if (mixerVisible)
+        {
+            bottomSplitter->setCurrentPosition(mixerPanelHeight);
+        }
+    }
 }
 
 //==============================================================================
