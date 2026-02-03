@@ -36,7 +36,7 @@ public:
 
 private:
     void updateFromTrack();
-    void showContextMenu();
+    void showContextMenu(juce::Point<int> screenPosition);
     void showDeleteConfirmation();
     void showAutomationMenu();
 

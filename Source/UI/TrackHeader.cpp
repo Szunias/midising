@@ -213,7 +213,7 @@ void TrackHeader::mouseDown(const juce::MouseEvent& event)
 {
     if (event.mods.isPopupMenu())
     {
-        showContextMenu();
+        showContextMenu(event.getScreenPosition());
     }
     else
     {
@@ -224,13 +224,13 @@ void TrackHeader::mouseDown(const juce::MouseEvent& event)
     }
 }
 
-void TrackHeader::showContextMenu()
+void TrackHeader::showContextMenu(juce::Point<int> screenPosition)
 {
     juce::PopupMenu menu;
 
     menu.addItem(DeleteTrackId, "Delete Track", trackPtr != nullptr);
 
-    menu.showMenuAsync(juce::PopupMenu::Options(),
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(juce::Rectangle<int>(screenPosition, screenPosition)),
         [this](int result)
         {
             if (result == DeleteTrackId && trackPtr != nullptr)
