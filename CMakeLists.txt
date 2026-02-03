@@ -124,6 +124,8 @@ target_sources(MidiSing
         Source/Effects/StereoDelay.cpp
         Source/UI/EffectRackUI.h
         Source/UI/EffectRackUI.cpp
+        Source/UI/CollapsiblePanel.h
+        Source/UI/BrowserPanel.h
         # Tests
         Source/Tests/TimeConversionTest.h
         Source/Tests/TimelineTest.h

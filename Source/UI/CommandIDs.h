@@ -19,4 +19,9 @@ namespace CommandIDs
     // Track menu commands
     static const int addAudioTrack = 0x2001;
     static const int addMidiTrack  = 0x2002;
+
+    // View menu commands - Panel toggles
+    static const int toggleBrowser   = 0x3001;
+    static const int toggleMixer     = 0x3002;
+    static const int togglePianoRoll = 0x3003;
 }

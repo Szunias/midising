@@ -18,6 +18,10 @@
 #include "UI/TimelineView.h"
 #include "UI/StatusBar.h"
 #include "UI/SpectrumDisplay.h"
+#include "UI/CollapsiblePanel.h"
+#include "UI/BrowserPanel.h"
+#include "UI/MixerPanel.h"
+#include "UI/PianoRoll.h"
 #include "Utils/UndoManager.h"
 #include "Utils/RecentFilesManager.h"
 
@@ -98,6 +102,13 @@ private:
     void handleDeviceChange();
     void handleDeviceError(const juce::String& errorMessage);
 
+    // Panel visibility management
+    void setupCollapsiblePanels();
+    void toggleBrowserPanel();
+    void toggleMixerPanel();
+    void togglePianoRollPanel();
+    void updatePanelLayout();
+
     juce::ApplicationCommandManager commandManager;
     juce::MenuBarComponent menuBar;
 
@@ -118,6 +129,26 @@ private:
     std::atomic<bool> isChangingDevice { false };
     double lastSampleRate = 44100.0;
     int lastBlockSize = 512;
+
+    // Collapsible panels
+    std::unique_ptr<CollapsiblePanel> browserPanel;
+    std::unique_ptr<CollapsiblePanel> mixerPanel;
+    std::unique_ptr<CollapsiblePanel> pianoRollPanel;
+
+    // Panel content components
+    std::unique_ptr<BrowserPanel> browserContent;
+    std::unique_ptr<MixerPanel> mixerContent;
+    std::unique_ptr<PianoRoll> pianoRollContent;
+
+    // Panel visibility state
+    bool browserVisible = false;
+    bool mixerVisible = false;
+    bool pianoRollVisible = false;
+
+    // Panel sizes (for restoration after collapse)
+    int browserPanelWidth = 250;
+    int mixerPanelHeight = 200;
+    int pianoRollPanelHeight = 250;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

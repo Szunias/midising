@@ -49,6 +49,9 @@ MainComponent::MainComponent()
     timelineView.setMidiEngine(&audioEngine.getMidiEngine());
     addAndMakeVisible(timelineView);
 
+    // Setup collapsible panels (Browser, Mixer, PianoRoll)
+    setupCollapsiblePanels();
+
     // Create some demo tracks so the timeline isn't empty
     createDemoTracks();
 
@@ -180,6 +183,23 @@ void MainComponent::resized()
 
     // Spectrum Display (small strip above status bar)
     spectrumDisplay.setBounds(bounds.removeFromBottom(60));
+
+    // Browser panel on the left (if visible)
+    if (browserVisible && browserPanel != nullptr)
+    {
+        browserPanel->setBounds(bounds.removeFromLeft(browserPanelWidth));
+    }
+
+    // Piano roll panel at bottom (if visible) - takes priority over mixer
+    if (pianoRollVisible && pianoRollPanel != nullptr)
+    {
+        pianoRollPanel->setBounds(bounds.removeFromBottom(pianoRollPanelHeight));
+    }
+    // Mixer panel at bottom (if visible and piano roll is not)
+    else if (mixerVisible && mixerPanel != nullptr)
+    {
+        mixerPanel->setBounds(bounds.removeFromBottom(mixerPanelHeight));
+    }
 
     // Timeline view fills the rest
     timelineView.setBounds(bounds);
@@ -448,6 +468,9 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::audioSettings);
     commands.add(CommandIDs::addAudioTrack);
     commands.add(CommandIDs::addMidiTrack);
+    commands.add(CommandIDs::toggleBrowser);
+    commands.add(CommandIDs::toggleMixer);
+    commands.add(CommandIDs::togglePianoRoll);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -507,6 +530,21 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
     case CommandIDs::addMidiTrack:
         result.setInfo("Add MIDI Track", "Adds a new MIDI track to the timeline", "Track", 0);
         result.addDefaultKeypress('t', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+        break;
+    case CommandIDs::toggleBrowser:
+        result.setInfo("Toggle Browser", "Shows or hides the file browser panel", "View", 0);
+        result.addDefaultKeypress('b', juce::ModifierKeys::commandModifier);
+        result.setTicked(browserVisible);
+        break;
+    case CommandIDs::toggleMixer:
+        result.setInfo("Toggle Mixer", "Shows or hides the mixer panel", "View", 0);
+        result.addDefaultKeypress('m', juce::ModifierKeys::commandModifier);
+        result.setTicked(mixerVisible);
+        break;
+    case CommandIDs::togglePianoRoll:
+        result.setInfo("Toggle Piano Roll", "Shows or hides the piano roll editor", "View", 0);
+        result.addDefaultKeypress('p', juce::ModifierKeys::commandModifier);
+        result.setTicked(pianoRollVisible);
         break;
     default:
         break;
@@ -576,6 +614,15 @@ bool MainComponent::perform(const InvocationInfo& info)
             setHasUnsavedChanges(true);
         }
         return true;
+    case CommandIDs::toggleBrowser:
+        toggleBrowserPanel();
+        return true;
+    case CommandIDs::toggleMixer:
+        toggleMixerPanel();
+        return true;
+    case CommandIDs::togglePianoRoll:
+        togglePianoRollPanel();
+        return true;
     default:
         return false;
     }
@@ -585,11 +632,12 @@ bool MainComponent::perform(const InvocationInfo& info)
 // MenuBarModel implementation
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "File", "Track" };
+    return { "File", "View", "Track" };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName)
 {
+    juce::ignoreUnused(menuName);
     juce::PopupMenu menu;
 
     if (topLevelMenuIndex == 0)  // File menu
@@ -625,7 +673,13 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addSeparator();
         menu.addCommandItem(&commandManager, juce::StandardApplicationCommandIDs::quit);
     }
-    else if (topLevelMenuIndex == 1)  // Track menu
+    else if (topLevelMenuIndex == 1)  // View menu
+    {
+        menu.addCommandItem(&commandManager, CommandIDs::toggleBrowser);
+        menu.addCommandItem(&commandManager, CommandIDs::toggleMixer);
+        menu.addCommandItem(&commandManager, CommandIDs::togglePianoRoll);
+    }
+    else if (topLevelMenuIndex == 2)  // Track menu
     {
         menu.addCommandItem(&commandManager, CommandIDs::addAudioTrack);
         menu.addCommandItem(&commandManager, CommandIDs::addMidiTrack);
@@ -878,6 +932,116 @@ void MainComponent::handleDeviceError(const juce::String& errorMessage)
             "OK"
         );
     });
+}
+
+//==============================================================================
+// Collapsible Panel System
+//==============================================================================
+
+void MainComponent::setupCollapsiblePanels()
+{
+    // Create Browser panel
+    browserContent = std::make_unique<BrowserPanel>();
+    browserPanel = std::make_unique<CollapsiblePanel>("Browser", CollapsiblePanel::Position::Left);
+    browserPanel->setContent(browserContent.get());
+    browserPanel->onCollapse = [this]() { toggleBrowserPanel(); };
+    // Start hidden - user can toggle via View menu
+    browserPanel->setVisible(false);
+
+    // Create Mixer panel
+    mixerContent = std::make_unique<MixerPanel>();
+    mixerContent->setTimeline(&audioEngine.getTimeline());
+    mixerContent->setMixer(&audioEngine.getMixer());
+    mixerPanel = std::make_unique<CollapsiblePanel>("Mixer", CollapsiblePanel::Position::Bottom);
+    mixerPanel->setContent(mixerContent.get());
+    mixerPanel->onCollapse = [this]() { toggleMixerPanel(); };
+    // Start hidden
+    mixerPanel->setVisible(false);
+
+    // Create Piano Roll panel
+    pianoRollContent = std::make_unique<PianoRoll>();
+    pianoRollPanel = std::make_unique<CollapsiblePanel>("Piano Roll", CollapsiblePanel::Position::Bottom);
+    pianoRollPanel->setContent(pianoRollContent.get());
+    pianoRollPanel->onCollapse = [this]() { togglePianoRollPanel(); };
+    // Start hidden
+    pianoRollPanel->setVisible(false);
+
+    // Add panels to component (order matters for z-order)
+    addChildComponent(browserPanel.get());
+    addChildComponent(mixerPanel.get());
+    addChildComponent(pianoRollPanel.get());
+}
+
+void MainComponent::toggleBrowserPanel()
+{
+    browserVisible = !browserVisible;
+
+    if (browserPanel != nullptr)
+    {
+        browserPanel->setVisible(browserVisible);
+    }
+
+    // Update layout
+    resized();
+
+    // Update menu checkmarks
+    commandManager.commandStatusChanged();
+}
+
+void MainComponent::toggleMixerPanel()
+{
+    mixerVisible = !mixerVisible;
+
+    if (mixerPanel != nullptr)
+    {
+        mixerPanel->setVisible(mixerVisible);
+    }
+
+    // If showing mixer and piano roll is visible, hide piano roll
+    // (they share the same bottom space)
+    if (mixerVisible && pianoRollVisible)
+    {
+        pianoRollVisible = false;
+        if (pianoRollPanel != nullptr)
+            pianoRollPanel->setVisible(false);
+    }
+
+    // Update layout
+    resized();
+
+    // Update menu checkmarks
+    commandManager.commandStatusChanged();
+}
+
+void MainComponent::togglePianoRollPanel()
+{
+    pianoRollVisible = !pianoRollVisible;
+
+    if (pianoRollPanel != nullptr)
+    {
+        pianoRollPanel->setVisible(pianoRollVisible);
+    }
+
+    // If showing piano roll and mixer is visible, hide mixer
+    // (they share the same bottom space)
+    if (pianoRollVisible && mixerVisible)
+    {
+        mixerVisible = false;
+        if (mixerPanel != nullptr)
+            mixerPanel->setVisible(false);
+    }
+
+    // Update layout
+    resized();
+
+    // Update menu checkmarks
+    commandManager.commandStatusChanged();
+}
+
+void MainComponent::updatePanelLayout()
+{
+    // Force layout update
+    resized();
 }
 
 //==============================================================================
