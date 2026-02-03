@@ -3,6 +3,7 @@
 #include "TimeConversionTest.h"
 #include "TimelineTest.h"
 #include "VST3WorkflowTest.h"
+#include "MixerRoutingTest.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -45,6 +46,15 @@ public:
             passedTests += 7;
         }
         totalTests += 7;
+        juce::Logger::writeToLog("");
+
+        // Mixer Routing tests (end-to-end verification)
+        juce::Logger::writeToLog("--- Mixer Routing Tests ---");
+        if (MixerRoutingTest::runAllTests())
+        {
+            passedTests += 8;
+        }
+        totalTests += 8;
         juce::Logger::writeToLog("");
 
         // Summary
