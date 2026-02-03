@@ -711,41 +711,41 @@ void ProjectSerializer::restoreRegionFromXml(Track& track, const juce::XmlElemen
     int64_t length = static_cast<int64_t>(xml.getDoubleAttribute("length"));
     int64_t offset = static_cast<int64_t>(xml.getDoubleAttribute("offset"));
     juce::String name = xml.getStringAttribute("name");
-    
+
     if (auto* audioTrack = dynamic_cast<AudioTrack*>(&track))
     {
         juce::String filePath = xml.getStringAttribute("file");
         juce::File file(filePath);
-        
+
         if (file.existsAsFile())
         {
-            // We need a way to load without UI/TimelineView involvement ideally, 
+            // We need a way to load without UI/TimelineView involvement ideally,
             // or we use AudioImporter directly here.
             // But we don't have AudioImporter instance here.
             // Ideally ProjectSerializer should have access to an importer or we make one temporarily.
             // AudioImporter is just a helper around format manager.
-            
+
             AudioImporter importer; // Cheap to create? It has format manager.
             // Format manager needs registration.
             // AudioImporter constructor registers basics.
-            
+
             auto buffer = importer.loadFile(file, 44100.0); // Sample rate? We need timeline rate.
             // Timeline should have rate set.
             // But restoreTimelineFromXml passes timeline.
-            
+
             if (buffer != nullptr)
             {
                 auto region = std::make_unique<AudioRegion>(start, buffer->getNumSamples());
-                region->setAudioBuffer(*buffer); // Length might differ if resampling? 
+                region->setAudioBuffer(*buffer); // Length might differ if resampling?
                 // We should respect saved length ideally or trust the file.
                 // If we resized/trimmed, start/length/offset handles it.
                 // Buffer is always full source.
-                
+
                 region->setLength(length); // Restore trimmed length
                 region->setOffset(offset);
                 region->setName(name);
                 region->setFilePath(filePath);
-                
+
                 audioTrack->addRegion(std::move(region));
             }
         }
@@ -755,7 +755,7 @@ void ProjectSerializer::restoreRegionFromXml(Track& track, const juce::XmlElemen
         auto region = std::make_unique<MidiRegion>(start, length);
         region->setName(name);
         region->setOffset(offset);
-        
+
         juce::MidiMessageSequence seq;
         for (auto* child : xml.getChildIterator())
         {
@@ -763,7 +763,7 @@ void ProjectSerializer::restoreRegionFromXml(Track& track, const juce::XmlElemen
             {
                 auto data = child->getStringAttribute("data");
                 double time = child->getDoubleAttribute("time");
-                
+
                 juce::MemoryBlock mb;
                 mb.loadFromHexString(data);
                 juce::MidiMessage msg(mb.getData(), static_cast<int>(mb.getSize()), time);
@@ -774,4 +774,69 @@ void ProjectSerializer::restoreRegionFromXml(Track& track, const juce::XmlElemen
         region->setMidiSequence(seq);
         midiTrack->addRegion(std::move(region));
     }
+}
+
+//==============================================================================
+// Collect All Files
+//==============================================================================
+
+int ProjectSerializer::collectAllFiles(Timeline& timeline, const juce::File& projectFolder)
+{
+    // Create Audio Files subfolder if it doesn't exist
+    auto audioFilesFolder = getAudioFilesFolder(projectFolder);
+    if (!audioFilesFolder.exists())
+    {
+        auto result = audioFilesFolder.createDirectory();
+        if (result.failed())
+        {
+            DBG("Failed to create Audio Files folder: " + result.getErrorMessage());
+            return -1;
+        }
+    }
+
+    int filesCollected = 0;
+
+    // Iterate through all tracks
+    for (int trackIndex = 0; trackIndex < timeline.getNumTracks(); ++trackIndex)
+    {
+        Track* track = timeline.getTrack(trackIndex);
+        if (track == nullptr || track->getType() != TrackType::Audio)
+            continue;
+
+        auto* audioTrack = dynamic_cast<AudioTrack*>(track);
+        if (audioTrack == nullptr)
+            continue;
+
+        // Iterate through all regions in this track
+        for (int regionIndex = 0; regionIndex < audioTrack->getNumRegions(); ++regionIndex)
+        {
+            AudioRegion* region = audioTrack->getRegion(regionIndex);
+            if (region == nullptr)
+                continue;
+
+            juce::String currentPath = region->getFilePath();
+            if (currentPath.isEmpty())
+                continue;
+
+            juce::File sourceFile(currentPath);
+            if (!sourceFile.existsAsFile())
+                continue;
+
+            // Check if file is already in the Audio Files folder
+            if (sourceFile.getParentDirectory() == audioFilesFolder)
+                continue;
+
+            // Copy the file to the bundle
+            juce::String newRelativePath = copyAudioFileToBundle(sourceFile, projectFolder);
+            if (newRelativePath.isNotEmpty())
+            {
+                // Update the region's file path to the new location
+                juce::File newFile = resolveRelativePath(newRelativePath, projectFolder);
+                region->setFilePath(newFile.getFullPathName());
+                filesCollected++;
+            }
+        }
+    }
+
+    return filesCollected;
 }

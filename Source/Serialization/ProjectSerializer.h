@@ -77,6 +77,17 @@ public:
      */
     static juce::File getAudioFilesFolder(const juce::File& projectFolder);
 
+    /**
+     * Collect all external audio files into the project bundle.
+     * Copies any audio files that are not already in the project's Audio Files folder
+     * and updates the region file paths to point to the collected files.
+     *
+     * @param timeline The timeline containing tracks and regions to process
+     * @param projectFolder The project bundle folder
+     * @return Number of files collected, or -1 if an error occurred
+     */
+    static int collectAllFiles(Timeline& timeline, const juce::File& projectFolder);
+
 private:
     // XML creation methods
     static std::unique_ptr<juce::XmlElement> createTimelineXml(const Timeline& timeline, const Transport& transport);

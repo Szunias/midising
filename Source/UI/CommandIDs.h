@@ -16,6 +16,9 @@ namespace CommandIDs
     // Export
     static const int exportAudio   = 0x100B;
 
+    // Project management
+    static const int collectAllAndSave = 0x100C;
+
     // Track menu commands
     static const int addAudioTrack = 0x2001;
     static const int addMidiTrack  = 0x2002;

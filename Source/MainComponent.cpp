@@ -452,6 +452,98 @@ void MainComponent::saveProjectAs()
     });
 }
 
+void MainComponent::collectAllAndSave()
+{
+    // Stop playback
+    audioEngine.getTransport().stop();
+
+    // Start with current file location if we have one, otherwise use Documents
+    auto initialLocation = currentProjectFile != juce::File()
+        ? currentProjectFile.getParentDirectory()
+        : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+
+    // Use folder browser to select project bundle location
+    fileChooser = std::make_unique<juce::FileChooser>("Choose Project Folder",
+        initialLocation,
+        "",  // No file filter for folder selection
+        true);  // Use native dialog
+
+    auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectDirectories;
+
+    fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
+    {
+        auto folder = fc.getResult();
+        if (folder != juce::File())
+        {
+            // Ensure folder has a valid name
+            if (folder.getFileName().isEmpty())
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Invalid Folder",
+                                                       "Please choose a valid folder name for the project.");
+                return;
+            }
+
+            // Create the project folder if it doesn't exist
+            if (!folder.exists())
+            {
+                auto result = folder.createDirectory();
+                if (result.failed())
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                           "Error",
+                                                           "Could not create project folder: " + result.getErrorMessage());
+                    return;
+                }
+            }
+
+            // Collect all external audio files into the project bundle
+            int filesCollected = ProjectSerializer::collectAllFiles(audioEngine.getTimeline(), folder);
+
+            if (filesCollected < 0)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Error",
+                                                       "Failed to collect audio files into the project folder.");
+                return;
+            }
+
+            // Save the project bundle
+            bool success = ProjectSerializer::saveProjectBundle(audioEngine.getTimeline(),
+                                                                audioEngine.getTransport(),
+                                                                folder);
+
+            if (success)
+            {
+                // Update current file to point to the project file within the bundle
+                auto projectFile = folder.getChildFile(ProjectSerializer::PROJECT_FILE_NAME);
+                setCurrentProjectFile(projectFile);
+                setHasUnsavedChanges(false);
+
+                // Add to recent files after successful save
+                recentFilesManager.addFile(projectFile);
+
+                // Show success message
+                juce::String message = "Project saved successfully.";
+                if (filesCollected > 0)
+                {
+                    message += "\n\n" + juce::String(filesCollected) + " external audio file"
+                             + (filesCollected == 1 ? " was" : "s were") + " copied into the project folder.";
+                }
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                       "Collect All and Save",
+                                                       message);
+            }
+            else
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Error",
+                                                       "Failed to save project bundle.");
+            }
+        }
+    });
+}
+
 void MainComponent::openProject()
 {
     // Stop playback
@@ -503,6 +595,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::projectNew);
     commands.add(CommandIDs::save);
     commands.add(CommandIDs::saveAs);
+    commands.add(CommandIDs::collectAllAndSave);
     commands.add(CommandIDs::open);
     commands.add(CommandIDs::exportAudio);
     commands.add(CommandIDs::undo);
@@ -538,6 +631,10 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
     case CommandIDs::saveAs:
         result.setInfo("Save Project As", "Saves the project with a new name", "Project", 0);
         result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+        break;
+    case CommandIDs::collectAllAndSave:
+        result.setInfo("Collect All and Save", "Copies all external audio files into the project folder and saves", "Project", 0);
+        result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);
         break;
     case CommandIDs::open:
         result.setInfo("Open Project", "Opens a project", "Project", 0);
@@ -614,6 +711,9 @@ bool MainComponent::perform(const InvocationInfo& info)
         return true;
     case CommandIDs::saveAs:
         saveProjectAs();
+        return true;
+    case CommandIDs::collectAllAndSave:
+        collectAllAndSave();
         return true;
     case CommandIDs::open:
         openProject();
@@ -708,6 +808,7 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
 
         menu.addCommandItem(&commandManager, CommandIDs::save);
         menu.addCommandItem(&commandManager, CommandIDs::saveAs);
+        menu.addCommandItem(&commandManager, CommandIDs::collectAllAndSave);
         menu.addSeparator();
         menu.addCommandItem(&commandManager, CommandIDs::exportAudio);
         menu.addSeparator();

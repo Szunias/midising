@@ -88,6 +88,7 @@ public:
     void saveProjectAs();
     void openProject();
     void exportAudio();
+    void collectAllAndSave();
 
 private:
     void updateWindowTitle();
