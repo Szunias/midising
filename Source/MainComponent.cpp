@@ -828,6 +828,29 @@ bool MainComponent::perform(const InvocationInfo& info)
     case CommandIDs::togglePianoRoll:
         togglePianoRollPanel();
         return true;
+
+    // Tool mode shortcuts
+    case CommandIDs::toolSelect:
+        toolBar.setToolMode(ToolMode::Select);
+        timelineView.setToolMode(ToolMode::Select);
+        return true;
+    case CommandIDs::toolDraw:
+        toolBar.setToolMode(ToolMode::Draw);
+        timelineView.setToolMode(ToolMode::Draw);
+        return true;
+    case CommandIDs::toolSplit:
+        toolBar.setToolMode(ToolMode::Split);
+        timelineView.setToolMode(ToolMode::Split);
+        return true;
+    case CommandIDs::toolErase:
+        toolBar.setToolMode(ToolMode::Erase);
+        timelineView.setToolMode(ToolMode::Erase);
+        return true;
+    case CommandIDs::toolMute:
+        // Mute tool - no dedicated ToolMode, this could toggle region muting
+        // For now, just return true to acknowledge the command
+        return true;
+
     default:
         return false;
     }
