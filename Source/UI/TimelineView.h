@@ -228,6 +228,7 @@ private:
     void drawDragGhost(juce::Graphics& g);
     void drawResizeGhost(juce::Graphics& g);
     void drawFadeGhost(juce::Graphics& g);
+    void drawDrawGhost(juce::Graphics& g);
     RegionEdge getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const;
     SmartToolZone getSmartToolZone(int x, int y, Region*& outRegion, int& outTrackIndex) const;
     void updateCursorForPosition(int x, int y);

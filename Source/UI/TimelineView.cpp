@@ -57,6 +57,9 @@ void TimelineView::paint(juce::Graphics& g)
     // Draw fade ghost for visual feedback during fade editing
     drawFadeGhost(g);
 
+    // Draw draw ghost for visual feedback during Draw tool region creation
+    drawDrawGhost(g);
+
     // Draw playhead on top of everything
     drawPlayhead(g);
 }
@@ -1559,6 +1562,32 @@ void TimelineView::drawFadeGhost(juce::Graphics& g)
         g.drawLine(static_cast<float>(fadeStartX), static_cast<float>(regionBounds.getY()),
                    static_cast<float>(regionBounds.getRight()), static_cast<float>(regionBounds.getBottom()), 2.0f);
     }
+}
+
+void TimelineView::drawDrawGhost(juce::Graphics& g)
+{
+    if (!isDrawingRegion || drawTrackIndex < 0)
+        return;
+
+    // Use the pre-calculated ghost preview bounds with slight padding
+    juce::Rectangle<int> ghostBounds = ghostPreviewBounds.reduced(0, 2);
+
+    // Ensure minimum width for visibility
+    if (ghostBounds.getWidth() < 2)
+        ghostBounds.setWidth(2);
+
+    // Draw semi-transparent fill for ghost preview
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.3f));
+    g.fillRect(ghostBounds);
+
+    // Draw ghost border
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.8f));
+    g.drawRect(ghostBounds, 2);
+
+    // Draw snap indicator line at the start position
+    g.setColour(MidiSingLookAndFeel::accentColour);
+    g.drawLine(static_cast<float>(ghostBounds.getX()), static_cast<float>(RULER_HEIGHT),
+               static_cast<float>(ghostBounds.getX()), static_cast<float>(getHeight()), 1.0f);
 }
 
 TimelineView::RegionEdge TimelineView::getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const
