@@ -4,6 +4,7 @@
 #include "TimelineTest.h"
 #include "VST3WorkflowTest.h"
 #include "MixerRoutingTest.h"
+#include "ProjectSaveLoadTest.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -55,6 +56,15 @@ public:
             passedTests += 8;
         }
         totalTests += 8;
+        juce::Logger::writeToLog("");
+
+        // Project Save/Load tests (end-to-end verification)
+        juce::Logger::writeToLog("--- Project Save/Load Tests ---");
+        if (ProjectSaveLoadTest::runAllTests())
+        {
+            passedTests += 10;
+        }
+        totalTests += 10;
         juce::Logger::writeToLog("");
 
         // Summary

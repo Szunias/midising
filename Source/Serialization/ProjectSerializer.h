@@ -104,6 +104,10 @@ private:
     static void restoreTrackFromXml(Timeline& timeline, const juce::XmlElement& xml, MidiEngine* midiEngine);
     static void restoreRegionFromXml(Track& track, const juce::XmlElement& xml);
 
+    // Automation lane serialization
+    static std::unique_ptr<juce::XmlElement> createAutomationLanesXml(const Track& track);
+    static void restoreAutomationLanesFromXml(Track& track, const juce::XmlElement& xml);
+
     // Bundle-specific restoration (resolves relative paths)
     static void restoreTimelineFromXmlBundle(Timeline& timeline, const juce::XmlElement& xml, MidiEngine* midiEngine, const juce::File& projectFolder);
     static void restoreTrackFromXmlBundle(Timeline& timeline, const juce::XmlElement& xml, MidiEngine* midiEngine, const juce::File& projectFolder);

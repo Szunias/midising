@@ -2,6 +2,7 @@
 #include "../Audio/AudioTrack.h"
 #include "../MIDI/MidiTrack.h"
 #include "../Audio/AudioImporter.h"
+#include "../Timeline/AutomationLane.h"
 
 //==============================================================================
 // Legacy single-file format (for backwards compatibility)
@@ -195,6 +196,11 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createTrackXmlForBundle(con
     else if (track.getType() == TrackType::MIDI)
         xml->setAttribute("type", "MIDI");
 
+    // Save automation lanes
+    auto automationXml = createAutomationLanesXml(track);
+    if (automationXml != nullptr)
+        xml->addChildElement(automationXml.release());
+
     // Effects
     if (track.getType() == TrackType::Audio)
     {
@@ -375,6 +381,12 @@ void ProjectSerializer::restoreTrackFromXmlBundle(Timeline& timeline, const juce
         track->setSoloed(xml.getBoolAttribute("soloed", false));
         track->setArmed(xml.getBoolAttribute("armed", false));
         track->setColour(juce::Colour::fromString(xml.getStringAttribute("colour")));
+
+        // Restore automation lanes
+        if (auto* automationXml = xml.getChildByName("AUTOMATION_LANES"))
+        {
+            restoreAutomationLanesFromXml(*track, *automationXml);
+        }
 
         // Restore regions with relative path resolution
         for (auto* child : xml.getChildIterator())
@@ -641,6 +653,11 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createTrackXml(const Track&
     else if (track.getType() == TrackType::MIDI)
         xml->setAttribute("type", "MIDI");
 
+    // Save automation lanes
+    auto automationXml = createAutomationLanesXml(track);
+    if (automationXml != nullptr)
+        xml->addChildElement(automationXml.release());
+
     // Effects
     if (track.getType() == TrackType::Audio)
     {
@@ -796,6 +813,12 @@ void ProjectSerializer::restoreTrackFromXml(Timeline& timeline, const juce::XmlE
         track->setArmed(xml.getBoolAttribute("armed", false));
         track->setColour(juce::Colour::fromString(xml.getStringAttribute("colour")));
 
+        // Restore automation lanes
+        if (auto* automationXml = xml.getChildByName("AUTOMATION_LANES"))
+        {
+            restoreAutomationLanesFromXml(*track, *automationXml);
+        }
+
         // Restore regions
         for (auto* child : xml.getChildIterator())
         {
@@ -943,4 +966,89 @@ int ProjectSerializer::collectAllFiles(Timeline& timeline, const juce::File& pro
     }
 
     return filesCollected;
+}
+
+//==============================================================================
+// Automation Lane Serialization
+//==============================================================================
+
+std::unique_ptr<juce::XmlElement> ProjectSerializer::createAutomationLanesXml(const Track& track)
+{
+    if (track.getNumAutomationLanes() == 0)
+        return nullptr;
+
+    auto xml = std::make_unique<juce::XmlElement>("AUTOMATION_LANES");
+
+    for (size_t i = 0; i < track.getNumAutomationLanes(); ++i)
+    {
+        const auto* lane = track.getAutomationLane(i);
+        if (lane == nullptr)
+            continue;
+
+        auto laneXml = std::make_unique<juce::XmlElement>("LANE");
+        laneXml->setAttribute("name", lane->getParameterName());
+        laneXml->setAttribute("type", static_cast<int>(lane->getParameterType()));
+        laneXml->setAttribute("visible", lane->isVisible());
+        laneXml->setAttribute("bypassed", lane->isBypassed());
+        laneXml->setAttribute("defaultValue", lane->getDefaultValue());
+        laneXml->setAttribute("minValue", lane->getMinValue());
+        laneXml->setAttribute("maxValue", lane->getMaxValue());
+        laneXml->setAttribute("height", lane->getHeight());
+
+        // Save automation points
+        const auto& points = lane->getPoints();
+        for (const auto& point : points)
+        {
+            auto pointXml = std::make_unique<juce::XmlElement>("POINT");
+            pointXml->setAttribute("position", static_cast<double>(point.position));
+            pointXml->setAttribute("value", point.value);
+            pointXml->setAttribute("curve", static_cast<int>(point.curve));
+            laneXml->addChildElement(pointXml.release());
+        }
+
+        xml->addChildElement(laneXml.release());
+    }
+
+    return xml;
+}
+
+void ProjectSerializer::restoreAutomationLanesFromXml(Track& track, const juce::XmlElement& xml)
+{
+    for (auto* laneXml : xml.getChildIterator())
+    {
+        if (!laneXml->hasTagName("LANE"))
+            continue;
+
+        juce::String paramName = laneXml->getStringAttribute("name");
+        if (paramName.isEmpty())
+            continue;
+
+        // Create the automation lane
+        AutomationLane* lane = track.addAutomationLane(paramName);
+        if (lane == nullptr)
+            continue;
+
+        // Restore lane properties
+        lane->setVisible(laneXml->getBoolAttribute("visible", true));
+        lane->setBypassed(laneXml->getBoolAttribute("bypassed", false));
+        lane->setDefaultValue(static_cast<float>(laneXml->getDoubleAttribute("defaultValue", 0.5)));
+        lane->setValueRange(
+            static_cast<float>(laneXml->getDoubleAttribute("minValue", 0.0)),
+            static_cast<float>(laneXml->getDoubleAttribute("maxValue", 1.0))
+        );
+        lane->setHeight(laneXml->getIntAttribute("height", 60));
+
+        // Restore automation points
+        for (auto* pointXml : laneXml->getChildIterator())
+        {
+            if (!pointXml->hasTagName("POINT"))
+                continue;
+
+            int64_t position = static_cast<int64_t>(pointXml->getDoubleAttribute("position", 0.0));
+            float value = static_cast<float>(pointXml->getDoubleAttribute("value", 0.5));
+            auto curveType = static_cast<AutomationCurveType>(pointXml->getIntAttribute("curve", 0));
+
+            lane->addPoint(position, value, curveType);
+        }
+    }
 }
