@@ -108,6 +108,40 @@ public:
      */
     void loadPluginState(const void* data, int sizeInBytes);
 
+    // ========== Deferred Plugin Loading ==========
+
+    /**
+     * Store plugin info for deferred loading (used during project restoration).
+     * The plugin will be loaded when loadPendingPlugin() is called after
+     * setPluginHost() has been called with a valid PluginHost.
+     * @param description The plugin description
+     * @param stateData The plugin state data (can be empty)
+     */
+    void setPendingPluginInfo(const juce::PluginDescription& description,
+                               const juce::MemoryBlock& stateData);
+
+    /**
+     * Check if there's a pending plugin to load.
+     */
+    bool hasPendingPlugin() const { return pendingPluginDescription.name.isNotEmpty(); }
+
+    /**
+     * Get the pending plugin description (for UI display before loading).
+     */
+    const juce::PluginDescription& getPendingPluginDescription() const { return pendingPluginDescription; }
+
+    /**
+     * Load the pending plugin. Call this after setPluginHost() has been called.
+     * @param errorMessage Output parameter for error message on failure
+     * @return True if plugin loaded successfully
+     */
+    bool loadPendingPlugin(juce::String& errorMessage);
+
+    /**
+     * Clear any pending plugin info without loading.
+     */
+    void clearPendingPlugin();
+
     // Region management
     void addRegion(std::unique_ptr<MidiRegion> region);
     void removeRegion(int index);
@@ -179,6 +213,10 @@ private:
     std::atomic<int64_t> recordingStartPosition { 0 };
     juce::MidiMessageSequence recordingBuffer;  // Buffer for incoming MIDI during recording
     mutable juce::CriticalSection recordingLock;  // Protects recordingBuffer (mutable for const methods)
+
+    // Deferred plugin loading (for project restoration)
+    juce::PluginDescription pendingPluginDescription;
+    juce::MemoryBlock pendingPluginState;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiTrack)
 };

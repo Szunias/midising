@@ -217,6 +217,32 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createTrackXmlForBundle(con
         auto* midiTrack = dynamic_cast<const MidiTrack*>(&track);
         if (midiTrack)
         {
+            // Save VST3 plugin state if a plugin is loaded
+            if (midiTrack->hasPlugin())
+            {
+                auto pluginXml = std::make_unique<juce::XmlElement>("VST3PLUGIN");
+
+                // Save plugin description
+                const auto& desc = midiTrack->getPluginDescription();
+                pluginXml->setAttribute("name", desc.name);
+                pluginXml->setAttribute("pluginFormatName", desc.pluginFormatName);
+                pluginXml->setAttribute("fileOrIdentifier", desc.fileOrIdentifier);
+                pluginXml->setAttribute("uid", juce::String(desc.uniqueId));
+                pluginXml->setAttribute("isInstrument", desc.isInstrument);
+                pluginXml->setAttribute("manufacturerName", desc.manufacturerName);
+                pluginXml->setAttribute("version", desc.version);
+
+                // Save plugin state as base64-encoded data
+                juce::MemoryBlock stateData;
+                midiTrack->savePluginState(stateData);
+                if (stateData.getSize() > 0)
+                {
+                    pluginXml->setAttribute("state", stateData.toBase64Encoding());
+                }
+
+                xml->addChildElement(pluginXml.release());
+            }
+
             // MIDI regions (same as regular since they don't reference external files)
             for (int i = 0; i < midiTrack->getNumRegions(); ++i)
             {
@@ -312,7 +338,33 @@ void ProjectSerializer::restoreTrackFromXmlBundle(Timeline& timeline, const juce
     }
     else if (type == "MIDI" && midiEngine != nullptr)
     {
-        track = std::make_unique<MidiTrack>(xml.getStringAttribute("name"), midiEngine);
+        auto midiTrack = std::make_unique<MidiTrack>(xml.getStringAttribute("name"), midiEngine);
+
+        // Check for VST3 plugin info to restore
+        if (auto* pluginXml = xml.getChildByName("VST3PLUGIN"))
+        {
+            juce::PluginDescription desc;
+            desc.name = pluginXml->getStringAttribute("name");
+            desc.pluginFormatName = pluginXml->getStringAttribute("pluginFormatName", "VST3");
+            desc.fileOrIdentifier = pluginXml->getStringAttribute("fileOrIdentifier");
+            desc.uniqueId = pluginXml->getStringAttribute("uid").getIntValue();
+            desc.isInstrument = pluginXml->getBoolAttribute("isInstrument", true);
+            desc.manufacturerName = pluginXml->getStringAttribute("manufacturerName");
+            desc.version = pluginXml->getStringAttribute("version");
+
+            // Restore plugin state from base64
+            juce::MemoryBlock stateData;
+            juce::String stateString = pluginXml->getStringAttribute("state");
+            if (stateString.isNotEmpty())
+            {
+                stateData.fromBase64Encoding(stateString);
+            }
+
+            // Store pending plugin info for deferred loading
+            midiTrack->setPendingPluginInfo(desc, stateData);
+        }
+
+        track = std::move(midiTrack);
     }
 
     if (track != nullptr)
@@ -611,6 +663,32 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createTrackXml(const Track&
         auto* midiTrack = dynamic_cast<const MidiTrack*>(&track);
         if (midiTrack)
         {
+            // Save VST3 plugin state if a plugin is loaded
+            if (midiTrack->hasPlugin())
+            {
+                auto pluginXml = std::make_unique<juce::XmlElement>("VST3PLUGIN");
+
+                // Save plugin description
+                const auto& desc = midiTrack->getPluginDescription();
+                pluginXml->setAttribute("name", desc.name);
+                pluginXml->setAttribute("pluginFormatName", desc.pluginFormatName);
+                pluginXml->setAttribute("fileOrIdentifier", desc.fileOrIdentifier);
+                pluginXml->setAttribute("uid", juce::String(desc.uniqueId));
+                pluginXml->setAttribute("isInstrument", desc.isInstrument);
+                pluginXml->setAttribute("manufacturerName", desc.manufacturerName);
+                pluginXml->setAttribute("version", desc.version);
+
+                // Save plugin state as base64-encoded data
+                juce::MemoryBlock stateData;
+                midiTrack->savePluginState(stateData);
+                if (stateData.getSize() > 0)
+                {
+                    pluginXml->setAttribute("state", stateData.toBase64Encoding());
+                }
+
+                xml->addChildElement(pluginXml.release());
+            }
+
             // Regions
             for (int i = 0; i < midiTrack->getNumRegions(); ++i)
             {
@@ -680,9 +758,35 @@ void ProjectSerializer::restoreTrackFromXml(Timeline& timeline, const juce::XmlE
     }
     else if (type == "MIDI" && midiEngine != nullptr)
     {
-        track = std::make_unique<MidiTrack>(xml.getStringAttribute("name"), midiEngine);
+        auto midiTrack = std::make_unique<MidiTrack>(xml.getStringAttribute("name"), midiEngine);
+
+        // Check for VST3 plugin info to restore
+        if (auto* pluginXml = xml.getChildByName("VST3PLUGIN"))
+        {
+            juce::PluginDescription desc;
+            desc.name = pluginXml->getStringAttribute("name");
+            desc.pluginFormatName = pluginXml->getStringAttribute("pluginFormatName", "VST3");
+            desc.fileOrIdentifier = pluginXml->getStringAttribute("fileOrIdentifier");
+            desc.uniqueId = pluginXml->getStringAttribute("uid").getIntValue();
+            desc.isInstrument = pluginXml->getBoolAttribute("isInstrument", true);
+            desc.manufacturerName = pluginXml->getStringAttribute("manufacturerName");
+            desc.version = pluginXml->getStringAttribute("version");
+
+            // Restore plugin state from base64
+            juce::MemoryBlock stateData;
+            juce::String stateString = pluginXml->getStringAttribute("state");
+            if (stateString.isNotEmpty())
+            {
+                stateData.fromBase64Encoding(stateString);
+            }
+
+            // Store pending plugin info for deferred loading
+            midiTrack->setPendingPluginInfo(desc, stateData);
+        }
+
+        track = std::move(midiTrack);
     }
-    
+
     if (track != nullptr)
     {
         track->setVolume(xml.getDoubleAttribute("volume", 1.0));
@@ -700,7 +804,7 @@ void ProjectSerializer::restoreTrackFromXml(Timeline& timeline, const juce::XmlE
                 restoreRegionFromXml(*track, *child);
             }
         }
-        
+
         timeline.addTrack(track.release());
     }
 }

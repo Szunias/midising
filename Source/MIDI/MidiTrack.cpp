@@ -373,3 +373,48 @@ void MidiTrack::preparePlugin()
         loadedPlugin->prepareToPlay(currentSampleRate, currentBlockSize);
     }
 }
+
+// ========== Deferred Plugin Loading Implementation ==========
+
+void MidiTrack::setPendingPluginInfo(const juce::PluginDescription& description,
+                                      const juce::MemoryBlock& stateData)
+{
+    pendingPluginDescription = description;
+    pendingPluginState = stateData;
+}
+
+bool MidiTrack::loadPendingPlugin(juce::String& errorMessage)
+{
+    if (!hasPendingPlugin())
+    {
+        errorMessage = "No pending plugin to load";
+        return false;
+    }
+
+    if (pluginHost == nullptr)
+    {
+        errorMessage = "PluginHost not set - call setPluginHost() first";
+        return false;
+    }
+
+    // Try to load the plugin synchronously
+    bool success = loadPluginSync(pendingPluginDescription, errorMessage);
+
+    if (success && pendingPluginState.getSize() > 0)
+    {
+        // Restore the plugin state
+        loadPluginState(pendingPluginState.getData(),
+                        static_cast<int>(pendingPluginState.getSize()));
+    }
+
+    // Clear pending info regardless of success
+    clearPendingPlugin();
+
+    return success;
+}
+
+void MidiTrack::clearPendingPlugin()
+{
+    pendingPluginDescription = juce::PluginDescription();
+    pendingPluginState.reset();
+}
