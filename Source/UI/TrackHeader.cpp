@@ -51,13 +51,42 @@ TrackHeader::TrackHeader()
     {
         if (trackPtr != nullptr)
         {
-            trackPtr->setArmed(!trackPtr->isArmed());
+            bool newArmedState = !trackPtr->isArmed();
+            trackPtr->setArmed(newArmedState);
+
+            // For audio tracks, automatically enable input monitoring when arming
+            if (trackPtr->getType() == TrackType::Audio)
+            {
+                auto* audioTrack = static_cast<AudioTrack*>(trackPtr);
+                if (newArmedState)
+                {
+                    // Enable monitoring when arming
+                    audioTrack->setInputMonitoringEnabled(true);
+                }
+            }
+
             updateFromTrack();
             if (onArmChanged)
                 onArmChanged(trackPtr);
         }
     };
     addAndMakeVisible(armButton);
+
+    // Input monitoring button (for audio tracks only)
+    monitorButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    monitorButton.setTooltip("Input Monitoring - hear input while armed");
+    monitorButton.onClick = [this]()
+    {
+        if (trackPtr != nullptr && trackPtr->getType() == TrackType::Audio)
+        {
+            auto* audioTrack = static_cast<AudioTrack*>(trackPtr);
+            audioTrack->setInputMonitoringEnabled(!audioTrack->isInputMonitoringEnabled());
+            updateFromTrack();
+            if (onInputMonitoringChanged)
+                onInputMonitoringChanged(trackPtr);
+        }
+    };
+    addAndMakeVisible(monitorButton);
 
     // Automation button - shows automation lane menu
     autoButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
@@ -99,15 +128,38 @@ void TrackHeader::resized()
 
     bounds.removeFromTop(2);
 
-    // First buttons row (M, S, R)
+    // First buttons row (M, S, R, I for audio tracks)
     auto buttonRow1 = bounds.removeFromTop(20);
-    int buttonWidth = (buttonRow1.getWidth() - 6) / 3;
 
-    muteButton.setBounds(buttonRow1.removeFromLeft(buttonWidth));
-    buttonRow1.removeFromLeft(3);
-    soloButton.setBounds(buttonRow1.removeFromLeft(buttonWidth));
-    buttonRow1.removeFromLeft(3);
-    armButton.setBounds(buttonRow1.removeFromLeft(buttonWidth));
+    // Determine if this is an audio track (show monitoring button)
+    bool isAudioTrack = (trackPtr != nullptr && trackPtr->getType() == TrackType::Audio);
+
+    if (isAudioTrack)
+    {
+        // 4 buttons: M, S, R, I
+        int buttonWidth = (buttonRow1.getWidth() - 9) / 4;
+
+        muteButton.setBounds(buttonRow1.removeFromLeft(buttonWidth));
+        buttonRow1.removeFromLeft(3);
+        soloButton.setBounds(buttonRow1.removeFromLeft(buttonWidth));
+        buttonRow1.removeFromLeft(3);
+        armButton.setBounds(buttonRow1.removeFromLeft(buttonWidth));
+        buttonRow1.removeFromLeft(3);
+        monitorButton.setBounds(buttonRow1.removeFromLeft(buttonWidth));
+        monitorButton.setVisible(true);
+    }
+    else
+    {
+        // 3 buttons: M, S, R
+        int buttonWidth = (buttonRow1.getWidth() - 6) / 3;
+
+        muteButton.setBounds(buttonRow1.removeFromLeft(buttonWidth));
+        buttonRow1.removeFromLeft(3);
+        soloButton.setBounds(buttonRow1.removeFromLeft(buttonWidth));
+        buttonRow1.removeFromLeft(3);
+        armButton.setBounds(buttonRow1.removeFromLeft(buttonWidth));
+        monitorButton.setVisible(false);
+    }
 
     bounds.removeFromTop(2);
 
@@ -141,6 +193,20 @@ void TrackHeader::updateFromTrack()
     armButton.setColour(juce::TextButton::buttonColourId,
                         trackPtr->isArmed() ? MidiSingLookAndFeel::recordColour
                                             : MidiSingLookAndFeel::buttonBackground);
+
+    // Update input monitoring button for audio tracks
+    if (trackPtr->getType() == TrackType::Audio)
+    {
+        auto* audioTrack = static_cast<AudioTrack*>(trackPtr);
+        bool monitoring = audioTrack->isInputMonitoringEnabled();
+
+        monitorButton.setColour(juce::TextButton::buttonColourId,
+                                monitoring ? juce::Colour(0xff5ab4d4) // Light blue for monitoring
+                                           : MidiSingLookAndFeel::buttonBackground);
+    }
+
+    // Make sure layout is updated (for monitoring button visibility)
+    resized();
 }
 
 void TrackHeader::mouseDown(const juce::MouseEvent& event)

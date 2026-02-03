@@ -2,6 +2,7 @@
 
 #include "../Timeline/Track.h"
 #include "../Timeline/Timeline.h"
+#include "AudioTrack.h"
 #include "SendReturn.h"
 #include "GroupBus.h"
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -157,6 +158,9 @@ public:
 
         // Process aux tracks and mix their output to master
         processAuxTracks(timeline, outputBuffer, numSamples);
+
+        // Mix input monitoring for armed tracks with monitoring enabled
+        mixInputMonitoring(timeline, outputBuffer, numSamples);
 
         // Apply master volume (master bus processing)
         outputBuffer.applyGain(masterVolume.load());
@@ -446,6 +450,37 @@ private:
                 outputBuffer.addFrom(1, 0, auxWorkBuffer,
                                      auxWorkBuffer.getNumChannels() > 1 ? 1 : 0,
                                      0, numSamples, rightGain);
+            }
+        }
+    }
+
+    /**
+     * Mix input monitoring from armed audio tracks into the output buffer.
+     * This allows users to hear their input signal when recording.
+     *
+     * @param timeline The timeline containing tracks
+     * @param outputBuffer The master output buffer
+     * @param numSamples Number of samples to process
+     */
+    void mixInputMonitoring(Timeline& timeline, juce::AudioBuffer<float>& outputBuffer, int numSamples)
+    {
+        for (int i = 0; i < timeline.getNumTracks(); ++i)
+        {
+            Track* track = timeline.getTrack(i);
+            if (track == nullptr || track->getType() != TrackType::Audio)
+                continue;
+
+            // Skip muted tracks
+            if (track->isMuted())
+                continue;
+
+            auto* audioTrack = static_cast<AudioTrack*>(track);
+
+            // Check if input monitoring is enabled and track is armed
+            if (audioTrack->isInputMonitoringEnabled() && audioTrack->isArmed())
+            {
+                // Get the monitoring buffer and mix it into the output
+                audioTrack->getMonitoringBuffer(outputBuffer);
             }
         }
     }
