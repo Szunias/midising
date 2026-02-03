@@ -242,6 +242,12 @@ private:
     int64_t fadeCurrentLength = 0;
     int fadeStartMouseX = 0;
 
+    // Draw tool state (for creating regions via Draw tool)
+    bool isDrawingRegion = false;
+    int drawStartX = 0;                          // Starting X coordinate for draw operation
+    int drawTrackIndex = -1;                     // Track index where drawing started
+    juce::Rectangle<int> ghostPreviewBounds;    // Preview rectangle for visual feedback
+
     // Context menu and clipboard operations
     void showContextMenu(const juce::MouseEvent& e);
     void cutSelectedRegion();
