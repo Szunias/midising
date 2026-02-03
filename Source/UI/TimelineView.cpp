@@ -1727,8 +1727,9 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
     menu.addSeparator();
     menu.addItem(SplitRegion, "Split", hasSelection);
 
-    // Show menu and handle selection
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+    // Show menu and handle selection - use screen coordinates for proper positioning
+    auto screenPos = juce::Point<int>(e.getScreenX(), e.getScreenY());
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(juce::Rectangle<int>(screenPos, screenPos)),
         [this, clickX = e.x](int result)
         {
             switch (result)
