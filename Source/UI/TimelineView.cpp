@@ -2317,6 +2317,60 @@ void TimelineView::splitSelectedRegion(int64_t splitPosition)
 }
 
 // ============================================================================
+// Public Region Editing Operations (for menu/shortcut access)
+// ============================================================================
+
+void TimelineView::deleteSelection()
+{
+    deleteSelectedRegion();
+}
+
+void TimelineView::splitSelectionAtPosition(int64_t samplePosition)
+{
+    splitSelectedRegion(samplePosition);
+}
+
+void TimelineView::selectFirstRegion()
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    // Iterate through all tracks to find the first region
+    for (int trackIndex = 0; trackIndex < timelinePtr->getNumTracks(); ++trackIndex)
+    {
+        Track* track = timelinePtr->getTrack(trackIndex);
+        if (track == nullptr)
+            continue;
+
+        // Check for Audio regions
+        if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
+        {
+            if (audioTrack->getNumRegions() > 0)
+            {
+                selectedRegion = audioTrack->getRegion(0);
+                selectedTrackIndex = trackIndex;
+                repaint();
+                return;
+            }
+        }
+        // Check for MIDI regions
+        else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
+        {
+            if (midiTrack->getNumRegions() > 0)
+            {
+                selectedRegion = midiTrack->getRegion(0);
+                selectedTrackIndex = trackIndex;
+                repaint();
+                return;
+            }
+        }
+    }
+
+    // No regions found, clear selection
+    clearSelection();
+}
+
+// ============================================================================
 // Track Management Operations (Context Menu)
 // ============================================================================
 

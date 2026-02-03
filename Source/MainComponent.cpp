@@ -646,6 +646,11 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::toolSplit);
     commands.add(CommandIDs::toolErase);
     commands.add(CommandIDs::toolMute);
+
+    // Edit commands
+    commands.add(CommandIDs::selectAll);
+    commands.add(CommandIDs::deleteSelection);
+    commands.add(CommandIDs::splitAtPlayhead);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -746,6 +751,21 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
     case CommandIDs::toolMute:
         result.setInfo("Mute Tool", "Switch to mute tool for muting regions", "Tools", 0);
         result.addDefaultKeypress('m', 0);
+        break;
+
+    // Edit commands
+    case CommandIDs::selectAll:
+        result.setInfo("Select All", "Select all regions", "Edit", 0);
+        result.addDefaultKeypress('a', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::deleteSelection:
+        result.setInfo("Delete", "Delete selected region", "Edit", 0);
+        result.addDefaultKeypress(juce::KeyPress::deleteKey, 0);
+        result.addDefaultKeypress(juce::KeyPress::backspaceKey, 0);
+        break;
+    case CommandIDs::splitAtPlayhead:
+        result.setInfo("Split at Playhead", "Split selected region at playhead position", "Edit", 0);
+        result.addDefaultKeypress('b', juce::ModifierKeys::commandModifier);
         break;
 
     default:
@@ -851,6 +871,23 @@ bool MainComponent::perform(const InvocationInfo& info)
         // For now, just return true to acknowledge the command
         return true;
 
+    // Edit commands
+    case CommandIDs::selectAll:
+        timelineView.selectFirstRegion();
+        return true;
+    case CommandIDs::deleteSelection:
+        timelineView.deleteSelection();
+        setHasUnsavedChanges(true);
+        return true;
+    case CommandIDs::splitAtPlayhead:
+        {
+            // Get the current playhead position from the transport
+            int64_t playheadPosition = audioEngine.getTransport().getPlayheadPosition();
+            timelineView.splitSelectionAtPosition(playheadPosition);
+            setHasUnsavedChanges(true);
+        }
+        return true;
+
     default:
         return false;
     }
@@ -860,7 +897,7 @@ bool MainComponent::perform(const InvocationInfo& info)
 // MenuBarModel implementation
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "File", "View", "Track" };
+    return { "File", "Edit", "View", "Track" };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName)
@@ -902,13 +939,23 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addSeparator();
         menu.addCommandItem(&commandManager, juce::StandardApplicationCommandIDs::quit);
     }
-    else if (topLevelMenuIndex == 1)  // View menu
+    else if (topLevelMenuIndex == 1)  // Edit menu
+    {
+        menu.addCommandItem(&commandManager, CommandIDs::undo);
+        menu.addCommandItem(&commandManager, CommandIDs::redo);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::selectAll);
+        menu.addCommandItem(&commandManager, CommandIDs::deleteSelection);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::splitAtPlayhead);
+    }
+    else if (topLevelMenuIndex == 2)  // View menu
     {
         menu.addCommandItem(&commandManager, CommandIDs::toggleBrowser);
         menu.addCommandItem(&commandManager, CommandIDs::toggleMixer);
         menu.addCommandItem(&commandManager, CommandIDs::togglePianoRoll);
     }
-    else if (topLevelMenuIndex == 2)  // Track menu
+    else if (topLevelMenuIndex == 3)  // Track menu
     {
         menu.addCommandItem(&commandManager, CommandIDs::addAudioTrack);
         menu.addCommandItem(&commandManager, CommandIDs::addMidiTrack);

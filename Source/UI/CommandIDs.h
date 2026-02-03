@@ -34,4 +34,9 @@ namespace CommandIDs
     static const int toolSplit       = 0x4003;
     static const int toolErase       = 0x4004;
     static const int toolMute        = 0x4005;
+
+    // Edit commands
+    static const int selectAll       = 0x5001;
+    static const int deleteSelection = 0x5002;
+    static const int splitAtPlayhead = 0x5003;
 }

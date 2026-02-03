@@ -86,6 +86,11 @@ public:
     int getSelectedTrackIndex() const { return selectedTrackIndex; }
     void clearSelection();
 
+    // Region editing operations (public wrappers for menu/shortcut access)
+    void deleteSelection();
+    void splitSelectionAtPosition(int64_t samplePosition);
+    void selectFirstRegion();
+
     // Automation lane management
     void setAutomationMode(AutomationMode mode);
     AutomationMode getAutomationMode() const { return automationMode; }
