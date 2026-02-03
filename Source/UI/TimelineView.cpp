@@ -113,6 +113,43 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    // Handle Draw tool - start region creation on empty track area
+    if (currentToolMode == ToolMode::Draw)
+    {
+        // Only start drawing in the track area (not ruler, not header)
+        if (e.x > HEADER_WIDTH && e.y > RULER_HEIGHT)
+        {
+            int trackIdx = getTrackIndexAtY(e.y);
+            if (trackIdx >= 0 && trackIdx < timelinePtr->getNumTracks())
+            {
+                // Check if clicking on an existing region - don't start draw if so
+                int regionTrackIndex = -1;
+                Region* existingRegion = getRegionAtPosition(e.x, e.y, regionTrackIndex);
+
+                if (existingRegion == nullptr)
+                {
+                    // Start drawing a new region
+                    isDrawingRegion = true;
+                    drawStartX = e.x;
+                    drawTrackIndex = trackIdx;
+
+                    // Initialize ghost preview bounds at click position
+                    int trackY = RULER_HEIGHT;
+                    for (int i = 0; i < trackIdx; ++i)
+                    {
+                        trackY += getTotalTrackHeight(i);
+                    }
+
+                    // Create initial ghost preview (will be updated in mouseDrag)
+                    ghostPreviewBounds = juce::Rectangle<int>(e.x, trackY, 1, trackHeight);
+
+                    repaint();
+                    return;
+                }
+            }
+        }
+    }
+
     // Use Smart Tool to determine operation based on click position
     int trackIndex = -1;
     Region* clickedRegion = nullptr;
