@@ -1,7 +1,9 @@
 #include "MainComponent.h"
 #include "Audio/AudioTrack.h"
+#include "Audio/AudioImporter.h"
 #include <cmath>
 #include "MIDI/MidiTrack.h"
+#include "MIDI/MidiImporter.h"
 #include "Actions/TrackActions.h"
 #include "Tests/TestRunner.h"
 #include "UI/CommandIDs.h"
@@ -940,9 +942,62 @@ void MainComponent::handleDeviceError(const juce::String& errorMessage)
 
 void MainComponent::setupCollapsiblePanels()
 {
-    // Create Browser panel
-    browserContent = std::make_unique<BrowserPanel>();
-    browserPanel = std::make_unique<CollapsiblePanel>("Browser", CollapsiblePanel::Position::Left);
+    // Create Browser panel with FileBrowser
+    browserContent = std::make_unique<FileBrowser>();
+    browserContent->setDeviceManager(&deviceManager);
+
+    // Set up callbacks for file interactions
+    browserContent->onFileDoubleClicked = [this](const juce::File& file)
+    {
+        // Import file to timeline when double-clicked
+        auto ext = file.getFileExtension().toLowerCase();
+        if (ext == ".wav" || ext == ".mp3" || ext == ".aif" || ext == ".aiff" || ext == ".flac" || ext == ".ogg")
+        {
+            // Create new audio track and import file
+            auto& timeline = audioEngine.getTimeline();
+            int trackNum = timeline.getNumTracks() + 1;
+            auto* newTrack = new AudioTrack("Audio " + juce::String(trackNum));
+            newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+            timeline.addTrack(newTrack);
+
+            // Import audio to the new track at position 0
+            AudioImporter importer;
+            auto* region = importer.importAudioFile(file, audioEngine.getTransport().getSampleRate());
+            if (region != nullptr)
+            {
+                region->setPosition(0);
+                newTrack->addRegion(region);
+            }
+
+            timelineView.resized();
+            timelineView.repaint();
+            setHasUnsavedChanges(true);
+        }
+        else if (ext == ".mid" || ext == ".midi")
+        {
+            // Create new MIDI track and import file
+            auto& timeline = audioEngine.getTimeline();
+            int trackNum = timeline.getNumTracks() + 1;
+            auto* newTrack = new MidiTrack("MIDI " + juce::String(trackNum), &audioEngine.getMidiEngine());
+            newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+            timeline.addTrack(newTrack);
+
+            // Import MIDI to the new track
+            MidiImporter midiImporter;
+            auto* region = midiImporter.importMidiFile(file, audioEngine.getTimeline().getBpm());
+            if (region != nullptr)
+            {
+                region->setPosition(0);
+                newTrack->addRegion(region);
+            }
+
+            timelineView.resized();
+            timelineView.repaint();
+            setHasUnsavedChanges(true);
+        }
+    };
+
+    browserPanel = std::make_unique<CollapsiblePanel>("File Browser", CollapsiblePanel::Position::Left);
     browserPanel->setContent(browserContent.get());
     browserPanel->onCollapse = [this]() { toggleBrowserPanel(); };
     // Start hidden - user can toggle via View menu

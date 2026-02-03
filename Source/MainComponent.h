@@ -20,6 +20,7 @@
 #include "UI/SpectrumDisplay.h"
 #include "UI/CollapsiblePanel.h"
 #include "UI/BrowserPanel.h"
+#include "UI/FileBrowser.h"
 #include "UI/MixerPanel.h"
 #include "UI/PianoRoll.h"
 #include "Utils/UndoManager.h"
@@ -136,7 +137,7 @@ private:
     std::unique_ptr<CollapsiblePanel> pianoRollPanel;
 
     // Panel content components
-    std::unique_ptr<BrowserPanel> browserContent;
+    std::unique_ptr<FileBrowser> browserContent;
     std::unique_ptr<MixerPanel> mixerContent;
     std::unique_ptr<PianoRoll> pianoRollContent;
 

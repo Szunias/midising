@@ -126,6 +126,8 @@ target_sources(MidiSing
         Source/UI/EffectRackUI.cpp
         Source/UI/CollapsiblePanel.h
         Source/UI/BrowserPanel.h
+        Source/UI/FileBrowser.h
+        Source/UI/FileBrowser.cpp
         # Tests
         Source/Tests/TimeConversionTest.h
         Source/Tests/TimelineTest.h
