@@ -26,6 +26,8 @@ public:
     std::function<void()> onPlay;
     std::function<void()> onStop;
     std::function<void()> onRecord;
+    std::function<void()> onRewind;
+    std::function<void(bool)> onLoopToggle;
     std::function<void()> onSave;
     std::function<void()> onOpen;
     std::function<void(double)> onBpmChange;
@@ -34,13 +36,16 @@ public:
     std::function<void(double)> onMetronomeVolumeChange;
 
     void setMetronomeEnabled(bool enabled);
+    void setLoopEnabled(bool enabled);
 
 private:
     void updateButtonStates();
 
+    juce::TextButton rewindButton { "|<" };
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };
     juce::TextButton recordButton { "Rec" };
+    juce::TextButton loopButton { "Loop" };
     juce::TextButton saveButton { "Save" };
     juce::TextButton openButton { "Open" };
     juce::Slider bpmSlider;

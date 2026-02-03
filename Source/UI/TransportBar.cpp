@@ -2,6 +2,15 @@
 
 TransportBar::TransportBar()
 {
+    // Rewind button
+    rewindButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    rewindButton.onClick = [this]()
+    {
+        if (onRewind)
+            onRewind();
+    };
+    addAndMakeVisible(rewindButton);
+
     // Play button
     playButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
     playButton.onClick = [this]()
@@ -31,6 +40,16 @@ TransportBar::TransportBar()
         updateButtonStates();
     };
     addAndMakeVisible(recordButton);
+
+    // Loop button
+    loopButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    loopButton.setClickingTogglesState(true);
+    loopButton.onClick = [this]()
+    {
+        if (onLoopToggle)
+            onLoopToggle(loopButton.getToggleState());
+    };
+    addAndMakeVisible(loopButton);
 
     // Save button
     saveButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
@@ -106,6 +125,9 @@ void TransportBar::resized()
     int x = margin;
 
     // Transport buttons - fixed 40x30px with explicit pixel coordinates
+    rewindButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + buttonSpacing;
+
     playButton.setBounds(x, y, buttonWidth, buttonHeight);
     x += buttonWidth + buttonSpacing;
 
@@ -113,6 +135,9 @@ void TransportBar::resized()
     x += buttonWidth + buttonSpacing;
 
     recordButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + buttonSpacing;
+
+    loopButton.setBounds(x, y, buttonWidth, buttonHeight);
     x += buttonWidth + sectionSpacing;
 
     // Project buttons - fixed 40x30px
@@ -158,6 +183,14 @@ void TransportBar::setMetronomeEnabled(bool enabled)
     metronomeButton.setToggleState(enabled, juce::dontSendNotification);
 }
 
+void TransportBar::setLoopEnabled(bool enabled)
+{
+    loopButton.setToggleState(enabled, juce::dontSendNotification);
+    loopButton.setColour(juce::TextButton::buttonColourId,
+                         enabled ? MidiSingLookAndFeel::accentColour
+                                 : MidiSingLookAndFeel::buttonBackground);
+}
+
 void TransportBar::timerCallback()
 {
     if (transportPtr != nullptr)
@@ -192,4 +225,9 @@ void TransportBar::updateButtonStates()
     recordButton.setColour(juce::TextButton::buttonColourId,
                            isRecording ? MidiSingLookAndFeel::recordColour
                                        : MidiSingLookAndFeel::buttonBackground);
+
+    // Update loop button color based on toggle state
+    loopButton.setColour(juce::TextButton::buttonColourId,
+                         loopButton.getToggleState() ? MidiSingLookAndFeel::accentColour
+                                                     : MidiSingLookAndFeel::buttonBackground);
 }
