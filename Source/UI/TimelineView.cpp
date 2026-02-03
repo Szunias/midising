@@ -1712,20 +1712,46 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
         CopyRegion,
         PasteRegion,
         DeleteRegion,
-        SplitRegion
+        SplitRegion,
+        AddAudioTrack,
+        AddMidiTrack,
+        ImportAudio,
+        ImportMidi,
+        DeleteTrack,
+        DuplicateTrack
     };
 
     bool hasSelection = (selectedRegion != nullptr && selectedTrackIndex >= 0);
     bool canPaste = clipboard.hasData;
 
-    // Add menu items
+    // Determine the track index at the click position
+    int clickedTrackIndex = getTrackIndexAtY(e.y);
+    contextMenuTrackIndex = clickedTrackIndex;
+    bool hasTrackAtPosition = (clickedTrackIndex >= 0 && timelinePtr != nullptr &&
+                               clickedTrackIndex < timelinePtr->getNumTracks());
+
+    // Region operations section
     menu.addItem(CutRegion, "Cut", hasSelection);
     menu.addItem(CopyRegion, "Copy", hasSelection);
     menu.addItem(PasteRegion, "Paste", canPaste);
     menu.addSeparator();
-    menu.addItem(DeleteRegion, "Delete", hasSelection);
+    menu.addItem(DeleteRegion, "Delete Region", hasSelection);
+    menu.addItem(SplitRegion, "Split Region", hasSelection);
+
+    // Track operations section
     menu.addSeparator();
-    menu.addItem(SplitRegion, "Split", hasSelection);
+    menu.addSectionHeader("Track");
+    menu.addItem(AddAudioTrack, "Add Audio Track");
+    menu.addItem(AddMidiTrack, "Add MIDI Track");
+    menu.addSeparator();
+    menu.addItem(DeleteTrack, "Delete Track", hasTrackAtPosition);
+    menu.addItem(DuplicateTrack, "Duplicate Track", hasTrackAtPosition);
+
+    // Import operations section
+    menu.addSeparator();
+    menu.addSectionHeader("Import");
+    menu.addItem(ImportAudio, "Import Audio...");
+    menu.addItem(ImportMidi, "Import MIDI...");
 
     // Show menu and handle selection - use screen coordinates for proper positioning
     auto screenPos = juce::Point<int>(e.getScreenX(), e.getScreenY());
@@ -1748,6 +1774,24 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
                 break;
             case SplitRegion:
                 splitSelectedRegion(lastClickSamplePosition);
+                break;
+            case AddAudioTrack:
+                addAudioTrack();
+                break;
+            case AddMidiTrack:
+                addMidiTrack();
+                break;
+            case ImportAudio:
+                showImportAudioDialog();
+                break;
+            case ImportMidi:
+                showImportMidiDialog();
+                break;
+            case DeleteTrack:
+                deleteTrack(contextMenuTrackIndex);
+                break;
+            case DuplicateTrack:
+                duplicateTrack(contextMenuTrackIndex);
                 break;
             default:
                 break;
@@ -1977,6 +2021,196 @@ void TimelineView::splitSelectedRegion(int64_t splitPosition)
     }
 
     repaint();
+}
+
+// ============================================================================
+// Track Management Operations (Context Menu)
+// ============================================================================
+
+void TimelineView::addAudioTrack()
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    int trackNum = timelinePtr->getNumTracks() + 1;
+    auto* newTrack = new AudioTrack("Audio " + juce::String(trackNum));
+    newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+    timelinePtr->addTrack(newTrack);
+
+    updateTrackHeaders();
+    resized();
+    repaint();
+}
+
+void TimelineView::addMidiTrack()
+{
+    if (timelinePtr == nullptr || midiEnginePtr == nullptr)
+        return;
+
+    int trackNum = timelinePtr->getNumTracks() + 1;
+    auto* newTrack = new MidiTrack("MIDI " + juce::String(trackNum), midiEnginePtr);
+    newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+    timelinePtr->addTrack(newTrack);
+
+    updateTrackHeaders();
+    resized();
+    repaint();
+}
+
+void TimelineView::deleteTrack(int trackIndex)
+{
+    if (timelinePtr == nullptr || trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return;
+
+    // Clear selection if we're deleting the selected track
+    if (selectedTrackIndex == trackIndex)
+    {
+        selectedRegion = nullptr;
+        selectedTrackIndex = -1;
+    }
+    // Adjust selected track index if deleting a track before it
+    else if (selectedTrackIndex > trackIndex)
+    {
+        selectedTrackIndex--;
+    }
+
+    timelinePtr->removeTrack(trackIndex);
+
+    updateTrackHeaders();
+    resized();
+    repaint();
+}
+
+void TimelineView::duplicateTrack(int trackIndex)
+{
+    if (timelinePtr == nullptr || trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return;
+
+    Track* sourceTrack = timelinePtr->getTrack(trackIndex);
+    if (sourceTrack == nullptr)
+        return;
+
+    // Duplicate based on track type
+    if (auto* audioSource = dynamic_cast<AudioTrack*>(sourceTrack))
+    {
+        auto* newTrack = new AudioTrack(audioSource->getName() + " (copy)");
+        newTrack->setColour(audioSource->getColour());
+        newTrack->setVolume(audioSource->getVolume());
+        newTrack->setPan(audioSource->getPan());
+        newTrack->setMute(audioSource->isMuted());
+        newTrack->setSolo(audioSource->isSoloed());
+
+        // Copy all regions
+        for (int i = 0; i < audioSource->getNumRegions(); ++i)
+        {
+            Region* region = audioSource->getRegion(i);
+            if (auto* audioRegion = dynamic_cast<AudioRegion*>(region))
+            {
+                auto newRegion = std::make_unique<AudioRegion>(
+                    audioRegion->getStartPosition(),
+                    audioRegion->getLength());
+                newRegion->setName(audioRegion->getName());
+                newRegion->setOffset(audioRegion->getOffset());
+                newRegion->setAudioBuffer(audioRegion->getAudioBuffer());
+                newRegion->setFilePath(audioRegion->getFilePath());
+                newRegion->setFadeInLength(audioRegion->getFadeInLength());
+                newRegion->setFadeOutLength(audioRegion->getFadeOutLength());
+                newTrack->addRegion(std::move(newRegion));
+            }
+        }
+
+        timelinePtr->addTrack(newTrack);
+    }
+    else if (auto* midiSource = dynamic_cast<MidiTrack*>(sourceTrack))
+    {
+        if (midiEnginePtr == nullptr)
+            return;
+
+        auto* newTrack = new MidiTrack(midiSource->getName() + " (copy)", midiEnginePtr);
+        newTrack->setColour(midiSource->getColour());
+        newTrack->setVolume(midiSource->getVolume());
+        newTrack->setPan(midiSource->getPan());
+        newTrack->setMute(midiSource->isMuted());
+        newTrack->setSolo(midiSource->isSoloed());
+
+        // Copy all regions
+        for (int i = 0; i < midiSource->getNumRegions(); ++i)
+        {
+            Region* region = midiSource->getRegion(i);
+            if (auto* midiRegion = dynamic_cast<MidiRegion*>(region))
+            {
+                auto newRegion = std::make_unique<MidiRegion>(
+                    midiRegion->getStartPosition(),
+                    midiRegion->getLength());
+                newRegion->setName(midiRegion->getName());
+                newRegion->setOffset(midiRegion->getOffset());
+                newRegion->setMidiSequence(midiRegion->getMidiSequence());
+                newTrack->addRegion(std::move(newRegion));
+            }
+        }
+
+        timelinePtr->addTrack(newTrack);
+    }
+
+    updateTrackHeaders();
+    resized();
+    repaint();
+}
+
+void TimelineView::showImportAudioDialog()
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Import Audio",
+        juce::File::getSpecialLocation(juce::File::userMusicDirectory),
+        "*.wav;*.mp3;*.aif;*.aiff;*.flac;*.ogg");
+
+    auto chooserFlags = juce::FileBrowserComponent::openMode |
+                        juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file != juce::File() && audioImporter.isSupported(file))
+        {
+            // Create a new audio track for the imported file
+            addAudioTrack();
+
+            // Import to the newly created track at position 0
+            int newTrackIndex = timelinePtr->getNumTracks() - 1;
+            importAudioFileToTrack(file, newTrackIndex, HEADER_WIDTH);
+        }
+    });
+}
+
+void TimelineView::showImportMidiDialog()
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Import MIDI",
+        juce::File::getSpecialLocation(juce::File::userMusicDirectory),
+        "*.mid;*.midi");
+
+    auto chooserFlags = juce::FileBrowserComponent::openMode |
+                        juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file != juce::File() && midiImporter.isSupported(file))
+        {
+            // Create a new MIDI track for the imported file
+            addMidiTrack();
+
+            // Import to the newly created track at position 0
+            int newTrackIndex = timelinePtr->getNumTracks() - 1;
+            importMidiFileToTrack(file, newTrackIndex, HEADER_WIDTH);
+        }
+    });
 }
 
 // ============================================================================

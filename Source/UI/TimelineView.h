@@ -245,6 +245,14 @@ private:
     void deleteSelectedRegion();
     void splitSelectedRegion(int64_t splitPosition);
 
+    // Track management operations (context menu)
+    void addAudioTrack();
+    void addMidiTrack();
+    void deleteTrack(int trackIndex);
+    void duplicateTrack(int trackIndex);
+    void showImportAudioDialog();
+    void showImportMidiDialog();
+
     // Clipboard data structure for copy/paste
     struct ClipboardData
     {
@@ -263,6 +271,10 @@ private:
 
     ClipboardData clipboard;
     int64_t lastClickSamplePosition = 0;  // For paste position
+    int contextMenuTrackIndex = -1;  // Track index for context menu operations
+
+    // FileChooser for import dialogs (must persist during async operation)
+    std::unique_ptr<juce::FileChooser> fileChooser;
 
     // Automation mode and editing state
     AutomationMode automationMode = AutomationMode::Read;
