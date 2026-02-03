@@ -7,15 +7,31 @@ MidiTrack::MidiTrack(const juce::String& name, MidiEngine* engine)
 {
 }
 
+MidiTrack::~MidiTrack()
+{
+    // Release plugin resources before destruction
+    unloadPlugin();
+}
+
 void MidiTrack::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlock;
+
+    // Prepare any loaded plugin with the new settings
+    preparePlugin();
 }
 
 void MidiTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
 {
-    if (midiEngine == nullptr)
+    // Need either a plugin or MidiEngine to render audio
+    bool hasPluginLoaded = false;
+    {
+        juce::ScopedLock sl(pluginLock);
+        hasPluginLoaded = (loadedPlugin != nullptr);
+    }
+
+    if (!hasPluginLoaded && midiEngine == nullptr)
         return;
 
     int64_t startPos = static_cast<int64_t>(startSample);
@@ -41,7 +57,7 @@ void MidiTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample, 
                 continue;
 
             // Calculate absolute position of this event
-            int64_t eventTimeInSamples = regionStart + 
+            int64_t eventTimeInSamples = regionStart +
                 static_cast<int64_t>(event->message.getTimeStamp());
 
             // Check if event falls within current block
@@ -53,12 +69,30 @@ void MidiTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample, 
         }
     }
 
-    // Render MIDI to audio through the engine
-    midiEngine->renderNextBlock(buffer, midiBuffer, numSamples);
+    // Render MIDI to audio
+    if (hasPluginLoaded)
+    {
+        // Route through the VST3 plugin
+        juce::ScopedLock sl(pluginLock);
+        if (loadedPlugin != nullptr)
+        {
+            loadedPlugin->processBlock(buffer, midiBuffer);
+        }
+    }
+    else if (midiEngine != nullptr)
+    {
+        // Fallback to built-in synth
+        midiEngine->renderNextBlock(buffer, midiBuffer, numSamples);
+    }
 }
 
 void MidiTrack::releaseResources()
 {
+    juce::ScopedLock sl(pluginLock);
+    if (loadedPlugin != nullptr)
+    {
+        loadedPlugin->releaseResources();
+    }
 }
 
 void MidiTrack::addRegion(std::unique_ptr<MidiRegion> region)
@@ -200,4 +234,187 @@ int MidiTrack::getNumRecordedMessages() const
 {
     juce::ScopedLock sl(recordingLock);
     return recordingBuffer.getNumEvents();
+}
+
+// ========== VST3 Plugin Hosting Implementation ==========
+
+void MidiTrack::loadPluginAsync(const juce::PluginDescription& pluginDescription,
+                                 PluginLoadedCallback callback)
+{
+    if (pluginHost == nullptr)
+    {
+        if (callback)
+            callback(false, "PluginHost not set");
+        return;
+    }
+
+    // Store description for later reference
+    juce::PluginDescription descCopy = pluginDescription;
+
+    pluginHost->loadPluginAsync(pluginDescription,
+        [this, callback, descCopy](std::unique_ptr<juce::AudioPluginInstance> instance,
+                                    const juce::String& errorMessage)
+        {
+            if (instance != nullptr)
+            {
+                // Unload any existing plugin first
+                unloadPlugin();
+
+                // Store the new plugin
+                {
+                    juce::ScopedLock sl(pluginLock);
+                    loadedPlugin = std::move(instance);
+                    loadedPluginDescription = descCopy;
+                }
+
+                // Prepare with current audio settings
+                preparePlugin();
+
+                if (callback)
+                    callback(true, juce::String());
+            }
+            else
+            {
+                if (callback)
+                    callback(false, errorMessage);
+            }
+        });
+}
+
+bool MidiTrack::loadPluginSync(const juce::PluginDescription& pluginDescription,
+                                juce::String& errorMessage)
+{
+    if (pluginHost == nullptr)
+    {
+        errorMessage = "PluginHost not set";
+        return false;
+    }
+
+    auto instance = pluginHost->loadPluginSync(pluginDescription, errorMessage);
+
+    if (instance != nullptr)
+    {
+        // Unload any existing plugin first
+        unloadPlugin();
+
+        // Store the new plugin
+        {
+            juce::ScopedLock sl(pluginLock);
+            loadedPlugin = std::move(instance);
+            loadedPluginDescription = pluginDescription;
+        }
+
+        // Prepare with current audio settings
+        preparePlugin();
+
+        return true;
+    }
+
+    return false;
+}
+
+void MidiTrack::unloadPlugin()
+{
+    juce::ScopedLock sl(pluginLock);
+
+    if (loadedPlugin != nullptr)
+    {
+        loadedPlugin->releaseResources();
+        loadedPlugin.reset();
+        loadedPluginDescription = juce::PluginDescription();
+    }
+}
+
+juce::AudioProcessorEditor* MidiTrack::createPluginEditor()
+{
+    juce::ScopedLock sl(pluginLock);
+
+    if (loadedPlugin != nullptr && loadedPlugin->hasEditor())
+    {
+        return loadedPlugin->createEditor();
+    }
+
+    return nullptr;
+}
+
+void MidiTrack::savePluginState(juce::MemoryBlock& destData) const
+{
+    juce::ScopedLock sl(pluginLock);
+
+    if (loadedPlugin != nullptr)
+    {
+        loadedPlugin->getStateInformation(destData);
+    }
+}
+
+void MidiTrack::loadPluginState(const void* data, int sizeInBytes)
+{
+    juce::ScopedLock sl(pluginLock);
+
+    if (loadedPlugin != nullptr && data != nullptr && sizeInBytes > 0)
+    {
+        loadedPlugin->setStateInformation(data, sizeInBytes);
+    }
+}
+
+void MidiTrack::preparePlugin()
+{
+    juce::ScopedLock sl(pluginLock);
+
+    if (loadedPlugin != nullptr)
+    {
+        // Set up bus layout for stereo output
+        loadedPlugin->setPlayConfigDetails(
+            0,  // No audio inputs (MIDI instrument)
+            2,  // Stereo output
+            currentSampleRate,
+            currentBlockSize);
+
+        loadedPlugin->prepareToPlay(currentSampleRate, currentBlockSize);
+    }
+}
+
+// ========== Deferred Plugin Loading Implementation ==========
+
+void MidiTrack::setPendingPluginInfo(const juce::PluginDescription& description,
+                                      const juce::MemoryBlock& stateData)
+{
+    pendingPluginDescription = description;
+    pendingPluginState = stateData;
+}
+
+bool MidiTrack::loadPendingPlugin(juce::String& errorMessage)
+{
+    if (!hasPendingPlugin())
+    {
+        errorMessage = "No pending plugin to load";
+        return false;
+    }
+
+    if (pluginHost == nullptr)
+    {
+        errorMessage = "PluginHost not set - call setPluginHost() first";
+        return false;
+    }
+
+    // Try to load the plugin synchronously
+    bool success = loadPluginSync(pendingPluginDescription, errorMessage);
+
+    if (success && pendingPluginState.getSize() > 0)
+    {
+        // Restore the plugin state
+        loadPluginState(pendingPluginState.getData(),
+                        static_cast<int>(pendingPluginState.getSize()));
+    }
+
+    // Clear pending info regardless of success
+    clearPendingPlugin();
+
+    return success;
+}
+
+void MidiTrack::clearPendingPlugin()
+{
+    pendingPluginDescription = juce::PluginDescription();
+    pendingPluginState.reset();
 }

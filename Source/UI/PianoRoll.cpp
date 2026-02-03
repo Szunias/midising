@@ -1,6 +1,7 @@
 #include "PianoRoll.h"
 #include <algorithm>
 #include <vector>
+#include <cmath>
 
 PianoRoll::PianoRoll()
 {
@@ -13,6 +14,10 @@ void PianoRoll::paint(juce::Graphics& g)
 
     auto bounds = getLocalBounds();
 
+    // Calculate CC lanes area at the bottom
+    int ccLanesHeight = getNumVisibleCCLanes() * CC_LANE_HEIGHT;
+    auto ccLanesBounds = bounds.removeFromBottom(ccLanesHeight);
+
     // Draw piano keyboard on left
     auto keyboardBounds = bounds.removeFromLeft(KEYBOARD_WIDTH);
     drawKeyboard(g, keyboardBounds);
@@ -23,6 +28,15 @@ void PianoRoll::paint(juce::Graphics& g)
 
     // Draw resize ghost for visual feedback during note resizing
     drawResizeGhost(g, bounds);
+
+    // Draw box selection rectangle for Select tool
+    drawBoxSelection(g, bounds);
+
+    // Draw CC lanes at the bottom
+    if (ccLanesHeight > 0)
+    {
+        drawCCLanes(g, ccLanesBounds);
+    }
 }
 
 void PianoRoll::resized()
@@ -37,108 +51,46 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e)
     if (midiRegion == nullptr)
         return;
 
+    // Check if clicking in CC lane area
+    if (isPointInCCLane(e.x, e.y))
+    {
+        handleCCLaneMouseDown(e);
+        return;
+    }
+
     if (e.x > KEYBOARD_WIDTH)
     {
-        // First, check if clicking on a note edge for resizing
-        int edgeNoteIndex = -1;
-        NoteEdge edge = getNoteEdgeAtPosition(e.x, e.y, edgeNoteIndex);
-
-        if (edge == NoteEdge::Right && edgeNoteIndex >= 0)
+        // Dispatch to tool-specific handler
+        switch (currentTool)
         {
-            // Start resize operation
-            const auto& seq = midiRegion->getMidiSequence();
-            auto* event = seq.getEventPointer(edgeNoteIndex);
-
-            if (event != nullptr && event->message.isNoteOn())
-            {
-                double ticksPerBeat = 960.0;
-                double startBeat = event->message.getTimeStamp() / ticksPerBeat;
-
-                // Get current end beat
-                double endBeat = startBeat + 0.5;
-                if (event->noteOffObject != nullptr)
-                {
-                    endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
-                }
-
-                // Select the note being resized
-                selectedNoteIndices.clear();
-                selectedNoteIndices.insert(edgeNoteIndex);
-
-                isResizingNote = true;
-                resizeNoteIndex = edgeNoteIndex;
-                resizeOriginalEndBeat = endBeat;
-                resizeCurrentEndBeat = endBeat;
-                repaint();
-                return;
-            }
+            case Tool::Draw:
+                handleDrawToolMouseDown(e);
+                break;
+            case Tool::Erase:
+                handleEraseToolMouseDown(e);
+                break;
+            case Tool::Select:
+                handleSelectToolMouseDown(e);
+                break;
+            case Tool::Split:
+                handleSplitToolMouseDown(e);
+                break;
+            case Tool::Mute:
+                handleMuteToolMouseDown(e);
+                break;
         }
-
-        // Check if clicking on an existing note
-        int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
-
-        if (clickedNoteIndex >= 0)
-        {
-            // Check if clicking on an already-selected note to start velocity editing
-            if (selectedNoteIndices.count(clickedNoteIndex) > 0 && !e.mods.isShiftDown())
-            {
-                // Start velocity editing mode
-                const auto& seq = midiRegion->getMidiSequence();
-                auto* event = seq.getEventPointer(clickedNoteIndex);
-
-                if (event != nullptr && event->message.isNoteOn())
-                {
-                    isEditingVelocity = true;
-                    velocityEditNoteIndex = clickedNoteIndex;
-                    velocityEditStartY = e.y;
-                    velocityEditOriginalVelocity = event->message.getFloatVelocity();
-                    isDragging = false;
-                    isCreatingNote = false;
-                    return;
-                }
-            }
-
-            // Clicked on a note - handle selection
-            if (e.mods.isShiftDown())
-            {
-                // Shift+click: toggle selection (multi-select)
-                if (selectedNoteIndices.count(clickedNoteIndex) > 0)
-                {
-                    selectedNoteIndices.erase(clickedNoteIndex);
-                }
-                else
-                {
-                    selectedNoteIndices.insert(clickedNoteIndex);
-                }
-            }
-            else
-            {
-                // Regular click: select only this note (clear previous selection)
-                selectedNoteIndices.clear();
-                selectedNoteIndices.insert(clickedNoteIndex);
-            }
-
-            isDragging = false;
-            isCreatingNote = false;
-            repaint();
-            return;
-        }
-
-        // Clicked on empty space - clear selection and start creating a new note
-        if (!e.mods.isShiftDown())
-        {
-            clearSelection();
-        }
-
-        dragStartNote = yToNote(e.y);
-        dragStartBeat = xToBeat(e.x);
-        isDragging = true;
-        isCreatingNote = true;
     }
 }
 
 void PianoRoll::mouseDrag(const juce::MouseEvent& e)
 {
+    // Handle CC lane editing
+    if (isDraggingInCCLane && midiRegion != nullptr)
+    {
+        handleCCLaneMouseDrag(e);
+        return;
+    }
+
     // Handle velocity editing - drag up to increase, down to decrease
     if (isEditingVelocity && velocityEditNoteIndex >= 0 && midiRegion != nullptr)
     {
@@ -179,8 +131,11 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& e)
             // Calculate new end beat from mouse position
             double newEndBeat = xToBeat(e.x);
 
-            // Ensure minimum length (at least 1/16 of a beat)
-            double minLength = 0.0625;
+            // Apply quantization to end beat if enabled
+            newEndBeat = quantizeBeatPosition(newEndBeat);
+
+            // Ensure minimum length (at least 1 grid step)
+            double minLength = quantizeEnabled ? getQuantizeGridSize() : 0.0625;
             newEndBeat = juce::jmax(startBeat + minLength, newEndBeat);
 
             resizeCurrentEndBeat = newEndBeat;
@@ -189,11 +144,30 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& e)
         return;
     }
 
-    // Could show preview of note being drawn
+    // Handle Select tool box selection drag
+    if (currentTool == Tool::Select && isBoxSelecting)
+    {
+        handleSelectToolMouseDrag(e);
+        return;
+    }
+
+    // Handle Draw tool drag (for note preview)
+    if (currentTool == Tool::Draw && isDragging)
+    {
+        handleDrawToolMouseDrag(e);
+        return;
+    }
 }
 
 void PianoRoll::mouseUp(const juce::MouseEvent& e)
 {
+    // Finalize CC lane editing
+    if (isDraggingInCCLane)
+    {
+        handleCCLaneMouseUp(e);
+        return;
+    }
+
     // Finalize velocity editing
     if (isEditingVelocity)
     {
@@ -229,33 +203,18 @@ void PianoRoll::mouseUp(const juce::MouseEvent& e)
         return;
     }
 
-    if (!isDragging || !isCreatingNote || midiRegion == nullptr)
+    // Handle Select tool box selection completion
+    if (currentTool == Tool::Select && isBoxSelecting)
     {
-        isDragging = false;
-        isCreatingNote = false;
+        handleSelectToolMouseUp(e);
         return;
     }
 
-    int endNote = yToNote(e.y);
-    double endBeat = xToBeat(e.x);
-
-    // Create note from drag start to end
-    if (dragStartNote == endNote && endBeat > dragStartBeat)
+    // Handle Draw tool note creation
+    if (currentTool == Tool::Draw)
     {
-        auto& seq = midiRegion->getMidiSequence();
-
-        // Convert beats to ticks (assuming 960 ticks per beat)
-        double ticksPerBeat = 960.0;
-        double startTicks = dragStartBeat * ticksPerBeat;
-        double endTicks = endBeat * ticksPerBeat;
-
-        // Add note on
-        seq.addEvent(juce::MidiMessage::noteOn(1, dragStartNote, 0.8f).withTimeStamp(startTicks));
-        // Add note off
-        seq.addEvent(juce::MidiMessage::noteOff(1, dragStartNote, 0.0f).withTimeStamp(endTicks));
-        seq.updateMatchedPairs();
-
-        repaint();
+        handleDrawToolMouseUp(e);
+        return;
     }
 
     isDragging = false;
@@ -356,6 +315,9 @@ void PianoRoll::drawNoteGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
                              static_cast<float>(bounds.getRight()));
     }
 
+    // Draw quantize grid lines (finer sub-beat grid)
+    drawQuantizeGrid(g, bounds);
+
     // Draw vertical lines (beat grid)
     double startBeat = horizontalScrollOffset / pixelsPerBeat;
     double endBeat = startBeat + bounds.getWidth() / pixelsPerBeat;
@@ -412,12 +374,23 @@ void PianoRoll::drawNotes(juce::Graphics& g, juce::Rectangle<int> bounds)
         // Draw note
         auto noteRect = juce::Rectangle<int>(x, y + 1, juce::jmax(4, width - 1), noteHeight - 2);
 
-        // Check if this note is selected
+        // Check if this note is selected or muted
         bool isSelected = isNoteSelected(i);
+        bool isMuted = isNoteMuted(i);
 
-        // Note colour based on velocity and selection state
+        // Note colour based on velocity, selection, and mute state
         float velocity = event->message.getFloatVelocity();
-        auto noteColour = MidiSingLookAndFeel::accentColour.withAlpha(0.7f + velocity * 0.3f);
+        juce::Colour noteColour;
+
+        if (isMuted)
+        {
+            // Muted notes are gray and semi-transparent
+            noteColour = juce::Colour(0xff666666).withAlpha(0.5f);
+        }
+        else
+        {
+            noteColour = MidiSingLookAndFeel::accentColour.withAlpha(0.7f + velocity * 0.3f);
+        }
 
         if (isSelected)
         {
@@ -434,10 +407,24 @@ void PianoRoll::drawNotes(juce::Graphics& g, juce::Rectangle<int> bounds)
             g.setColour(juce::Colours::white);
             g.drawRoundedRectangle(noteRect.toFloat(), 2.0f, 2.0f);
         }
+        else if (isMuted)
+        {
+            // Dashed appearance for muted notes - draw lighter border
+            g.setColour(juce::Colour(0xff888888));
+            g.drawRoundedRectangle(noteRect.toFloat(), 2.0f, 1.0f);
+        }
         else
         {
             g.setColour(noteColour.brighter(0.3f));
             g.drawRoundedRectangle(noteRect.toFloat(), 2.0f, 1.0f);
+        }
+
+        // Draw mute indicator "M" on muted notes
+        if (isMuted && noteRect.getWidth() > 15)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.7f));
+            g.setFont(juce::Font(8.0f));
+            g.drawText("M", noteRect.reduced(2, 0), juce::Justification::centredLeft, false);
         }
     }
 }
@@ -619,18 +606,45 @@ PianoRoll::NoteEdge PianoRoll::getNoteEdgeAtPosition(int x, int y, int& outNoteI
 
 void PianoRoll::updateCursorForPosition(int x, int y)
 {
-    int noteIndex = -1;
-    NoteEdge edge = getNoteEdgeAtPosition(x, y, noteIndex);
+    // For Draw tool, check edge detection for resize
+    if (currentTool == Tool::Draw)
+    {
+        int noteIndex = -1;
+        NoteEdge edge = getNoteEdgeAtPosition(x, y, noteIndex);
 
-    if (edge == NoteEdge::Right)
-    {
-        // Show horizontal resize cursor
-        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        if (edge == NoteEdge::Right)
+        {
+            // Show horizontal resize cursor
+            setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+            return;
+        }
     }
-    else
+
+    // Use tool-specific cursor
+    updateCursorForTool();
+}
+
+void PianoRoll::updateCursorForTool()
+{
+    switch (currentTool)
     {
-        // Normal cursor
-        setMouseCursor(juce::MouseCursor::NormalCursor);
+        case Tool::Draw:
+            setMouseCursor(juce::MouseCursor::CrosshairCursor);
+            break;
+        case Tool::Erase:
+            // No specific cursor in JUCE for eraser, using pointing hand
+            setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            break;
+        case Tool::Select:
+            setMouseCursor(juce::MouseCursor::NormalCursor);
+            break;
+        case Tool::Split:
+            // Crosshair for precision
+            setMouseCursor(juce::MouseCursor::CrosshairCursor);
+            break;
+        case Tool::Mute:
+            setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            break;
     }
 }
 
@@ -684,6 +698,132 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key)
         if (!selectedNoteIndices.empty())
         {
             deleteSelectedNotes();
+            return true;
+        }
+    }
+
+    // Tool switching shortcuts
+    // D = Draw tool
+    if (key.getTextCharacter() == 'd' || key.getTextCharacter() == 'D')
+    {
+        setTool(Tool::Draw);
+        return true;
+    }
+
+    // E = Erase tool
+    if (key.getTextCharacter() == 'e' || key.getTextCharacter() == 'E')
+    {
+        setTool(Tool::Erase);
+        return true;
+    }
+
+    // S = Select tool
+    if (key.getTextCharacter() == 's' || key.getTextCharacter() == 'S')
+    {
+        setTool(Tool::Select);
+        return true;
+    }
+
+    // P = Split tool (P for "partition")
+    if (key.getTextCharacter() == 'p' || key.getTextCharacter() == 'P')
+    {
+        setTool(Tool::Split);
+        return true;
+    }
+
+    // M = Mute tool
+    if (key.getTextCharacter() == 'm' || key.getTextCharacter() == 'M')
+    {
+        setTool(Tool::Mute);
+        return true;
+    }
+
+    // Number keys 1-5 for quick tool selection
+    if (key.getTextCharacter() == '1')
+    {
+        setTool(Tool::Draw);
+        return true;
+    }
+    if (key.getTextCharacter() == '2')
+    {
+        setTool(Tool::Erase);
+        return true;
+    }
+    if (key.getTextCharacter() == '3')
+    {
+        setTool(Tool::Select);
+        return true;
+    }
+    if (key.getTextCharacter() == '4')
+    {
+        setTool(Tool::Split);
+        return true;
+    }
+    if (key.getTextCharacter() == '5')
+    {
+        setTool(Tool::Mute);
+        return true;
+    }
+
+    // Ctrl+A = Select all notes
+    if (key.getModifiers().isCommandDown() &&
+        (key.getTextCharacter() == 'a' || key.getTextCharacter() == 'A'))
+    {
+        if (midiRegion != nullptr)
+        {
+            const auto& seq = midiRegion->getMidiSequence();
+            selectedNoteIndices.clear();
+            for (int i = 0; i < seq.getNumEvents(); ++i)
+            {
+                auto* event = seq.getEventPointer(i);
+                if (event != nullptr && event->message.isNoteOn())
+                {
+                    selectedNoteIndices.insert(i);
+                }
+            }
+            repaint();
+        }
+        return true;
+    }
+
+    // Q = Quantize selected notes
+    if (key.getTextCharacter() == 'q' || key.getTextCharacter() == 'Q')
+    {
+        if (!selectedNoteIndices.empty())
+        {
+            quantizeSelectedNotes();
+            return true;
+        }
+    }
+
+    // G = Toggle quantize/snap-to-grid
+    if (key.getTextCharacter() == 'g' || key.getTextCharacter() == 'G')
+    {
+        setQuantizeEnabled(!quantizeEnabled);
+        return true;
+    }
+
+    // Number keys 6-9 for quick quantize value selection (when Ctrl is held)
+    if (key.getModifiers().isCommandDown())
+    {
+        if (key.getTextCharacter() == '6')
+        {
+            setQuantizeValue(QuantizeValue::Quarter);
+            return true;
+        }
+        if (key.getTextCharacter() == '7')
+        {
+            setQuantizeValue(QuantizeValue::Eighth);
+            return true;
+        }
+        if (key.getTextCharacter() == '8')
+        {
+            setQuantizeValue(QuantizeValue::Sixteenth);
+            return true;
+        }
+        if (key.getTextCharacter() == '9')
+        {
+            setQuantizeValue(QuantizeValue::EighthTriplet);
             return true;
         }
     }
@@ -749,4 +889,1094 @@ void PianoRoll::deleteSelectedNotes()
     selectedNoteIndices.clear();
 
     repaint();
+}
+
+// ============================================================================
+// Mute functionality
+// ============================================================================
+
+bool PianoRoll::isNoteMuted(int eventIndex) const
+{
+    return mutedNoteIndices.count(eventIndex) > 0;
+}
+
+void PianoRoll::toggleNoteMute(int eventIndex)
+{
+    if (mutedNoteIndices.count(eventIndex) > 0)
+    {
+        mutedNoteIndices.erase(eventIndex);
+    }
+    else
+    {
+        mutedNoteIndices.insert(eventIndex);
+    }
+    repaint();
+}
+
+void PianoRoll::muteSelectedNotes()
+{
+    for (int index : selectedNoteIndices)
+    {
+        mutedNoteIndices.insert(index);
+    }
+    repaint();
+}
+
+void PianoRoll::unmuteSelectedNotes()
+{
+    for (int index : selectedNoteIndices)
+    {
+        mutedNoteIndices.erase(index);
+    }
+    repaint();
+}
+
+// ============================================================================
+// Split functionality
+// ============================================================================
+
+void PianoRoll::splitNoteAtBeat(int eventIndex, double splitBeat)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    if (eventIndex < 0 || eventIndex >= seq.getNumEvents())
+        return;
+
+    auto* event = seq.getEventPointer(eventIndex);
+    if (event == nullptr || !event->message.isNoteOn())
+        return;
+
+    double ticksPerBeat = 960.0;
+    double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+    // Get end beat
+    double endBeat = startBeat + 0.5;
+    if (event->noteOffObject != nullptr)
+    {
+        endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+    }
+
+    // Ensure split position is within the note
+    if (splitBeat <= startBeat || splitBeat >= endBeat)
+        return;
+
+    // Get note properties
+    int noteNumber = event->message.getNoteNumber();
+    float velocity = event->message.getFloatVelocity();
+    int channel = event->message.getChannel();
+
+    // Calculate split position in ticks
+    double splitTicks = splitBeat * ticksPerBeat;
+    double endTicks = endBeat * ticksPerBeat;
+
+    // Modify the original note to end at the split point
+    if (event->noteOffObject != nullptr)
+    {
+        event->noteOffObject->message.setTimeStamp(splitTicks);
+    }
+
+    // Add new note from split point to original end
+    seq.addEvent(juce::MidiMessage::noteOn(channel, noteNumber, velocity).withTimeStamp(splitTicks));
+    seq.addEvent(juce::MidiMessage::noteOff(channel, noteNumber, 0.0f).withTimeStamp(endTicks));
+
+    // Re-sort and update matched pairs
+    seq.sort();
+    seq.updateMatchedPairs();
+
+    repaint();
+}
+
+// ============================================================================
+// Box selection drawing
+// ============================================================================
+
+void PianoRoll::drawBoxSelection(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    if (!isBoxSelecting)
+        return;
+
+    // Calculate the selection rectangle
+    int left = juce::jmin(boxSelectStart.x, boxSelectEnd.x);
+    int top = juce::jmin(boxSelectStart.y, boxSelectEnd.y);
+    int right = juce::jmax(boxSelectStart.x, boxSelectEnd.x);
+    int bottom = juce::jmax(boxSelectStart.y, boxSelectEnd.y);
+
+    auto selectionRect = juce::Rectangle<int>(left, top, right - left, bottom - top);
+
+    // Clip to bounds
+    selectionRect = selectionRect.getIntersection(bounds);
+
+    if (selectionRect.isEmpty())
+        return;
+
+    // Draw semi-transparent fill
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.2f));
+    g.fillRect(selectionRect);
+
+    // Draw border
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.8f));
+    g.drawRect(selectionRect, 1);
+}
+
+// ============================================================================
+// Tool-specific mouse handlers
+// ============================================================================
+
+void PianoRoll::handleDrawToolMouseDown(const juce::MouseEvent& e)
+{
+    // First, check if clicking on a note edge for resizing
+    int edgeNoteIndex = -1;
+    NoteEdge edge = getNoteEdgeAtPosition(e.x, e.y, edgeNoteIndex);
+
+    if (edge == NoteEdge::Right && edgeNoteIndex >= 0)
+    {
+        // Start resize operation
+        const auto& seq = midiRegion->getMidiSequence();
+        auto* event = seq.getEventPointer(edgeNoteIndex);
+
+        if (event != nullptr && event->message.isNoteOn())
+        {
+            double ticksPerBeat = 960.0;
+            double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+            // Get current end beat
+            double endBeat = startBeat + 0.5;
+            if (event->noteOffObject != nullptr)
+            {
+                endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+            }
+
+            // Select the note being resized
+            selectedNoteIndices.clear();
+            selectedNoteIndices.insert(edgeNoteIndex);
+
+            isResizingNote = true;
+            resizeNoteIndex = edgeNoteIndex;
+            resizeOriginalEndBeat = endBeat;
+            resizeCurrentEndBeat = endBeat;
+            repaint();
+            return;
+        }
+    }
+
+    // Check if clicking on an existing note
+    int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+    if (clickedNoteIndex >= 0)
+    {
+        // Check if clicking on an already-selected note to start velocity editing
+        if (selectedNoteIndices.count(clickedNoteIndex) > 0 && !e.mods.isShiftDown())
+        {
+            // Start velocity editing mode
+            const auto& seq = midiRegion->getMidiSequence();
+            auto* event = seq.getEventPointer(clickedNoteIndex);
+
+            if (event != nullptr && event->message.isNoteOn())
+            {
+                isEditingVelocity = true;
+                velocityEditNoteIndex = clickedNoteIndex;
+                velocityEditStartY = e.y;
+                velocityEditOriginalVelocity = event->message.getFloatVelocity();
+                isDragging = false;
+                isCreatingNote = false;
+                return;
+            }
+        }
+
+        // Clicked on a note - handle selection
+        if (e.mods.isShiftDown())
+        {
+            // Shift+click: toggle selection (multi-select)
+            if (selectedNoteIndices.count(clickedNoteIndex) > 0)
+            {
+                selectedNoteIndices.erase(clickedNoteIndex);
+            }
+            else
+            {
+                selectedNoteIndices.insert(clickedNoteIndex);
+            }
+        }
+        else
+        {
+            // Regular click: select only this note (clear previous selection)
+            selectedNoteIndices.clear();
+            selectedNoteIndices.insert(clickedNoteIndex);
+        }
+
+        isDragging = false;
+        isCreatingNote = false;
+        repaint();
+        return;
+    }
+
+    // Clicked on empty space - clear selection and start creating a new note
+    if (!e.mods.isShiftDown())
+    {
+        clearSelection();
+    }
+
+    dragStartNote = yToNote(e.y);
+    dragStartBeat = xToBeat(e.x);
+    isDragging = true;
+    isCreatingNote = true;
+}
+
+void PianoRoll::handleDrawToolMouseDrag(const juce::MouseEvent& /*e*/)
+{
+    // Could show preview of note being drawn
+    // For now, we just update the view during drag
+    repaint();
+}
+
+void PianoRoll::handleDrawToolMouseUp(const juce::MouseEvent& e)
+{
+    if (!isDragging || !isCreatingNote || midiRegion == nullptr)
+    {
+        isDragging = false;
+        isCreatingNote = false;
+        return;
+    }
+
+    int endNote = yToNote(e.y);
+    double endBeat = xToBeat(e.x);
+
+    // Apply quantization to start and end positions if enabled
+    double quantizedStartBeat = quantizeBeatPosition(dragStartBeat);
+    double quantizedEndBeat = quantizeBeatPosition(endBeat);
+
+    // Ensure minimum note length (at least 1 grid step)
+    double gridSize = getQuantizeGridSize();
+    if (quantizedEndBeat <= quantizedStartBeat)
+    {
+        quantizedEndBeat = quantizedStartBeat + gridSize;
+    }
+
+    // Create note from quantized start to end
+    if (dragStartNote == endNote && quantizedEndBeat > quantizedStartBeat)
+    {
+        auto& seq = midiRegion->getMidiSequence();
+
+        // Convert beats to ticks (assuming 960 ticks per beat)
+        double ticksPerBeat = 960.0;
+        double startTicks = quantizedStartBeat * ticksPerBeat;
+        double endTicks = quantizedEndBeat * ticksPerBeat;
+
+        // Add note on
+        seq.addEvent(juce::MidiMessage::noteOn(1, dragStartNote, 0.8f).withTimeStamp(startTicks));
+        // Add note off
+        seq.addEvent(juce::MidiMessage::noteOff(1, dragStartNote, 0.0f).withTimeStamp(endTicks));
+        seq.updateMatchedPairs();
+
+        repaint();
+    }
+
+    isDragging = false;
+    isCreatingNote = false;
+}
+
+void PianoRoll::handleEraseToolMouseDown(const juce::MouseEvent& e)
+{
+    // Find note at click position and delete it
+    int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+    if (clickedNoteIndex >= 0 && midiRegion != nullptr)
+    {
+        auto& seq = midiRegion->getMidiSequence();
+        auto* event = seq.getEventPointer(clickedNoteIndex);
+
+        if (event != nullptr && event->message.isNoteOn())
+        {
+            std::vector<int> indicesToDelete;
+            indicesToDelete.push_back(clickedNoteIndex);
+
+            // Find and add the matching note-off index
+            if (event->noteOffObject != nullptr)
+            {
+                for (int i = 0; i < seq.getNumEvents(); ++i)
+                {
+                    if (seq.getEventPointer(i) == event->noteOffObject)
+                    {
+                        indicesToDelete.push_back(i);
+                        break;
+                    }
+                }
+            }
+
+            // Sort in descending order
+            std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
+
+            // Delete events
+            for (int index : indicesToDelete)
+            {
+                seq.deleteEvent(index, false);
+            }
+
+            seq.updateMatchedPairs();
+
+            // Remove from selection and muted sets
+            selectedNoteIndices.erase(clickedNoteIndex);
+            mutedNoteIndices.erase(clickedNoteIndex);
+
+            repaint();
+        }
+    }
+}
+
+void PianoRoll::handleSelectToolMouseDown(const juce::MouseEvent& e)
+{
+    // Check if clicking on an existing note
+    int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+    if (clickedNoteIndex >= 0)
+    {
+        // Clicked on a note - handle selection
+        if (e.mods.isShiftDown())
+        {
+            // Shift+click: toggle selection (multi-select)
+            if (selectedNoteIndices.count(clickedNoteIndex) > 0)
+            {
+                selectedNoteIndices.erase(clickedNoteIndex);
+            }
+            else
+            {
+                selectedNoteIndices.insert(clickedNoteIndex);
+            }
+        }
+        else
+        {
+            // Regular click: select only this note (clear previous selection)
+            selectedNoteIndices.clear();
+            selectedNoteIndices.insert(clickedNoteIndex);
+        }
+        repaint();
+    }
+    else
+    {
+        // Clicked on empty space - start box selection
+        if (!e.mods.isShiftDown())
+        {
+            clearSelection();
+        }
+
+        isBoxSelecting = true;
+        boxSelectStart = e.getPosition();
+        boxSelectEnd = e.getPosition();
+    }
+}
+
+void PianoRoll::handleSelectToolMouseDrag(const juce::MouseEvent& e)
+{
+    if (isBoxSelecting)
+    {
+        boxSelectEnd = e.getPosition();
+        repaint();
+    }
+}
+
+void PianoRoll::handleSelectToolMouseUp(const juce::MouseEvent& e)
+{
+    if (isBoxSelecting && midiRegion != nullptr)
+    {
+        boxSelectEnd = e.getPosition();
+
+        // Calculate the selection rectangle
+        int left = juce::jmin(boxSelectStart.x, boxSelectEnd.x);
+        int top = juce::jmin(boxSelectStart.y, boxSelectEnd.y);
+        int right = juce::jmax(boxSelectStart.x, boxSelectEnd.x);
+        int bottom = juce::jmax(boxSelectStart.y, boxSelectEnd.y);
+
+        auto selectionRect = juce::Rectangle<int>(left, top, right - left, bottom - top);
+
+        // Find all notes that intersect with the selection rectangle
+        const auto& seq = midiRegion->getMidiSequence();
+        double ticksPerBeat = 960.0;
+
+        for (int i = 0; i < seq.getNumEvents(); ++i)
+        {
+            auto* event = seq.getEventPointer(i);
+            if (event == nullptr || !event->message.isNoteOn())
+                continue;
+
+            // Get note rectangle
+            juce::Rectangle<int> noteRect = getNoteRect(i);
+
+            if (selectionRect.intersects(noteRect))
+            {
+                selectedNoteIndices.insert(i);
+            }
+        }
+
+        isBoxSelecting = false;
+        repaint();
+    }
+}
+
+void PianoRoll::handleSplitToolMouseDown(const juce::MouseEvent& e)
+{
+    // Find note at click position
+    int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+    if (clickedNoteIndex >= 0)
+    {
+        // Get the beat position where the user clicked
+        double splitBeat = xToBeat(e.x);
+
+        // Split the note at this position
+        splitNoteAtBeat(clickedNoteIndex, splitBeat);
+    }
+}
+
+void PianoRoll::handleMuteToolMouseDown(const juce::MouseEvent& e)
+{
+    // Find note at click position
+    int clickedNoteIndex = getNoteAtPosition(e.x, e.y);
+
+    if (clickedNoteIndex >= 0)
+    {
+        // Toggle mute state of the clicked note
+        toggleNoteMute(clickedNoteIndex);
+    }
+}
+
+// ============================================================================
+// Quantization functionality
+// ============================================================================
+
+double PianoRoll::getQuantizeGridSize() const
+{
+    switch (quantizeValue)
+    {
+        case QuantizeValue::Quarter:
+            return 1.0;  // 1 beat
+        case QuantizeValue::Eighth:
+            return 0.5;  // 1/2 beat
+        case QuantizeValue::Sixteenth:
+            return 0.25; // 1/4 beat
+        case QuantizeValue::QuarterTriplet:
+            return 2.0 / 3.0;  // 2/3 beat (triplet feel on quarters)
+        case QuantizeValue::EighthTriplet:
+            return 1.0 / 3.0;  // 1/3 beat
+        case QuantizeValue::SixteenthTriplet:
+            return 1.0 / 6.0;  // 1/6 beat
+        default:
+            return 0.25; // Default to 1/16
+    }
+}
+
+double PianoRoll::quantizeBeatPosition(double beat) const
+{
+    if (!quantizeEnabled)
+        return beat;
+
+    double gridSize = getQuantizeGridSize();
+    if (gridSize <= 0.0)
+        return beat;
+
+    // Round to nearest grid position
+    return std::round(beat / gridSize) * gridSize;
+}
+
+void PianoRoll::quantizeSelectedNotes()
+{
+    if (midiRegion == nullptr || selectedNoteIndices.empty())
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+    double gridSize = getQuantizeGridSize();
+
+    // Process each selected note
+    for (int eventIndex : selectedNoteIndices)
+    {
+        if (eventIndex < 0 || eventIndex >= seq.getNumEvents())
+            continue;
+
+        auto* event = seq.getEventPointer(eventIndex);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        // Get current beat position
+        double currentBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+        // Quantize to nearest grid position
+        double quantizedBeat = std::round(currentBeat / gridSize) * gridSize;
+
+        // Update the note-on timestamp
+        double newTicks = quantizedBeat * ticksPerBeat;
+        event->message.setTimeStamp(newTicks);
+
+        // If there's a note-off, adjust it to maintain note length
+        if (event->noteOffObject != nullptr)
+        {
+            double noteOffBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+            double noteLength = noteOffBeat - currentBeat;
+
+            // Keep the same duration, but optionally quantize the duration too
+            double newNoteOffBeat = quantizedBeat + noteLength;
+            event->noteOffObject->message.setTimeStamp(newNoteOffBeat * ticksPerBeat);
+        }
+    }
+
+    // Re-sort and update matched pairs after modifying timestamps
+    seq.sort();
+    seq.updateMatchedPairs();
+
+    repaint();
+}
+
+void PianoRoll::drawQuantizeGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    if (!quantizeEnabled)
+        return;
+
+    double gridSize = getQuantizeGridSize();
+    if (gridSize <= 0.0 || gridSize >= 1.0)
+        return;  // Don't draw sub-beat grid if it's beat-level or larger
+
+    // Draw finer grid lines for quantize value
+    double startBeat = horizontalScrollOffset / pixelsPerBeat;
+    double endBeat = startBeat + bounds.getWidth() / pixelsPerBeat;
+
+    // Determine grid color based on grid size - finer grids are more subtle
+    float alpha = 0.15f;
+    if (gridSize >= 0.5)
+        alpha = 0.2f;
+    else if (gridSize <= 0.2)
+        alpha = 0.1f;
+
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(alpha));
+
+    // Snap start beat to grid
+    double gridStart = std::floor(startBeat / gridSize) * gridSize;
+
+    for (double beat = gridStart; beat <= endBeat; beat += gridSize)
+    {
+        // Skip beats that would overlap with main beat grid
+        double beatFraction = std::fmod(beat, 1.0);
+        if (std::abs(beatFraction) < 0.001 || std::abs(beatFraction - 1.0) < 0.001)
+            continue;
+
+        int x = beatToX(beat);
+        if (x < bounds.getX() || x > bounds.getRight())
+            continue;
+
+        g.drawLine(static_cast<float>(x), static_cast<float>(bounds.getY()),
+                   static_cast<float>(x), static_cast<float>(bounds.getBottom()), 0.5f);
+    }
+}
+
+// ============================================================================
+// CC Lane Management
+// ============================================================================
+
+void PianoRoll::setCCLaneVisible(CCLaneType laneType, bool visible)
+{
+    int index = static_cast<int>(laneType);
+    if (index >= 0 && index < 3)
+    {
+        ccLaneVisible[index] = visible;
+        repaint();
+    }
+}
+
+bool PianoRoll::isCCLaneVisible(CCLaneType laneType) const
+{
+    int index = static_cast<int>(laneType);
+    if (index >= 0 && index < 3)
+    {
+        return ccLaneVisible[index];
+    }
+    return false;
+}
+
+void PianoRoll::toggleCCLane(CCLaneType laneType)
+{
+    setCCLaneVisible(laneType, !isCCLaneVisible(laneType));
+}
+
+int PianoRoll::getNumVisibleCCLanes() const
+{
+    int count = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (ccLaneVisible[i])
+            ++count;
+    }
+    return count;
+}
+
+int PianoRoll::getCCNumberForLaneType(CCLaneType laneType)
+{
+    switch (laneType)
+    {
+        case CCLaneType::ModWheel:   return 1;   // CC1 - Modulation
+        case CCLaneType::Sustain:    return 64;  // CC64 - Sustain pedal
+        case CCLaneType::PitchBend:  return -1;  // Special: pitch bend is not a CC
+        default:                     return -1;
+    }
+}
+
+juce::String PianoRoll::getCCLaneName(CCLaneType laneType)
+{
+    switch (laneType)
+    {
+        case CCLaneType::ModWheel:   return "Mod Wheel";
+        case CCLaneType::Sustain:    return "Sustain";
+        case CCLaneType::PitchBend:  return "Pitch Bend";
+        default:                     return "Unknown";
+    }
+}
+
+// ============================================================================
+// CC Lane Drawing
+// ============================================================================
+
+void PianoRoll::drawCCLanes(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    // Draw separator line between notes and CC lanes
+    g.setColour(MidiSingLookAndFeel::borderColour);
+    g.drawLine(static_cast<float>(bounds.getX()), static_cast<float>(bounds.getY()),
+               static_cast<float>(bounds.getRight()), static_cast<float>(bounds.getY()), 2.0f);
+
+    int laneIndex = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (ccLaneVisible[i])
+        {
+            auto laneBounds = getCCLaneBounds(laneIndex);
+            CCLaneType laneType = static_cast<CCLaneType>(i);
+
+            // Draw header area
+            auto headerBounds = laneBounds.removeFromLeft(CC_LANE_HEADER_WIDTH);
+            drawCCLaneHeader(g, headerBounds, laneType);
+
+            // Draw the lane content area
+            drawCCLane(g, laneBounds, laneType);
+
+            ++laneIndex;
+        }
+    }
+}
+
+void PianoRoll::drawCCLaneHeader(juce::Graphics& g, juce::Rectangle<int> bounds, CCLaneType laneType)
+{
+    // Background
+    g.setColour(MidiSingLookAndFeel::backgroundMid);
+    g.fillRect(bounds);
+
+    // Border
+    g.setColour(MidiSingLookAndFeel::borderColour);
+    g.drawRect(bounds, 1);
+
+    // Label
+    g.setColour(MidiSingLookAndFeel::textColour);
+    g.setFont(10.0f);
+    g.drawText(getCCLaneName(laneType), bounds.reduced(4, 0),
+               juce::Justification::centredLeft, true);
+
+    // Draw value labels (0, 64, 127)
+    g.setColour(MidiSingLookAndFeel::textDimColour);
+    g.setFont(8.0f);
+    g.drawText("127", bounds.getX() + 2, bounds.getY() + 12, 30, 10,
+               juce::Justification::left, false);
+    g.drawText("0", bounds.getX() + 2, bounds.getBottom() - 18, 30, 10,
+               juce::Justification::left, false);
+}
+
+void PianoRoll::drawCCLane(juce::Graphics& g, juce::Rectangle<int> bounds, CCLaneType laneType)
+{
+    // Background
+    g.setColour(MidiSingLookAndFeel::backgroundDark.brighter(0.05f));
+    g.fillRect(bounds);
+
+    // Draw grid
+    drawCCLaneGrid(g, bounds);
+
+    // Draw automation curve
+    drawCCAutomation(g, bounds, laneType);
+
+    // Border
+    g.setColour(MidiSingLookAndFeel::borderColour);
+    g.drawRect(bounds, 1);
+}
+
+void PianoRoll::drawCCLaneGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
+{
+    // Draw horizontal center line (value 64)
+    int centerY = bounds.getY() + bounds.getHeight() / 2;
+    g.setColour(MidiSingLookAndFeel::borderColour.withAlpha(0.5f));
+    g.drawHorizontalLine(centerY, static_cast<float>(bounds.getX()),
+                         static_cast<float>(bounds.getRight()));
+
+    // Draw vertical beat lines
+    double startBeat = horizontalScrollOffset / pixelsPerBeat;
+    double endBeat = startBeat + bounds.getWidth() / pixelsPerBeat;
+
+    for (int beat = static_cast<int>(startBeat); beat <= static_cast<int>(endBeat) + 1; ++beat)
+    {
+        int x = beatToX(beat);
+        if (x < bounds.getX() || x > bounds.getRight())
+            continue;
+
+        bool isBar = (beat % 4) == 0;
+        g.setColour(isBar ? MidiSingLookAndFeel::borderColour
+                          : MidiSingLookAndFeel::borderColour.withAlpha(0.3f));
+        g.drawLine(static_cast<float>(x), static_cast<float>(bounds.getY()),
+                   static_cast<float>(x), static_cast<float>(bounds.getBottom()),
+                   isBar ? 1.0f : 0.5f);
+    }
+}
+
+void PianoRoll::drawCCAutomation(juce::Graphics& g, juce::Rectangle<int> bounds, CCLaneType laneType)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    const auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+    int ccNumber = getCCNumberForLaneType(laneType);
+
+    // Collect CC points for this lane type
+    struct CCPoint
+    {
+        double beat;
+        int value;
+    };
+    std::vector<CCPoint> points;
+
+    for (int i = 0; i < seq.getNumEvents(); ++i)
+    {
+        auto* event = seq.getEventPointer(i);
+        if (event == nullptr)
+            continue;
+
+        const auto& msg = event->message;
+
+        if (laneType == CCLaneType::PitchBend && msg.isPitchWheel())
+        {
+            // Pitch bend: convert from 0-16383 to 0-127 range for display
+            int pitchValue = msg.getPitchWheelValue();
+            int displayValue = juce::jmap(pitchValue, 0, 16383, 0, 127);
+            double beat = msg.getTimeStamp() / ticksPerBeat;
+            points.push_back({ beat, displayValue });
+        }
+        else if (msg.isController() && msg.getControllerNumber() == ccNumber)
+        {
+            double beat = msg.getTimeStamp() / ticksPerBeat;
+            int value = msg.getControllerValue();
+            points.push_back({ beat, value });
+        }
+    }
+
+    if (points.empty())
+    {
+        // Draw default line at 0 (or 64 for pitch bend center)
+        int defaultValue = (laneType == CCLaneType::PitchBend) ? 64 : 0;
+        int y = ccValueToY(defaultValue, bounds);
+        g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.3f));
+        g.drawHorizontalLine(y, static_cast<float>(bounds.getX()),
+                             static_cast<float>(bounds.getRight()));
+        return;
+    }
+
+    // Sort points by beat position
+    std::sort(points.begin(), points.end(), [](const CCPoint& a, const CCPoint& b) {
+        return a.beat < b.beat;
+    });
+
+    // Draw the automation curve as step lines with points
+    juce::Path path;
+    bool pathStarted = false;
+
+    // Draw from start to first point
+    if (!points.empty())
+    {
+        int startY = ccValueToY(points[0].value, bounds);
+        path.startNewSubPath(static_cast<float>(bounds.getX()), static_cast<float>(startY));
+        pathStarted = true;
+    }
+
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        int x = beatToX(points[i].beat);
+        int y = ccValueToY(points[i].value, bounds);
+
+        if (pathStarted)
+        {
+            // Step to new x position at current y level
+            path.lineTo(static_cast<float>(x), path.getCurrentPosition().y);
+            // Then step to new y value
+            path.lineTo(static_cast<float>(x), static_cast<float>(y));
+        }
+
+        // Draw point marker
+        g.setColour(MidiSingLookAndFeel::accentColour);
+        g.fillEllipse(static_cast<float>(x - 3), static_cast<float>(y - 3), 6.0f, 6.0f);
+    }
+
+    // Extend to the end of visible area
+    if (!points.empty())
+    {
+        path.lineTo(static_cast<float>(bounds.getRight()), path.getCurrentPosition().y);
+    }
+
+    // Draw the path
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.7f));
+    g.strokePath(path, juce::PathStrokeType(1.5f));
+
+    // Fill area under the curve
+    juce::Path fillPath = path;
+    fillPath.lineTo(static_cast<float>(bounds.getRight()), static_cast<float>(bounds.getBottom()));
+    fillPath.lineTo(static_cast<float>(bounds.getX()), static_cast<float>(bounds.getBottom()));
+    fillPath.closeSubPath();
+
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.15f));
+    g.fillPath(fillPath);
+}
+
+// ============================================================================
+// CC Lane Hit Testing
+// ============================================================================
+
+int PianoRoll::getCCLaneAtY(int y) const
+{
+    int numVisible = getNumVisibleCCLanes();
+    if (numVisible == 0)
+        return -1;
+
+    int ccLanesStartY = getHeight() - (numVisible * CC_LANE_HEIGHT);
+
+    if (y < ccLanesStartY)
+        return -1;
+
+    int relativeY = y - ccLanesStartY;
+    int laneIndex = relativeY / CC_LANE_HEIGHT;
+
+    if (laneIndex >= numVisible)
+        return -1;
+
+    return laneIndex;
+}
+
+PianoRoll::CCLaneType PianoRoll::getCCLaneTypeAtIndex(int index) const
+{
+    int currentIndex = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (ccLaneVisible[i])
+        {
+            if (currentIndex == index)
+                return static_cast<CCLaneType>(i);
+            ++currentIndex;
+        }
+    }
+    return CCLaneType::ModWheel; // Default fallback
+}
+
+bool PianoRoll::isPointInCCLane(int x, int y) const
+{
+    int numVisible = getNumVisibleCCLanes();
+    if (numVisible == 0)
+        return false;
+
+    int ccLanesStartY = getHeight() - (numVisible * CC_LANE_HEIGHT);
+    return y >= ccLanesStartY && x > CC_LANE_HEADER_WIDTH;
+}
+
+int PianoRoll::ccValueToY(int value, juce::Rectangle<int> laneBounds) const
+{
+    // Map value (0-127) to Y coordinate (higher values at top)
+    int padding = 4; // Small padding from edges
+    int usableHeight = laneBounds.getHeight() - (padding * 2);
+    int y = laneBounds.getBottom() - padding - (value * usableHeight / 127);
+    return juce::jlimit(laneBounds.getY() + padding, laneBounds.getBottom() - padding, y);
+}
+
+int PianoRoll::yToCCValue(int y, juce::Rectangle<int> laneBounds) const
+{
+    // Map Y coordinate to value (0-127)
+    int padding = 4;
+    int usableHeight = laneBounds.getHeight() - (padding * 2);
+    int relativeY = laneBounds.getBottom() - padding - y;
+    int value = (relativeY * 127) / usableHeight;
+    return juce::jlimit(0, 127, value);
+}
+
+juce::Rectangle<int> PianoRoll::getCCLaneBounds(int laneIndex) const
+{
+    int numVisible = getNumVisibleCCLanes();
+    if (laneIndex < 0 || laneIndex >= numVisible)
+        return juce::Rectangle<int>();
+
+    int ccLanesStartY = getHeight() - (numVisible * CC_LANE_HEIGHT);
+    int y = ccLanesStartY + (laneIndex * CC_LANE_HEIGHT);
+
+    return juce::Rectangle<int>(0, y, getWidth(), CC_LANE_HEIGHT);
+}
+
+// ============================================================================
+// CC Lane Mouse Handlers
+// ============================================================================
+
+void PianoRoll::handleCCLaneMouseDown(const juce::MouseEvent& e)
+{
+    int laneIndex = getCCLaneAtY(e.y);
+    if (laneIndex < 0)
+        return;
+
+    ccEditLaneIndex = laneIndex;
+    currentCCLaneType = getCCLaneTypeAtIndex(laneIndex);
+    isDraggingInCCLane = true;
+
+    // Calculate beat and value from position
+    auto laneBounds = getCCLaneBounds(laneIndex);
+    laneBounds.removeFromLeft(CC_LANE_HEADER_WIDTH);
+
+    double beat = xToBeat(e.x);
+    int value = yToCCValue(e.y, laneBounds);
+
+    // Apply quantization if enabled
+    beat = quantizeBeatPosition(beat);
+
+    ccEditStartBeat = beat;
+    ccEditStartValue = value;
+    lastCCEditBeat = beat;
+
+    // Add the initial CC point
+    addCCPoint(currentCCLaneType, beat, value);
+    repaint();
+}
+
+void PianoRoll::handleCCLaneMouseDrag(const juce::MouseEvent& e)
+{
+    if (ccEditLaneIndex < 0)
+        return;
+
+    auto laneBounds = getCCLaneBounds(ccEditLaneIndex);
+    laneBounds.removeFromLeft(CC_LANE_HEADER_WIDTH);
+
+    double beat = xToBeat(e.x);
+    int value = yToCCValue(e.y, laneBounds);
+
+    // Apply quantization if enabled
+    beat = quantizeBeatPosition(beat);
+
+    // Only add point if we've moved to a new grid position (when quantized)
+    // or moved significantly (when not quantized)
+    double beatDelta = std::abs(beat - lastCCEditBeat);
+    double minDelta = quantizeEnabled ? getQuantizeGridSize() * 0.5 : 0.0625;
+
+    if (beatDelta >= minDelta || beat != lastCCEditBeat)
+    {
+        addCCPoint(currentCCLaneType, beat, value);
+        lastCCEditBeat = beat;
+        repaint();
+    }
+}
+
+void PianoRoll::handleCCLaneMouseUp(const juce::MouseEvent& /*e*/)
+{
+    isDraggingInCCLane = false;
+    ccEditLaneIndex = -1;
+    repaint();
+}
+
+// ============================================================================
+// CC Lane Editing Operations
+// ============================================================================
+
+void PianoRoll::addCCPoint(CCLaneType laneType, double beat, int value)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+    double timestamp = beat * ticksPerBeat;
+
+    if (laneType == CCLaneType::PitchBend)
+    {
+        // Convert from 0-127 display range to 0-16383 pitch bend range
+        int pitchValue = juce::jmap(value, 0, 127, 0, 16383);
+        juce::MidiMessage pitchMsg = juce::MidiMessage::pitchWheel(1, pitchValue);
+        pitchMsg.setTimeStamp(timestamp);
+        seq.addEvent(pitchMsg);
+    }
+    else
+    {
+        int ccNumber = getCCNumberForLaneType(laneType);
+        if (ccNumber >= 0)
+        {
+            juce::MidiMessage ccMsg = juce::MidiMessage::controllerEvent(1, ccNumber, value);
+            ccMsg.setTimeStamp(timestamp);
+            seq.addEvent(ccMsg);
+        }
+    }
+
+    seq.sort();
+}
+
+void PianoRoll::deleteCCPointsInRange(CCLaneType laneType, double startBeat, double endBeat)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+    int ccNumber = getCCNumberForLaneType(laneType);
+
+    double startTicks = startBeat * ticksPerBeat;
+    double endTicks = endBeat * ticksPerBeat;
+
+    // Collect indices to delete (in reverse order to avoid index shifting)
+    std::vector<int> indicesToDelete;
+
+    for (int i = 0; i < seq.getNumEvents(); ++i)
+    {
+        auto* event = seq.getEventPointer(i);
+        if (event == nullptr)
+            continue;
+
+        const auto& msg = event->message;
+        double timestamp = msg.getTimeStamp();
+
+        if (timestamp < startTicks || timestamp > endTicks)
+            continue;
+
+        bool shouldDelete = false;
+
+        if (laneType == CCLaneType::PitchBend && msg.isPitchWheel())
+        {
+            shouldDelete = true;
+        }
+        else if (msg.isController() && msg.getControllerNumber() == ccNumber)
+        {
+            shouldDelete = true;
+        }
+
+        if (shouldDelete)
+        {
+            indicesToDelete.push_back(i);
+        }
+    }
+
+    // Delete in reverse order
+    std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
+    for (int index : indicesToDelete)
+    {
+        seq.deleteEvent(index, false);
+    }
+
+    repaint();
+}
+
+void PianoRoll::clearCCLane(CCLaneType laneType)
+{
+    if (midiRegion == nullptr)
+        return;
+
+    // Delete all CC events for this lane type (entire range)
+    deleteCCPointsInRange(laneType, -1000.0, 10000.0);
 }

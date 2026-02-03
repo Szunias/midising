@@ -4,14 +4,99 @@
 #include "LookAndFeel.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
+#include <array>
+
+// Forward declarations
+class AudioTrack;
+class EffectChain;
+
+/**
+ * InsertSlotButton represents a single insert effect slot in the channel strip.
+ * Click to add/edit effect, right-click for bypass/remove menu.
+ */
+class InsertSlotButton : public juce::Component
+{
+public:
+    InsertSlotButton(int slotIndex);
+    ~InsertSlotButton() override = default;
+
+    void paint(juce::Graphics& g) override;
+    void mouseDown(const juce::MouseEvent& event) override;
+    void mouseEnter(const juce::MouseEvent& event) override;
+    void mouseExit(const juce::MouseEvent& event) override;
+
+    void setEffectName(const juce::String& name);
+    void setEmpty(bool isEmpty);
+    void setBypassed(bool bypassed);
+
+    int getSlotIndex() const { return slotIndex; }
+
+    // Callbacks
+    std::function<void(int slotIndex)> onClicked;
+    std::function<void(int slotIndex, const juce::Point<int>& position)> onRightClicked;
+
+private:
+    int slotIndex;
+    juce::String effectName;
+    bool empty = true;
+    bool bypassed = false;
+    bool mouseOver = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InsertSlotButton)
+};
+
+/**
+ * SendKnob represents a send level control to an aux track.
+ */
+class SendKnob : public juce::Component
+{
+public:
+    SendKnob(int sendIndex);
+    ~SendKnob() override = default;
+
+    void resized() override;
+
+    void setAuxName(const juce::String& name);
+    void setSendLevel(float level);
+    float getSendLevel() const;
+    void setEnabled(bool enabled);
+
+    int getSendIndex() const { return sendIndex; }
+
+    // Callback when send level changes
+    std::function<void(int sendIndex, float level)> onLevelChanged;
+
+private:
+    int sendIndex;
+    juce::Slider knob;
+    juce::Label nameLabel;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SendKnob)
+};
 
 /**
  * ChannelStrip represents a single channel in the mixer.
- * Has volume fader, pan knob, mute/solo buttons, and level meter.
+ * Has volume fader, pan knob, mute/solo buttons, insert slots, send knobs, and level meter.
+ *
+ * Signal Flow Display:
+ *   [Insert Slots] -> [Fader] -> [Pan] -> [Sends] -> [Output]
+ *
+ * Features:
+ *   - 8 insert effect slots (click to add, right-click for menu)
+ *   - 4 visible send knobs (expandable if more aux tracks exist)
+ *   - Volume fader with level metering
+ *   - Pan control
+ *   - Mute/Solo buttons
+ *   - True peak metering with clip indicators
  */
 class ChannelStrip : public juce::Component
 {
 public:
+    /** Maximum number of insert slots displayed */
+    static constexpr int NUM_INSERT_SLOTS = 8;
+    /** Number of send knobs displayed */
+    static constexpr int NUM_SEND_KNOBS = 4;
+
     ChannelStrip();
     ~ChannelStrip() override = default;
 
@@ -23,14 +108,52 @@ public:
 
     void setLevel(float left, float right);
 
+    /**
+     * Set level with clipping information for true peak metering.
+     * Clip indicators stay lit briefly after clipping occurs.
+     */
+    void setLevelWithClipping(float left, float right, bool clippingL, bool clippingR);
+
+    /**
+     * Reset clip indicators (call when user clicks on clip indicator).
+     */
+    void resetClipIndicators();
+
+    /**
+     * Check if either channel is showing a clip indicator.
+     */
+    bool hasClipIndicator() const { return clipHoldL || clipHoldR; }
+
+    /**
+     * Set the available aux track names for send destinations.
+     * @param auxNames List of aux track names
+     */
+    void setAvailableAuxTracks(const juce::StringArray& auxNames);
+
+    /**
+     * Refresh the insert slots and send knobs from the track data.
+     * Call this after effects are added/removed or send levels change.
+     */
+    void refreshInsertAndSendState();
+
     // Callbacks
     std::function<void(Track*, float)> onVolumeChanged;
     std::function<void(Track*, float)> onPanChanged;
     std::function<void(Track*)> onMuteChanged;
     std::function<void(Track*)> onSoloChanged;
+    /** Callback when user wants to add/edit an insert effect */
+    std::function<void(Track*, int slotIndex)> onInsertSlotClicked;
+    /** Callback when user changes a send level */
+    std::function<void(Track*, int sendIndex, float level)> onSendLevelChanged;
 
 private:
     void updateFromTrack();
+    void handleInsertSlotClick(int slotIndex);
+    void handleInsertSlotRightClick(int slotIndex, const juce::Point<int>& position);
+    void handleSendLevelChange(int sendIndex, float level);
+    void showInsertContextMenu(int slotIndex, const juce::Point<int>& position);
+    void updateInsertSlots();
+    void updateSendKnobs();
 
     Track* trackPtr = nullptr;
 
@@ -41,9 +164,27 @@ private:
     juce::TextButton soloButton { "S" };
     juce::TextButton fxButton { "FX" };
 
+    // Insert effect slots
+    std::array<std::unique_ptr<InsertSlotButton>, NUM_INSERT_SLOTS> insertSlots;
+    juce::Label insertsLabel;
+    bool showInsertSlots = true;
+
+    // Send level knobs
+    std::array<std::unique_ptr<SendKnob>, NUM_SEND_KNOBS> sendKnobs;
+    juce::Label sendsLabel;
+    juce::StringArray auxTrackNames;
+
     // Level meters
     float levelL = 0.0f;
     float levelR = 0.0f;
+
+    // Clip indicators (true peak metering)
+    bool clipHoldL = false;
+    bool clipHoldR = false;
+    juce::int64 clipHoldTimeL = 0;  // Time when clip was triggered
+    juce::int64 clipHoldTimeR = 0;
+
+    static constexpr int clipHoldDurationMs = 2000;  // Hold clip indicator for 2 seconds
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChannelStrip)
 };

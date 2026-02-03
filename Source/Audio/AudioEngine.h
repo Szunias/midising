@@ -2,8 +2,6 @@
 
 #include "Transport.h"
 #include "Mixer.h"
-#include "Transport.h"
-#include "Mixer.h"
 #include "AudioRecorder.h"
 #include "SpectrumAnalyzer.h"
 #include "Metronome.h"
@@ -17,8 +15,10 @@
  * AudioEngine is the central audio processing hub.
  * Owns Timeline, Transport, Mixer, MidiEngine, and AudioRecorder.
  * Implements getNextAudioBlock for real-time audio processing.
+ * Listens for audio device changes to synchronize sample rate.
  */
-class AudioEngine : public juce::AudioSource
+class AudioEngine : public juce::AudioSource,
+                    public juce::ChangeListener
 {
 public:
     AudioEngine();
@@ -28,6 +28,13 @@ public:
     void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override;
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
     void releaseResources() override;
+
+    // ChangeListener interface - for device change notifications
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
+
+    // Device management
+    void setAudioDeviceManager(juce::AudioDeviceManager* manager);
+    void removeFromDeviceManager();
 
     // Access to components
     Timeline& getTimeline() { return timeline; }
@@ -57,9 +64,13 @@ public:
 
     // Capture input buffer for recording (called before processing)
     void recordInputBlock(const juce::AudioBuffer<float>& inputBuffer);
-    
+
     // Get recorded file after recording stops
     juce::File getLastRecordedFile() const { return lastRecordedFile; }
+
+    // Input routing - get available input channels from audio device
+    juce::StringArray getAvailableInputChannelNames() const;
+    int getNumAvailableInputChannels() const;
 
     // Convenience methods
     double getSampleRate() const { return currentSampleRate; }
@@ -68,6 +79,7 @@ public:
 private:
     void handleRecordingStart();
     void handleRecordingStop();
+    void routeInputToArmedTracks(const juce::AudioBuffer<float>& inputBuffer);
     juce::File generateRecordingFilePath();
 
     Timeline timeline;
@@ -80,7 +92,10 @@ private:
 
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
-    
+
+    // Device manager for change notifications
+    juce::AudioDeviceManager* deviceManager = nullptr;
+
     // Recording state
     Track* recordingTargetTrack = nullptr;
     int64_t recordingStartPosition = 0;

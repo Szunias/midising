@@ -1,6 +1,9 @@
 #include "MainComponent.h"
 #include "Audio/AudioTrack.h"
+#include "Audio/AudioImporter.h"
+#include <cmath>
 #include "MIDI/MidiTrack.h"
+#include "MIDI/MidiImporter.h"
 #include "Actions/TrackActions.h"
 #include "Tests/TestRunner.h"
 #include "UI/CommandIDs.h"
@@ -48,31 +51,43 @@ MainComponent::MainComponent()
     timelineView.setMidiEngine(&audioEngine.getMidiEngine());
     addAndMakeVisible(timelineView);
 
+    // Setup collapsible panels (Browser, Mixer, PianoRoll)
+    setupCollapsiblePanels();
+
+    // Setup resizable splitters between panels
+    setupSplitters();
+
     // Create some demo tracks so the timeline isn't empty
     createDemoTracks();
 
-    // Request audio permissions if needed (mobile)
-    if (juce::RuntimePermissions::isRequired(juce::RuntimePermissions::recordAudio)
-        && !juce::RuntimePermissions::isGranted(juce::RuntimePermissions::recordAudio))
-    {
-        juce::RuntimePermissions::request(juce::RuntimePermissions::recordAudio,
-            [&](bool granted) { setAudioChannels(granted ? 2 : 0, 2); });
-    }
-    else
-    {
-        setAudioChannels(2, 2);
-    }
+    // Setup audio device manager with crash protection
+    setupAudioDeviceManager();
 
     // Register global key listener
     getLookAndFeel().setUsingNativeAlertWindows(true);
     addKeyListener(this);
+
+    // Setup auto-save system and check for recovery files
+    setupAutoSave();
 }
 
 MainComponent::~MainComponent()
 {
+    // Stop auto-save timer
+    stopTimer();
+
+    // Remove device change listener before shutdown
+    deviceManager.removeChangeListener(this);
+
     removeKeyListener(this);
     setLookAndFeel(nullptr);
     shutdownAudio();
+
+    // Clean up recovery file on normal exit if no unsaved changes
+    if (!hasUnsavedChanges_)
+    {
+        deleteRecoveryFile();
+    }
 }
 
 void MainComponent::updateWindowTitle()
@@ -186,8 +201,62 @@ void MainComponent::resized()
     // Spectrum Display (small strip above status bar)
     spectrumDisplay.setBounds(bounds.removeFromBottom(60));
 
+    // Browser panel on the left (if visible) with splitter
+    if (browserVisible && browserPanel != nullptr)
+    {
+        browserPanel->setBounds(bounds.removeFromLeft(browserPanelWidth));
+
+        // Position browser splitter
+        if (browserSplitter != nullptr)
+        {
+            browserSplitter->setVisible(true);
+            browserSplitter->setBounds(bounds.removeFromLeft(browserSplitter->getThickness()));
+        }
+    }
+    else if (browserSplitter != nullptr)
+    {
+        browserSplitter->setVisible(false);
+    }
+
+    // Bottom panel splitter and panels
+    bool hasBottomPanel = (pianoRollVisible && pianoRollPanel != nullptr) ||
+                          (mixerVisible && mixerPanel != nullptr);
+
+    if (hasBottomPanel && bottomSplitter != nullptr)
+    {
+        // Piano roll panel at bottom (if visible) - takes priority over mixer
+        if (pianoRollVisible && pianoRollPanel != nullptr)
+        {
+            // Remove space for panel and splitter from bottom
+            auto panelBounds = bounds.removeFromBottom(pianoRollPanelHeight);
+            auto splitterBounds = bounds.removeFromBottom(bottomSplitter->getThickness());
+
+            pianoRollPanel->setBounds(panelBounds);
+            bottomSplitter->setBounds(splitterBounds);
+            bottomSplitter->setVisible(true);
+        }
+        // Mixer panel at bottom (if visible and piano roll is not)
+        else if (mixerVisible && mixerPanel != nullptr)
+        {
+            // Remove space for panel and splitter from bottom
+            auto panelBounds = bounds.removeFromBottom(mixerPanelHeight);
+            auto splitterBounds = bounds.removeFromBottom(bottomSplitter->getThickness());
+
+            mixerPanel->setBounds(panelBounds);
+            bottomSplitter->setBounds(splitterBounds);
+            bottomSplitter->setVisible(true);
+        }
+    }
+    else if (bottomSplitter != nullptr)
+    {
+        bottomSplitter->setVisible(false);
+    }
+
     // Timeline view fills the rest
     timelineView.setBounds(bounds);
+
+    // Update splitter limits based on current layout
+    updateSplitterPositions();
 }
 
 void MainComponent::setupTransportCallbacks()
@@ -355,6 +424,9 @@ void MainComponent::saveProject()
 
             // Add to recent files after successful save
             recentFilesManager.addFile(file);
+
+            // Delete recovery file since we have a successful manual save
+            deleteRecoveryFile();
         }
     });
 }
@@ -391,6 +463,104 @@ void MainComponent::saveProjectAs()
 
             // Add to recent files after successful save
             recentFilesManager.addFile(file);
+
+            // Delete recovery file since we have a successful manual save
+            deleteRecoveryFile();
+        }
+    });
+}
+
+void MainComponent::collectAllAndSave()
+{
+    // Stop playback
+    audioEngine.getTransport().stop();
+
+    // Start with current file location if we have one, otherwise use Documents
+    auto initialLocation = currentProjectFile != juce::File()
+        ? currentProjectFile.getParentDirectory()
+        : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+
+    // Use folder browser to select project bundle location
+    fileChooser = std::make_unique<juce::FileChooser>("Choose Project Folder",
+        initialLocation,
+        "",  // No file filter for folder selection
+        true);  // Use native dialog
+
+    auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectDirectories;
+
+    fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
+    {
+        auto folder = fc.getResult();
+        if (folder != juce::File())
+        {
+            // Ensure folder has a valid name
+            if (folder.getFileName().isEmpty())
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Invalid Folder",
+                                                       "Please choose a valid folder name for the project.");
+                return;
+            }
+
+            // Create the project folder if it doesn't exist
+            if (!folder.exists())
+            {
+                auto result = folder.createDirectory();
+                if (result.failed())
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                           "Error",
+                                                           "Could not create project folder: " + result.getErrorMessage());
+                    return;
+                }
+            }
+
+            // Collect all external audio files into the project bundle
+            int filesCollected = ProjectSerializer::collectAllFiles(audioEngine.getTimeline(), folder);
+
+            if (filesCollected < 0)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Error",
+                                                       "Failed to collect audio files into the project folder.");
+                return;
+            }
+
+            // Save the project bundle
+            bool success = ProjectSerializer::saveProjectBundle(audioEngine.getTimeline(),
+                                                                audioEngine.getTransport(),
+                                                                folder);
+
+            if (success)
+            {
+                // Update current file to point to the project file within the bundle
+                auto projectFile = folder.getChildFile(ProjectSerializer::PROJECT_FILE_NAME);
+                setCurrentProjectFile(projectFile);
+                setHasUnsavedChanges(false);
+
+                // Add to recent files after successful save
+                recentFilesManager.addFile(projectFile);
+
+                // Delete recovery file since we have a successful manual save
+                deleteRecoveryFile();
+
+                // Show success message
+                juce::String message = "Project saved successfully.";
+                if (filesCollected > 0)
+                {
+                    message += "\n\n" + juce::String(filesCollected) + " external audio file"
+                             + (filesCollected == 1 ? " was" : "s were") + " copied into the project folder.";
+                }
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                       "Collect All and Save",
+                                                       message);
+            }
+            else
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Error",
+                                                       "Failed to save project bundle.");
+            }
         }
     });
 }
@@ -446,6 +616,7 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::projectNew);
     commands.add(CommandIDs::save);
     commands.add(CommandIDs::saveAs);
+    commands.add(CommandIDs::collectAllAndSave);
     commands.add(CommandIDs::open);
     commands.add(CommandIDs::exportAudio);
     commands.add(CommandIDs::undo);
@@ -453,6 +624,9 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::audioSettings);
     commands.add(CommandIDs::addAudioTrack);
     commands.add(CommandIDs::addMidiTrack);
+    commands.add(CommandIDs::toggleBrowser);
+    commands.add(CommandIDs::toggleMixer);
+    commands.add(CommandIDs::togglePianoRoll);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -478,6 +652,10 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
     case CommandIDs::saveAs:
         result.setInfo("Save Project As", "Saves the project with a new name", "Project", 0);
         result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+        break;
+    case CommandIDs::collectAllAndSave:
+        result.setInfo("Collect All and Save", "Copies all external audio files into the project folder and saves", "Project", 0);
+        result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);
         break;
     case CommandIDs::open:
         result.setInfo("Open Project", "Opens a project", "Project", 0);
@@ -513,6 +691,21 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
         result.setInfo("Add MIDI Track", "Adds a new MIDI track to the timeline", "Track", 0);
         result.addDefaultKeypress('t', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
         break;
+    case CommandIDs::toggleBrowser:
+        result.setInfo("Toggle Browser", "Shows or hides the file browser panel", "View", 0);
+        result.addDefaultKeypress('b', juce::ModifierKeys::commandModifier);
+        result.setTicked(browserVisible);
+        break;
+    case CommandIDs::toggleMixer:
+        result.setInfo("Toggle Mixer", "Shows or hides the mixer panel", "View", 0);
+        result.addDefaultKeypress('m', juce::ModifierKeys::commandModifier);
+        result.setTicked(mixerVisible);
+        break;
+    case CommandIDs::togglePianoRoll:
+        result.setInfo("Toggle Piano Roll", "Shows or hides the piano roll editor", "View", 0);
+        result.addDefaultKeypress('p', juce::ModifierKeys::commandModifier);
+        result.setTicked(pianoRollVisible);
+        break;
     default:
         break;
     }
@@ -539,6 +732,9 @@ bool MainComponent::perform(const InvocationInfo& info)
         return true;
     case CommandIDs::saveAs:
         saveProjectAs();
+        return true;
+    case CommandIDs::collectAllAndSave:
+        collectAllAndSave();
         return true;
     case CommandIDs::open:
         openProject();
@@ -581,6 +777,15 @@ bool MainComponent::perform(const InvocationInfo& info)
             setHasUnsavedChanges(true);
         }
         return true;
+    case CommandIDs::toggleBrowser:
+        toggleBrowserPanel();
+        return true;
+    case CommandIDs::toggleMixer:
+        toggleMixerPanel();
+        return true;
+    case CommandIDs::togglePianoRoll:
+        togglePianoRollPanel();
+        return true;
     default:
         return false;
     }
@@ -590,11 +795,12 @@ bool MainComponent::perform(const InvocationInfo& info)
 // MenuBarModel implementation
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "File", "Track" };
+    return { "File", "View", "Track" };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName)
 {
+    juce::ignoreUnused(menuName);
     juce::PopupMenu menu;
 
     if (topLevelMenuIndex == 0)  // File menu
@@ -623,6 +829,7 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
 
         menu.addCommandItem(&commandManager, CommandIDs::save);
         menu.addCommandItem(&commandManager, CommandIDs::saveAs);
+        menu.addCommandItem(&commandManager, CommandIDs::collectAllAndSave);
         menu.addSeparator();
         menu.addCommandItem(&commandManager, CommandIDs::exportAudio);
         menu.addSeparator();
@@ -630,7 +837,13 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addSeparator();
         menu.addCommandItem(&commandManager, juce::StandardApplicationCommandIDs::quit);
     }
-    else if (topLevelMenuIndex == 1)  // Track menu
+    else if (topLevelMenuIndex == 1)  // View menu
+    {
+        menu.addCommandItem(&commandManager, CommandIDs::toggleBrowser);
+        menu.addCommandItem(&commandManager, CommandIDs::toggleMixer);
+        menu.addCommandItem(&commandManager, CommandIDs::togglePianoRoll);
+    }
+    else if (topLevelMenuIndex == 2)  // Track menu
     {
         menu.addCommandItem(&commandManager, CommandIDs::addAudioTrack);
         menu.addCommandItem(&commandManager, CommandIDs::addMidiTrack);
@@ -687,6 +900,10 @@ void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
 
 void MainComponent::showAudioSettings()
 {
+    // Save current device state before opening settings
+    // This allows us to restore if the new device fails
+    saveDeviceState();
+
     // Pass the MidiEngine as the MIDI input callback so that MIDI devices
     // selected in the settings panel will send events to the MidiEngine
     auto settingsPanel = std::make_unique<SettingsPanel>(deviceManager, &audioEngine.getMidiEngine());
@@ -700,6 +917,435 @@ void MainComponent::showAudioSettings()
     options.resizable = true;
 
     options.launchAsync();
+}
+
+//==============================================================================
+// Audio Device Management with Crash Protection
+//==============================================================================
+
+void MainComponent::setupAudioDeviceManager()
+{
+    // Request audio permissions if needed (mobile)
+    if (juce::RuntimePermissions::isRequired(juce::RuntimePermissions::recordAudio)
+        && !juce::RuntimePermissions::isGranted(juce::RuntimePermissions::recordAudio))
+    {
+        juce::RuntimePermissions::request(juce::RuntimePermissions::recordAudio,
+            [this](bool granted) {
+                try
+                {
+                    setAudioChannels(granted ? 2 : 0, 2);
+                    // Register for device change notifications
+                    deviceManager.addChangeListener(this);
+                    // Save initial working state
+                    saveDeviceState();
+                }
+                catch (...)
+                {
+                    handleDeviceError("Failed to initialize audio device");
+                }
+            });
+    }
+    else
+    {
+        try
+        {
+            setAudioChannels(2, 2);
+            // Register for device change notifications
+            deviceManager.addChangeListener(this);
+            // Save initial working state
+            saveDeviceState();
+        }
+        catch (...)
+        {
+            handleDeviceError("Failed to initialize audio device");
+        }
+    }
+}
+
+void MainComponent::saveDeviceState()
+{
+    // Store the current device configuration as XML
+    // This allows us to restore if device switching fails
+    lastKnownGoodDeviceState = deviceManager.createStateXml();
+
+    // Also store audio parameters
+    if (auto* device = deviceManager.getCurrentAudioDevice())
+    {
+        lastSampleRate = device->getCurrentSampleRate();
+        lastBlockSize = device->getCurrentBufferSizeSamples();
+    }
+}
+
+void MainComponent::restoreDeviceState()
+{
+    if (lastKnownGoodDeviceState != nullptr)
+    {
+        // Attempt to restore the previous device configuration
+        juce::String error = deviceManager.initialise(
+            2,      // numInputChannels
+            2,      // numOutputChannels
+            lastKnownGoodDeviceState.get(),
+            true    // selectDefaultDeviceOnFailure
+        );
+
+        if (error.isNotEmpty())
+        {
+            // If restore also fails, try to use default device
+            error = deviceManager.initialise(2, 2, nullptr, true);
+
+            if (error.isNotEmpty())
+            {
+                handleDeviceError("Could not restore audio device: " + error);
+            }
+        }
+    }
+}
+
+void MainComponent::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &deviceManager)
+    {
+        handleDeviceChange();
+    }
+}
+
+void MainComponent::handleDeviceChange()
+{
+    // Prevent re-entrant calls during device switching
+    if (isChangingDevice.exchange(true))
+        return;
+
+    // Stop transport to prevent audio callbacks during device switch
+    // This is CRITICAL for ASIO driver stability
+    bool wasPlaying = audioEngine.getTransport().isPlaying();
+    bool wasRecording = audioEngine.isRecording();
+
+    audioEngine.getTransport().stop();
+    if (wasRecording)
+        audioEngine.stopRecording();
+
+    // Give the audio system time to fully stop
+    juce::Thread::sleep(50);
+
+    auto* currentDevice = deviceManager.getCurrentAudioDevice();
+
+    if (currentDevice != nullptr)
+    {
+        try
+        {
+            double newSampleRate = currentDevice->getCurrentSampleRate();
+            int newBlockSize = currentDevice->getCurrentBufferSizeSamples();
+
+            // Check if sample rate or block size changed
+            bool sampleRateChanged = (std::abs(newSampleRate - lastSampleRate) > 0.1);
+            bool blockSizeChanged = (newBlockSize != lastBlockSize);
+
+            if (sampleRateChanged || blockSizeChanged)
+            {
+                // Re-prepare the audio engine with new settings
+                audioEngine.releaseResources();
+                audioEngine.prepareToPlay(newBlockSize, newSampleRate);
+                timelineView.setSampleRate(newSampleRate);
+
+                lastSampleRate = newSampleRate;
+                lastBlockSize = newBlockSize;
+            }
+
+            // Device switch successful - save this as known good state
+            saveDeviceState();
+
+            // Resume playback if it was playing before
+            if (wasPlaying)
+            {
+                audioEngine.getTransport().play();
+            }
+        }
+        catch (const std::exception& e)
+        {
+            handleDeviceError(juce::String("Device error: ") + e.what());
+            restoreDeviceState();
+        }
+        catch (...)
+        {
+            handleDeviceError("Unknown error during device switch");
+            restoreDeviceState();
+        }
+    }
+    else
+    {
+        // No device available - try to restore previous state
+        handleDeviceError("Audio device disconnected");
+        restoreDeviceState();
+    }
+
+    isChangingDevice.store(false);
+}
+
+void MainComponent::handleDeviceError(const juce::String& errorMessage)
+{
+    // Log the error
+    juce::Logger::writeToLog("Audio Device Error: " + errorMessage);
+
+    // Show error message to user on the message thread
+    juce::MessageManager::callAsync([errorMessage]()
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Audio Device Error",
+            errorMessage + "\n\nThe previous device settings will be restored if possible.",
+            "OK"
+        );
+    });
+}
+
+//==============================================================================
+// Collapsible Panel System
+//==============================================================================
+
+void MainComponent::setupCollapsiblePanels()
+{
+    // Create Browser panel with FileBrowser
+    browserContent = std::make_unique<FileBrowser>();
+    browserContent->setDeviceManager(&deviceManager);
+
+    // Set up callbacks for file interactions
+    browserContent->onFileDoubleClicked = [this](const juce::File& file)
+    {
+        // Import file to timeline when double-clicked
+        auto ext = file.getFileExtension().toLowerCase();
+        if (ext == ".wav" || ext == ".mp3" || ext == ".aif" || ext == ".aiff" || ext == ".flac" || ext == ".ogg")
+        {
+            // Create new audio track and import file
+            auto& timeline = audioEngine.getTimeline();
+            int trackNum = timeline.getNumTracks() + 1;
+            auto* newTrack = new AudioTrack("Audio " + juce::String(trackNum));
+            newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+            timeline.addTrack(newTrack);
+
+            // Import audio to the new track at position 0
+            AudioImporter importer;
+            auto* region = importer.importAudioFile(file, audioEngine.getTransport().getSampleRate());
+            if (region != nullptr)
+            {
+                region->setPosition(0);
+                newTrack->addRegion(region);
+            }
+
+            timelineView.resized();
+            timelineView.repaint();
+            setHasUnsavedChanges(true);
+        }
+        else if (ext == ".mid" || ext == ".midi")
+        {
+            // Create new MIDI track and import file
+            auto& timeline = audioEngine.getTimeline();
+            int trackNum = timeline.getNumTracks() + 1;
+            auto* newTrack = new MidiTrack("MIDI " + juce::String(trackNum), &audioEngine.getMidiEngine());
+            newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+            timeline.addTrack(newTrack);
+
+            // Import MIDI to the new track
+            MidiImporter midiImporter;
+            auto* region = midiImporter.importMidiFile(file, audioEngine.getTimeline().getBpm());
+            if (region != nullptr)
+            {
+                region->setPosition(0);
+                newTrack->addRegion(region);
+            }
+
+            timelineView.resized();
+            timelineView.repaint();
+            setHasUnsavedChanges(true);
+        }
+    };
+
+    browserPanel = std::make_unique<CollapsiblePanel>("File Browser", CollapsiblePanel::Position::Left);
+    browserPanel->setContent(browserContent.get());
+    browserPanel->onCollapse = [this]() { toggleBrowserPanel(); };
+    // Start hidden - user can toggle via View menu
+    browserPanel->setVisible(false);
+
+    // Create Mixer panel
+    mixerContent = std::make_unique<MixerPanel>();
+    mixerContent->setTimeline(&audioEngine.getTimeline());
+    mixerContent->setMixer(&audioEngine.getMixer());
+    mixerPanel = std::make_unique<CollapsiblePanel>("Mixer", CollapsiblePanel::Position::Bottom);
+    mixerPanel->setContent(mixerContent.get());
+    mixerPanel->onCollapse = [this]() { toggleMixerPanel(); };
+    // Start hidden
+    mixerPanel->setVisible(false);
+
+    // Create Piano Roll panel
+    pianoRollContent = std::make_unique<PianoRoll>();
+    pianoRollPanel = std::make_unique<CollapsiblePanel>("Piano Roll", CollapsiblePanel::Position::Bottom);
+    pianoRollPanel->setContent(pianoRollContent.get());
+    pianoRollPanel->onCollapse = [this]() { togglePianoRollPanel(); };
+    // Start hidden
+    pianoRollPanel->setVisible(false);
+
+    // Add panels to component (order matters for z-order)
+    addChildComponent(browserPanel.get());
+    addChildComponent(mixerPanel.get());
+    addChildComponent(pianoRollPanel.get());
+}
+
+void MainComponent::toggleBrowserPanel()
+{
+    browserVisible = !browserVisible;
+
+    if (browserPanel != nullptr)
+    {
+        browserPanel->setVisible(browserVisible);
+    }
+
+    // Update layout
+    resized();
+
+    // Update menu checkmarks
+    commandManager.commandStatusChanged();
+}
+
+void MainComponent::toggleMixerPanel()
+{
+    mixerVisible = !mixerVisible;
+
+    if (mixerPanel != nullptr)
+    {
+        mixerPanel->setVisible(mixerVisible);
+    }
+
+    // If showing mixer and piano roll is visible, hide piano roll
+    // (they share the same bottom space)
+    if (mixerVisible && pianoRollVisible)
+    {
+        pianoRollVisible = false;
+        if (pianoRollPanel != nullptr)
+            pianoRollPanel->setVisible(false);
+    }
+
+    // Update layout
+    resized();
+
+    // Update menu checkmarks
+    commandManager.commandStatusChanged();
+}
+
+void MainComponent::togglePianoRollPanel()
+{
+    pianoRollVisible = !pianoRollVisible;
+
+    if (pianoRollPanel != nullptr)
+    {
+        pianoRollPanel->setVisible(pianoRollVisible);
+    }
+
+    // If showing piano roll and mixer is visible, hide mixer
+    // (they share the same bottom space)
+    if (pianoRollVisible && mixerVisible)
+    {
+        mixerVisible = false;
+        if (mixerPanel != nullptr)
+            mixerPanel->setVisible(false);
+    }
+
+    // Update layout
+    resized();
+
+    // Update menu checkmarks
+    commandManager.commandStatusChanged();
+}
+
+void MainComponent::updatePanelLayout()
+{
+    // Force layout update
+    resized();
+}
+
+//==============================================================================
+// Resizable Splitter System
+//==============================================================================
+
+void MainComponent::setupSplitters()
+{
+    // Create browser splitter (vertical - splits left from right)
+    browserSplitter = std::make_unique<ResizableSplitter>(ResizableSplitter::Orientation::Vertical);
+    browserSplitter->setCurrentPosition(browserPanelWidth);
+    browserSplitter->setLimits(150, 500);  // Min 150px, max 500px
+
+    browserSplitter->onDrag = [this](int newPosition)
+    {
+        browserPanelWidth = newPosition;
+        resized();
+    };
+
+    browserSplitter->onDragEnd = [this]()
+    {
+        // Could save panel sizes to user preferences here
+    };
+
+    addChildComponent(browserSplitter.get());
+
+    // Create bottom splitter (horizontal - splits top from bottom)
+    bottomSplitter = std::make_unique<ResizableSplitter>(ResizableSplitter::Orientation::Horizontal);
+    bottomSplitter->setLimits(100, 500);  // Min 100px, max 500px
+
+    bottomSplitter->onDrag = [this](int newPosition)
+    {
+        // Update the appropriate panel height based on which is visible
+        if (pianoRollVisible)
+        {
+            pianoRollPanelHeight = newPosition;
+        }
+        else if (mixerVisible)
+        {
+            mixerPanelHeight = newPosition;
+        }
+        resized();
+    };
+
+    bottomSplitter->onDragEnd = [this]()
+    {
+        // Could save panel sizes to user preferences here
+    };
+
+    addChildComponent(bottomSplitter.get());
+}
+
+void MainComponent::updateSplitterPositions()
+{
+    // Update browser splitter limits based on available width
+    if (browserSplitter != nullptr)
+    {
+        int maxBrowserWidth = getWidth() - 400;  // Leave at least 400px for timeline
+        browserSplitter->setLimits(150, juce::jmax(150, maxBrowserWidth));
+        browserSplitter->setCurrentPosition(browserPanelWidth);
+    }
+
+    // Update bottom splitter limits based on available height
+    if (bottomSplitter != nullptr)
+    {
+        // Calculate available height for bottom panel
+        int menuHeight = juce::LookAndFeel::getDefaultLookAndFeel().getDefaultMenuBarHeight();
+        int transportHeight = 50;
+        int statusHeight = 24;
+        int spectrumHeight = 60;
+        int minTimelineHeight = 200;
+
+        int availableHeight = getHeight() - menuHeight - transportHeight - statusHeight - spectrumHeight;
+        int maxBottomHeight = availableHeight - minTimelineHeight;
+
+        bottomSplitter->setLimits(100, juce::jmax(100, maxBottomHeight));
+
+        // Set current position based on which panel is visible
+        if (pianoRollVisible)
+        {
+            bottomSplitter->setCurrentPosition(pianoRollPanelHeight);
+        }
+        else if (mixerVisible)
+        {
+            bottomSplitter->setCurrentPosition(mixerPanelHeight);
+        }
+    }
 }
 
 //==============================================================================
@@ -826,5 +1472,190 @@ void MainComponent::exportAudio()
             }
         }
     });
+}
+
+//==============================================================================
+// Auto-Save and Recovery System
+//==============================================================================
+
+juce::File MainComponent::getAutoSaveFolder() const
+{
+    // Use the application data directory for auto-save files
+    auto appDataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
+    return appDataDir.getChildFile("MidiSing").getChildFile("AutoSave");
+}
+
+juce::File MainComponent::getRecoveryFile() const
+{
+    return getAutoSaveFolder().getChildFile("recovery.midising");
+}
+
+void MainComponent::setupAutoSave()
+{
+    // Create auto-save folder if it doesn't exist
+    auto autoSaveFolder = getAutoSaveFolder();
+    if (!autoSaveFolder.exists())
+    {
+        autoSaveFolder.createDirectory();
+    }
+
+    // Check for existing recovery file (from previous crash)
+    checkForRecoveryFile();
+
+    // Start the auto-save timer
+    lastAutoSaveTime = juce::Time::getCurrentTime();
+    startTimer(autoSaveIntervalMs);
+
+    juce::Logger::writeToLog("Auto-save system initialized (interval: 5 minutes)");
+}
+
+void MainComponent::timerCallback()
+{
+    // Only auto-save if there are unsaved changes
+    if (autoSaveEnabled.load() && hasUnsavedChanges_)
+    {
+        performAutoSave();
+    }
+}
+
+void MainComponent::performAutoSave()
+{
+    auto recoveryFile = getRecoveryFile();
+
+    // Create a temporary file first, then move to avoid corruption
+    auto tempFile = recoveryFile.getSiblingFile("recovery_temp.midising");
+
+    try
+    {
+        // Save the project to the temp file
+        ProjectSerializer::saveProject(audioEngine.getTimeline(), audioEngine.getTransport(), tempFile);
+
+        // If we have a current project file, store its path in a companion file
+        // so we know where to suggest saving on recovery
+        if (currentProjectFile != juce::File())
+        {
+            auto infoFile = getAutoSaveFolder().getChildFile("recovery_info.txt");
+            infoFile.replaceWithText(currentProjectFile.getFullPathName());
+        }
+
+        // Move temp file to recovery file (atomic on most file systems)
+        if (tempFile.existsAsFile())
+        {
+            if (recoveryFile.existsAsFile())
+            {
+                recoveryFile.deleteFile();
+            }
+            tempFile.moveFileTo(recoveryFile);
+        }
+
+        lastAutoSaveTime = juce::Time::getCurrentTime();
+
+        juce::Logger::writeToLog("Auto-save completed: " + recoveryFile.getFullPathName());
+    }
+    catch (...)
+    {
+        juce::Logger::writeToLog("Auto-save failed");
+        // Clean up temp file if it exists
+        if (tempFile.existsAsFile())
+        {
+            tempFile.deleteFile();
+        }
+    }
+}
+
+void MainComponent::checkForRecoveryFile()
+{
+    auto recoveryFile = getRecoveryFile();
+
+    if (!recoveryFile.existsAsFile())
+        return;
+
+    // Get the timestamp of the recovery file
+    auto recoveryTime = recoveryFile.getLastModificationTime();
+    auto formattedTime = recoveryTime.formatted("%Y-%m-%d %H:%M:%S");
+
+    // Check if there's info about the original project
+    juce::String originalProjectInfo;
+    auto infoFile = getAutoSaveFolder().getChildFile("recovery_info.txt");
+    if (infoFile.existsAsFile())
+    {
+        juce::String originalPath = infoFile.loadFileAsString().trim();
+        if (originalPath.isNotEmpty())
+        {
+            juce::File originalFile(originalPath);
+            originalProjectInfo = "\n\nOriginal project: " + originalFile.getFileName();
+        }
+    }
+
+    // Show recovery prompt
+    auto options = juce::MessageBoxOptions()
+        .withIconType(juce::MessageBoxIconType::QuestionIcon)
+        .withTitle("Recover Unsaved Work")
+        .withMessage("MidiSing found auto-saved work from a previous session.\n\n"
+                     "Last auto-save: " + formattedTime +
+                     originalProjectInfo +
+                     "\n\nWould you like to recover this work?")
+        .withButton("Recover")
+        .withButton("Discard");
+
+    juce::AlertWindow::showAsync(options, [this, recoveryFile](int result)
+    {
+        if (result == 1)  // Recover
+        {
+            // Load the recovery file
+            audioEngine.getTransport().stop();
+            undoManager.clearUndoHistory();
+
+            ProjectSerializer::loadProject(audioEngine.getTimeline(),
+                                          audioEngine.getTransport(),
+                                          &audioEngine.getMidiEngine(),
+                                          recoveryFile);
+
+            // Update views
+            timelineView.resized();
+            timelineView.repaint();
+            transportBar.repaint();
+
+            // Mark as having unsaved changes since this is recovered work
+            setHasUnsavedChanges(true);
+
+            // Check if we have info about the original project file
+            auto infoFile = getAutoSaveFolder().getChildFile("recovery_info.txt");
+            if (infoFile.existsAsFile())
+            {
+                juce::String originalPath = infoFile.loadFileAsString().trim();
+                if (originalPath.isNotEmpty())
+                {
+                    juce::File originalFile(originalPath);
+                    // Set the project file so user can easily save to same location
+                    setCurrentProjectFile(originalFile);
+                }
+            }
+
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                   "Recovery Complete",
+                                                   "Your work has been recovered. Please save your project to preserve these changes.");
+        }
+        else  // Discard
+        {
+            deleteRecoveryFile();
+        }
+    });
+}
+
+void MainComponent::deleteRecoveryFile()
+{
+    auto recoveryFile = getRecoveryFile();
+    if (recoveryFile.existsAsFile())
+    {
+        recoveryFile.deleteFile();
+    }
+
+    // Also delete the info file
+    auto infoFile = getAutoSaveFolder().getChildFile("recovery_info.txt");
+    if (infoFile.existsAsFile())
+    {
+        infoFile.deleteFile();
+    }
 }
 

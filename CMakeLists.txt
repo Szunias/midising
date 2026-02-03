@@ -42,9 +42,15 @@ target_sources(MidiSing
         Source/Timeline/Region.cpp
         Source/Timeline/Timeline.h
         Source/Timeline/Timeline.cpp
+        Source/Timeline/AutomationLane.h
+        Source/Timeline/AutomationLane.cpp
         # Audio
         Source/Audio/Transport.h
         Source/Audio/Mixer.h
+        Source/Audio/SendReturn.h
+        Source/Audio/SendReturn.cpp
+        Source/Audio/GroupBus.h
+        Source/Audio/GroupBus.cpp
         Source/Audio/AudioEngine.h
         Source/Audio/AudioEngine.cpp
         Source/Audio/AudioTrack.h
@@ -59,6 +65,8 @@ target_sources(MidiSing
         Source/MIDI/MidiTrack.cpp
         Source/MIDI/MidiImporter.h
         Source/MIDI/MidiImporter.cpp
+        Source/MIDI/PluginHost.h
+        Source/MIDI/PluginHost.cpp
         # UI
         Source/UI/LookAndFeel.h
         Source/UI/TransportBar.h
@@ -108,8 +116,19 @@ target_sources(MidiSing
         Source/Effects/SimpleEQEffect.cpp
         Source/Effects/ReverbEffect.h
         Source/Effects/ReverbEffect.cpp
+        Source/Effects/ParametricEQ.h
+        Source/Effects/ParametricEQ.cpp
+        Source/Effects/VCACompressor.h
+        Source/Effects/VCACompressor.cpp
+        Source/Effects/StereoDelay.h
+        Source/Effects/StereoDelay.cpp
         Source/UI/EffectRackUI.h
         Source/UI/EffectRackUI.cpp
+        Source/UI/CollapsiblePanel.h
+        Source/UI/BrowserPanel.h
+        Source/UI/FileBrowser.h
+        Source/UI/FileBrowser.cpp
+        Source/UI/ResizableSplitter.h
         # Tests
         Source/Tests/TimeConversionTest.h
         Source/Tests/TimelineTest.h
@@ -121,6 +140,7 @@ target_compile_definitions(MidiSing
     PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
+        JUCE_PLUGINHOST_VST3=1
         JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:MidiSing,JUCE_PRODUCT_NAME>"
         JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:MidiSing,JUCE_VERSION>"
 )

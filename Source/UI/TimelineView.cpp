@@ -27,14 +27,23 @@ void TimelineView::paint(juce::Graphics& g)
     rulerBounds.removeFromLeft(HEADER_WIDTH);
     drawTimeRuler(g, rulerBounds);
 
-    // Draw track lanes
+    // Draw track lanes with automation lanes
     for (int i = 0; i < timelinePtr->getNumTracks(); ++i)
     {
+        // Main track lane
         auto laneBounds = bounds.removeFromTop(trackHeight);
         auto headerBounds = laneBounds.removeFromLeft(HEADER_WIDTH);
         juce::ignoreUnused(headerBounds); // Headers are separate components
 
         drawTrackLane(g, laneBounds, i);
+
+        // Draw automation lanes for this track
+        int numAutoLanes = getNumVisibleAutomationLanes(i);
+        if (numAutoLanes > 0)
+        {
+            auto automationBounds = bounds.removeFromTop(numAutoLanes * AUTOMATION_LANE_HEIGHT);
+            drawAutomationLanes(g, automationBounds, i);
+        }
     }
 
     // Draw drag ghost for visual feedback during region dragging
@@ -42,6 +51,9 @@ void TimelineView::paint(juce::Graphics& g)
 
     // Draw resize ghost for visual feedback during edge resizing
     drawResizeGhost(g);
+
+    // Draw fade ghost for visual feedback during fade editing
+    drawFadeGhost(g);
 
     // Draw playhead on top of everything
     drawPlayhead(g);
@@ -57,6 +69,15 @@ void TimelineView::timerCallback()
     // Repaint for playhead animation
     if (transportPtr != nullptr && !transportPtr->isStopped())
     {
+        // Record automation if in Write/Touch/Latch mode during playback
+        if (isRecordingAutomation &&
+            (automationMode == AutomationMode::Write ||
+             automationMode == AutomationMode::Touch ||
+             automationMode == AutomationMode::Latch))
+        {
+            recordAutomationAtPlayhead();
+        }
+
         repaint();
     }
 }
@@ -91,47 +112,107 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    // First, check if clicking on a region edge for resizing
+    // Use Smart Tool to determine operation based on click position
     int trackIndex = -1;
-    Region* edgeRegion = nullptr;
-    RegionEdge edge = getRegionEdgeAtPosition(e.x, e.y, edgeRegion, trackIndex);
+    Region* clickedRegion = nullptr;
+    SmartToolZone zone = getSmartToolZone(e.x, e.y, clickedRegion, trackIndex);
 
-    if (edge != RegionEdge::None && edgeRegion != nullptr)
+    if (zone != SmartToolZone::None && clickedRegion != nullptr)
     {
-        // Start edge resize operation
-        selectedRegion = edgeRegion;
+        // Select the region for all operations
+        selectedRegion = clickedRegion;
         selectedTrackIndex = trackIndex;
-        isResizingRegion = true;
-        resizeEdge = edge;
-        resizeOriginalStart = edgeRegion->getStartPosition();
-        resizeOriginalLength = edgeRegion->getLength();
-        resizeOriginalOffset = edgeRegion->getOffset();
-        resizeCurrentStart = resizeOriginalStart;
-        resizeCurrentLength = resizeOriginalLength;
-        repaint();
-        return;
+
+        switch (zone)
+        {
+        case SmartToolZone::TrimLeft:
+            // Start left edge trim operation
+            isResizingRegion = true;
+            resizeEdge = RegionEdge::Left;
+            resizeOriginalStart = clickedRegion->getStartPosition();
+            resizeOriginalLength = clickedRegion->getLength();
+            resizeOriginalOffset = clickedRegion->getOffset();
+            resizeCurrentStart = resizeOriginalStart;
+            resizeCurrentLength = resizeOriginalLength;
+            repaint();
+            return;
+
+        case SmartToolZone::TrimRight:
+            // Start right edge trim operation
+            isResizingRegion = true;
+            resizeEdge = RegionEdge::Right;
+            resizeOriginalStart = clickedRegion->getStartPosition();
+            resizeOriginalLength = clickedRegion->getLength();
+            resizeOriginalOffset = clickedRegion->getOffset();
+            resizeCurrentStart = resizeOriginalStart;
+            resizeCurrentLength = resizeOriginalLength;
+            repaint();
+            return;
+
+        case SmartToolZone::FadeIn:
+            // Start fade in editing
+            isEditingFade = true;
+            isFadeIn = true;
+            fadeOriginalLength = clickedRegion->getFadeInLength();
+            fadeCurrentLength = fadeOriginalLength;
+            fadeStartMouseX = e.x;
+            repaint();
+            return;
+
+        case SmartToolZone::FadeOut:
+            // Start fade out editing
+            isEditingFade = true;
+            isFadeIn = false;
+            fadeOriginalLength = clickedRegion->getFadeOutLength();
+            fadeCurrentLength = fadeOriginalLength;
+            fadeStartMouseX = e.x;
+            repaint();
+            return;
+
+        case SmartToolZone::Move:
+            // Start dragging the region
+            isDraggingRegion = true;
+            dragOriginalPosition = clickedRegion->getStartPosition();
+            dragCurrentPosition = dragOriginalPosition;
+
+            // Calculate offset from mouse position to region start
+            {
+                int64_t mouseSample = pixelToSample(e.x);
+                dragStartSampleOffset = mouseSample - dragOriginalPosition;
+            }
+            repaint();
+            return;
+
+        case SmartToolZone::None:
+        default:
+            break;
+        }
     }
 
-    // Check if clicking on a region (for dragging)
-    Region* region = getRegionAtPosition(e.x, e.y, trackIndex);
-
-    if (region != nullptr)
+    // Check if clicking on automation lane
+    if (e.x > HEADER_WIDTH && e.y > RULER_HEIGHT)
     {
-        // Select the clicked region
-        selectedRegion = region;
-        selectedTrackIndex = trackIndex;
+        // Find which track we're over (accounting for automation lanes)
+        int trackYStart = RULER_HEIGHT;
+        for (int i = 0; i < timelinePtr->getNumTracks(); ++i)
+        {
+            int totalHeight = getTotalTrackHeight(i);
+            int automationAreaStart = trackYStart + trackHeight;
+            int automationAreaEnd = trackYStart + totalHeight;
 
-        // Start dragging the region
-        isDraggingRegion = true;
-        dragOriginalPosition = region->getStartPosition();
-        dragCurrentPosition = dragOriginalPosition;
+            // Check if click is in automation area for this track
+            if (e.y >= automationAreaStart && e.y < automationAreaEnd)
+            {
+                int laneIndex = (e.y - automationAreaStart) / AUTOMATION_LANE_HEIGHT;
+                if (laneIndex >= 0 && laneIndex < getNumVisibleAutomationLanes(i))
+                {
+                    handleAutomationMouseDown(e, i, laneIndex);
+                    return;
+                }
+            }
 
-        // Calculate offset from mouse position to region start
-        int64_t mouseSample = pixelToSample(e.x);
-        dragStartSampleOffset = mouseSample - dragOriginalPosition;
-
-        repaint();
-        return;
+            trackYStart += totalHeight;
+        }
     }
 
     // Click on timeline area (not on a region) - set playhead and clear selection
@@ -146,6 +227,50 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
 
 void TimelineView::mouseDrag(const juce::MouseEvent& e)
 {
+    // Handle automation point dragging
+    if (isDraggingAutomationPoint)
+    {
+        handleAutomationMouseDrag(e);
+        return;
+    }
+
+    // Handle fade editing
+    if (isEditingFade && selectedRegion != nullptr)
+    {
+        // Calculate new fade length based on mouse movement
+        int deltaX = e.x - fadeStartMouseX;
+
+        // Convert pixels to samples
+        int64_t deltaSamples = pixelToSample(HEADER_WIDTH + static_cast<int>(horizontalScrollOffset) + std::abs(deltaX)) -
+                               pixelToSample(HEADER_WIDTH + static_cast<int>(horizontalScrollOffset));
+
+        if (isFadeIn)
+        {
+            // Fade in grows to the right
+            fadeCurrentLength = fadeOriginalLength + deltaSamples;
+        }
+        else
+        {
+            // Fade out grows to the left (negative deltaX increases fade)
+            fadeCurrentLength = fadeOriginalLength - deltaSamples;
+        }
+
+        // Clamp fade length to valid range
+        int64_t maxFadeLength = selectedRegion->getLength();
+        if (isFadeIn)
+        {
+            maxFadeLength -= selectedRegion->getFadeOutLength();
+        }
+        else
+        {
+            maxFadeLength -= selectedRegion->getFadeInLength();
+        }
+
+        fadeCurrentLength = juce::jlimit(int64_t(0), maxFadeLength, fadeCurrentLength);
+        repaint();
+        return;
+    }
+
     // Handle region edge resizing
     if (isResizingRegion && selectedRegion != nullptr)
     {
@@ -237,7 +362,31 @@ void TimelineView::mouseDrag(const juce::MouseEvent& e)
 
 void TimelineView::mouseUp(const juce::MouseEvent& e)
 {
-    juce::ignoreUnused(e);
+    // Finalize automation editing
+    if (isDraggingAutomationPoint)
+    {
+        handleAutomationMouseUp(e);
+        return;
+    }
+
+    // Finalize fade editing
+    if (isEditingFade && selectedRegion != nullptr)
+    {
+        if (isFadeIn)
+        {
+            selectedRegion->setFadeInLength(fadeCurrentLength);
+        }
+        else
+        {
+            selectedRegion->setFadeOutLength(fadeCurrentLength);
+        }
+
+        isEditingFade = false;
+        fadeOriginalLength = 0;
+        fadeCurrentLength = 0;
+        repaint();
+        return;
+    }
 
     // Finalize region edge resize
     if (isResizingRegion && selectedRegion != nullptr)
@@ -276,6 +425,7 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
 
     isDraggingRegion = false;
     isResizingRegion = false;
+    isEditingFade = false;
 }
 
 void TimelineView::mouseMove(const juce::MouseEvent& e)
@@ -518,7 +668,55 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
             double thumbEnd = thumbStart + static_cast<double>(region->getLength()) / sampleRate;
             
             thumb.drawChannel(g, regionBounds.reduced(1), thumbStart, thumbEnd, 0, 1.0f);
-            
+
+            // Draw fade in/out overlays
+            int64_t fadeInLen = region->getFadeInLength();
+            int64_t fadeOutLen = region->getFadeOutLength();
+
+            if (fadeInLen > 0)
+            {
+                // Draw fade in as diagonal line with semi-transparent overlay
+                int fadeInEndX = regionBounds.getX() + sampleToPixel(fadeInLen);
+                juce::Path fadeInPath;
+                fadeInPath.startNewSubPath(static_cast<float>(regionBounds.getX()),
+                                           static_cast<float>(regionBounds.getBottom()));
+                fadeInPath.lineTo(static_cast<float>(regionBounds.getX()),
+                                 static_cast<float>(regionBounds.getY()));
+                fadeInPath.lineTo(static_cast<float>(fadeInEndX),
+                                 static_cast<float>(regionBounds.getY()));
+                fadeInPath.closeSubPath();
+
+                g.setColour(juce::Colours::black.withAlpha(0.3f));
+                g.fillPath(fadeInPath);
+
+                // Draw fade line
+                g.setColour(juce::Colours::white.withAlpha(0.7f));
+                g.drawLine(static_cast<float>(regionBounds.getX()), static_cast<float>(regionBounds.getBottom()),
+                           static_cast<float>(fadeInEndX), static_cast<float>(regionBounds.getY()), 1.5f);
+            }
+
+            if (fadeOutLen > 0)
+            {
+                // Draw fade out as diagonal line with semi-transparent overlay
+                int fadeOutStartX = regionBounds.getRight() - sampleToPixel(fadeOutLen);
+                juce::Path fadeOutPath;
+                fadeOutPath.startNewSubPath(static_cast<float>(fadeOutStartX),
+                                            static_cast<float>(regionBounds.getY()));
+                fadeOutPath.lineTo(static_cast<float>(regionBounds.getRight()),
+                                  static_cast<float>(regionBounds.getY()));
+                fadeOutPath.lineTo(static_cast<float>(regionBounds.getRight()),
+                                  static_cast<float>(regionBounds.getBottom()));
+                fadeOutPath.closeSubPath();
+
+                g.setColour(juce::Colours::black.withAlpha(0.3f));
+                g.fillPath(fadeOutPath);
+
+                // Draw fade line
+                g.setColour(juce::Colours::white.withAlpha(0.7f));
+                g.drawLine(static_cast<float>(fadeOutStartX), static_cast<float>(regionBounds.getY()),
+                           static_cast<float>(regionBounds.getRight()), static_cast<float>(regionBounds.getBottom()), 1.5f);
+            }
+
             // Draw name
             g.setColour(juce::Colours::white);
             g.drawText(region->getName(), regionBounds.reduced(2), juce::Justification::topLeft, true);
@@ -603,11 +801,59 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
                      // Just draw simple dots/lines for note ons
                      int noteX = x1 + sampleToPixel(noteStart) - sampleToPixel(0);
                      int noteY = regionBounds.getY() + static_cast<int>(regionHeight * (1.0 - (event->message.getNoteNumber() / 128.0)));
-                     
+
                      g.fillRect(noteX, noteY, 4, 2);
                 }
             }
-            
+
+            // Draw fade in/out overlays for MIDI regions
+            int64_t fadeInLen = region->getFadeInLength();
+            int64_t fadeOutLen = region->getFadeOutLength();
+
+            if (fadeInLen > 0)
+            {
+                // Draw fade in as diagonal line with semi-transparent overlay
+                int fadeInEndX = regionBounds.getX() + sampleToPixel(fadeInLen);
+                juce::Path fadeInPath;
+                fadeInPath.startNewSubPath(static_cast<float>(regionBounds.getX()),
+                                           static_cast<float>(regionBounds.getBottom()));
+                fadeInPath.lineTo(static_cast<float>(regionBounds.getX()),
+                                 static_cast<float>(regionBounds.getY()));
+                fadeInPath.lineTo(static_cast<float>(fadeInEndX),
+                                 static_cast<float>(regionBounds.getY()));
+                fadeInPath.closeSubPath();
+
+                g.setColour(juce::Colours::black.withAlpha(0.3f));
+                g.fillPath(fadeInPath);
+
+                // Draw fade line
+                g.setColour(juce::Colours::white.withAlpha(0.7f));
+                g.drawLine(static_cast<float>(regionBounds.getX()), static_cast<float>(regionBounds.getBottom()),
+                           static_cast<float>(fadeInEndX), static_cast<float>(regionBounds.getY()), 1.5f);
+            }
+
+            if (fadeOutLen > 0)
+            {
+                // Draw fade out as diagonal line with semi-transparent overlay
+                int fadeOutStartX = regionBounds.getRight() - sampleToPixel(fadeOutLen);
+                juce::Path fadeOutPath;
+                fadeOutPath.startNewSubPath(static_cast<float>(fadeOutStartX),
+                                            static_cast<float>(regionBounds.getY()));
+                fadeOutPath.lineTo(static_cast<float>(regionBounds.getRight()),
+                                  static_cast<float>(regionBounds.getY()));
+                fadeOutPath.lineTo(static_cast<float>(regionBounds.getRight()),
+                                  static_cast<float>(regionBounds.getBottom()));
+                fadeOutPath.closeSubPath();
+
+                g.setColour(juce::Colours::black.withAlpha(0.3f));
+                g.fillPath(fadeOutPath);
+
+                // Draw fade line
+                g.setColour(juce::Colours::white.withAlpha(0.7f));
+                g.drawLine(static_cast<float>(fadeOutStartX), static_cast<float>(regionBounds.getY()),
+                           static_cast<float>(regionBounds.getRight()), static_cast<float>(regionBounds.getBottom()), 1.5f);
+            }
+
             // Draw name
             g.setColour(juce::Colours::white);
             g.drawText(region->getName(), regionBounds.reduced(2), juce::Justification::topLeft, true);
@@ -631,15 +877,52 @@ void TimelineView::drawBeatGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
     double startBeat = horizontalScrollOffset / pixelsPerBeat;
     double endBeat = startBeat + bounds.getWidth() / pixelsPerBeat;
 
+    // Get current snap resolution to determine sub-beat grid visibility
+    SnapResolution snapRes = getZoomAwareSnapResolution();
+    double snapDivision = getSnapDivisionForResolution(snapRes);
+
+    // Draw sub-beat grid lines when zoomed in enough
+    if (snapDivision < 1.0)
+    {
+        // Calculate sub-beat positions
+        double subBeatStart = std::floor(startBeat / snapDivision) * snapDivision;
+        double subBeatEnd = endBeat + snapDivision;
+
+        for (double subBeat = subBeatStart; subBeat <= subBeatEnd; subBeat += snapDivision)
+        {
+            // Skip whole beats (they'll be drawn below)
+            double fractionalPart = subBeat - std::floor(subBeat);
+            if (fractionalPart < 0.001 || fractionalPart > 0.999)
+                continue;
+
+            int x = bounds.getX() + static_cast<int>(beatToPixel(subBeat) - horizontalScrollOffset);
+
+            if (x < bounds.getX() || x > bounds.getRight())
+                continue;
+
+            // Lighter color for sub-beat lines, even lighter for finer divisions
+            float alpha = 0.15f;
+            if (snapDivision <= 0.125)
+                alpha = 0.08f;
+            else if (snapDivision <= 0.25)
+                alpha = 0.12f;
+
+            g.setColour(MidiSingLookAndFeel::borderColour.withAlpha(alpha));
+            g.drawLine(static_cast<float>(x), static_cast<float>(bounds.getY()),
+                       static_cast<float>(x), static_cast<float>(bounds.getBottom()), 0.5f);
+        }
+    }
+
+    // Draw main beat and bar grid lines
     for (int beat = static_cast<int>(startBeat); beat <= static_cast<int>(endBeat) + 1; ++beat)
     {
         int x = bounds.getX() + static_cast<int>(beatToPixel(beat) - horizontalScrollOffset);
-        
+
         if (x < bounds.getX() || x > bounds.getRight())
             continue;
 
         bool isBarStart = (beat % beatsPerBar) == 0;
-        g.setColour(isBarStart ? MidiSingLookAndFeel::borderColour 
+        g.setColour(isBarStart ? MidiSingLookAndFeel::borderColour
                                : MidiSingLookAndFeel::borderColour.withAlpha(0.3f));
         g.drawLine(static_cast<float>(x), static_cast<float>(bounds.getY()),
                    static_cast<float>(x), static_cast<float>(bounds.getBottom()),
@@ -682,6 +965,13 @@ void TimelineView::updateTrackHeaders()
     {
         auto header = std::make_unique<TrackHeader>();
         addAndMakeVisible(header.get());
+
+        // Set up automation lane callback
+        header->onToggleAutomationLane = [this](int trkIdx, const juce::String& paramName)
+        {
+            toggleAutomationLane(trkIdx, paramName);
+        };
+
         trackHeaders.push_back(std::move(header));
     }
 
@@ -690,13 +980,17 @@ void TimelineView::updateTrackHeaders()
         trackHeaders.pop_back();
     }
 
-    // Position and configure headers
+    // Position and configure headers (accounting for automation lanes)
     int y = RULER_HEIGHT;
     for (size_t i = 0; i < trackHeaders.size(); ++i)
     {
+        int trackIdx = static_cast<int>(i);
         trackHeaders[i]->setBounds(0, y, HEADER_WIDTH, trackHeight);
-        trackHeaders[i]->setTrack(timelinePtr->getTrack(static_cast<int>(i)));
-        y += trackHeight;
+        trackHeaders[i]->setTrack(timelinePtr->getTrack(trackIdx));
+        trackHeaders[i]->setTrackIndex(trackIdx);
+
+        // Account for automation lanes height
+        y += getTotalTrackHeight(trackIdx);
     }
 }
 
@@ -778,19 +1072,23 @@ int TimelineView::getTrackIndexAtY(int y) const
 {
     if (timelinePtr == nullptr || y < RULER_HEIGHT)
         return -1;
-    
+
     int trackY = RULER_HEIGHT;
     for (int i = 0; i < timelinePtr->getNumTracks(); ++i)
     {
+        int totalHeight = getTotalTrackHeight(i);
+
+        // Check if y is within the main track area (not automation lanes)
         if (y >= trackY && y < trackY + trackHeight)
             return i;
-        trackY += trackHeight;
+
+        trackY += totalHeight;
     }
-    
+
     // If below all tracks, return last track index
     if (timelinePtr->getNumTracks() > 0)
         return timelinePtr->getNumTracks() - 1;
-    
+
     return -1;
 }
 
@@ -962,8 +1260,12 @@ juce::Rectangle<int> TimelineView::getRegionBounds(Region* region, int trackInde
     int x2 = HEADER_WIDTH + sampleToPixel(endSample) - static_cast<int>(horizontalScrollOffset);
     int w = x2 - x1;
 
-    // Calculate y coordinates (track lane bounds)
-    int trackY = RULER_HEIGHT + trackIndex * trackHeight;
+    // Calculate y coordinates (accounting for automation lanes)
+    int trackY = RULER_HEIGHT;
+    for (int i = 0; i < trackIndex; ++i)
+    {
+        trackY += getTotalTrackHeight(i);
+    }
 
     return juce::Rectangle<int>(x1, trackY + 2, w, trackHeight - 4);
 }
@@ -978,16 +1280,78 @@ void TimelineView::clearSelection()
     }
 }
 
+TimelineView::SnapResolution TimelineView::getZoomAwareSnapResolution() const
+{
+    // Determine snap resolution based on zoom level (pixelsPerBeat)
+    // Higher zoom = finer snap resolution
+    // pixelsPerBeat range is 5.0 to 100.0
+
+    if (pixelsPerBeat >= 80.0)
+    {
+        // Very zoomed in - snap to 32nd notes (1/8 beat)
+        return SnapResolution::EighthBeat;
+    }
+    else if (pixelsPerBeat >= 50.0)
+    {
+        // Zoomed in - snap to 16th notes (1/4 beat)
+        return SnapResolution::QuarterBeat;
+    }
+    else if (pixelsPerBeat >= 25.0)
+    {
+        // Medium zoom - snap to 8th notes (1/2 beat)
+        return SnapResolution::HalfBeat;
+    }
+    else if (pixelsPerBeat >= 12.0)
+    {
+        // Lower zoom - snap to whole beats
+        return SnapResolution::Beat;
+    }
+    else
+    {
+        // Very zoomed out - snap to bars
+        return SnapResolution::Bar;
+    }
+}
+
+double TimelineView::getSnapDivisionForResolution(SnapResolution resolution) const
+{
+    // Returns the beat division for the given snap resolution
+    // e.g., 1.0 = whole beat, 0.5 = half beat, 0.25 = quarter beat, etc.
+
+    switch (resolution)
+    {
+    case SnapResolution::EighthBeat:
+        return 0.125;   // 1/8 beat (32nd notes in 4/4)
+    case SnapResolution::QuarterBeat:
+        return 0.25;    // 1/4 beat (16th notes in 4/4)
+    case SnapResolution::HalfBeat:
+        return 0.5;     // 1/2 beat (8th notes in 4/4)
+    case SnapResolution::Beat:
+        return 1.0;     // Whole beat (quarter notes in 4/4)
+    case SnapResolution::Bar:
+    default:
+        // Snap to bars - use beatsPerBar from timeline
+        if (timelinePtr != nullptr)
+            return static_cast<double>(timelinePtr->getBeatsPerBar());
+        return 4.0;     // Default to 4 beats per bar
+    }
+}
+
 int64_t TimelineView::snapPositionToGrid(int64_t samplePosition) const
 {
     if (timelinePtr == nullptr)
         return samplePosition;
 
-    // Snap to beat boundaries
+    // Get zoom-aware snap resolution
+    SnapResolution resolution = getZoomAwareSnapResolution();
+    double snapDivision = getSnapDivisionForResolution(resolution);
+
+    // Convert sample position to beats
     double beats = timelinePtr->samplesToBeats(samplePosition);
 
-    // Round to nearest beat
-    double snappedBeats = std::round(beats);
+    // Round to nearest snap division
+    // Formula: round(beats / division) * division
+    double snappedBeats = std::round(beats / snapDivision) * snapDivision;
 
     return timelinePtr->beatsToSamples(snappedBeats);
 }
@@ -1056,6 +1420,64 @@ void TimelineView::drawResizeGhost(juce::Graphics& g)
     {
         g.drawLine(static_cast<float>(x2), static_cast<float>(RULER_HEIGHT),
                    static_cast<float>(x2), static_cast<float>(getHeight()), 2.0f);
+    }
+}
+
+void TimelineView::drawFadeGhost(juce::Graphics& g)
+{
+    if (!isEditingFade || selectedRegion == nullptr || selectedTrackIndex < 0)
+        return;
+
+    // Get region bounds
+    juce::Rectangle<int> regionBounds = getRegionBounds(selectedRegion, selectedTrackIndex);
+
+    // Calculate fade shape
+    juce::Path fadePath;
+
+    if (isFadeIn)
+    {
+        // Fade in: triangle from left edge going right
+        int fadeEndX = regionBounds.getX() + sampleToPixel(fadeCurrentLength);
+
+        fadePath.startNewSubPath(static_cast<float>(regionBounds.getX()),
+                                  static_cast<float>(regionBounds.getBottom()));
+        fadePath.lineTo(static_cast<float>(regionBounds.getX()),
+                       static_cast<float>(regionBounds.getY()));
+        fadePath.lineTo(static_cast<float>(fadeEndX),
+                       static_cast<float>(regionBounds.getY()));
+        fadePath.closeSubPath();
+    }
+    else
+    {
+        // Fade out: triangle from right edge going left
+        int fadeStartX = regionBounds.getRight() - sampleToPixel(fadeCurrentLength);
+
+        fadePath.startNewSubPath(static_cast<float>(regionBounds.getRight()),
+                                  static_cast<float>(regionBounds.getY()));
+        fadePath.lineTo(static_cast<float>(regionBounds.getRight()),
+                       static_cast<float>(regionBounds.getBottom()));
+        fadePath.lineTo(static_cast<float>(fadeStartX),
+                       static_cast<float>(regionBounds.getY()));
+        fadePath.closeSubPath();
+    }
+
+    // Draw the fade shape
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.4f));
+    g.fillPath(fadePath);
+
+    // Draw fade boundary line
+    g.setColour(MidiSingLookAndFeel::accentColour);
+    if (isFadeIn)
+    {
+        int fadeEndX = regionBounds.getX() + sampleToPixel(fadeCurrentLength);
+        g.drawLine(static_cast<float>(regionBounds.getX()), static_cast<float>(regionBounds.getBottom()),
+                   static_cast<float>(fadeEndX), static_cast<float>(regionBounds.getY()), 2.0f);
+    }
+    else
+    {
+        int fadeStartX = regionBounds.getRight() - sampleToPixel(fadeCurrentLength);
+        g.drawLine(static_cast<float>(fadeStartX), static_cast<float>(regionBounds.getY()),
+                   static_cast<float>(regionBounds.getRight()), static_cast<float>(regionBounds.getBottom()), 2.0f);
     }
 }
 
@@ -1137,22 +1559,145 @@ TimelineView::RegionEdge TimelineView::getRegionEdgeAtPosition(int x, int y, Reg
     return RegionEdge::None;
 }
 
+TimelineView::SmartToolZone TimelineView::getSmartToolZone(int x, int y, Region*& outRegion, int& outTrackIndex) const
+{
+    outRegion = nullptr;
+    outTrackIndex = -1;
+
+    if (timelinePtr == nullptr)
+        return SmartToolZone::None;
+
+    // Check if position is in the timeline area (not ruler or headers)
+    if (x <= HEADER_WIDTH || y <= RULER_HEIGHT)
+        return SmartToolZone::None;
+
+    // Find which track the y position corresponds to
+    int trackIndex = getTrackIndexAtY(y);
+    if (trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return SmartToolZone::None;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return SmartToolZone::None;
+
+    // Lambda to check smart tool zone for a region
+    auto checkRegionZone = [&](Region* region) -> SmartToolZone
+    {
+        if (region == nullptr)
+            return SmartToolZone::None;
+
+        juce::Rectangle<int> regionBounds = getRegionBounds(region, trackIndex);
+
+        // Check if y is within the region's vertical bounds
+        if (y < regionBounds.getY() || y > regionBounds.getBottom())
+            return SmartToolZone::None;
+
+        // Check if x is within the region's horizontal bounds (with some tolerance)
+        if (x < regionBounds.getX() - EDGE_DETECT_WIDTH / 2 ||
+            x > regionBounds.getRight() + EDGE_DETECT_WIDTH / 2)
+            return SmartToolZone::None;
+
+        outRegion = region;
+        outTrackIndex = trackIndex;
+
+        // Check fade zones first (corners take priority)
+        bool inTopHalf = y < regionBounds.getY() + FADE_ZONE_HEIGHT;
+
+        // Fade In zone: top-left corner
+        if (inTopHalf && x >= regionBounds.getX() && x <= regionBounds.getX() + FADE_ZONE_WIDTH)
+        {
+            return SmartToolZone::FadeIn;
+        }
+
+        // Fade Out zone: top-right corner
+        if (inTopHalf && x >= regionBounds.getRight() - FADE_ZONE_WIDTH && x <= regionBounds.getRight())
+        {
+            return SmartToolZone::FadeOut;
+        }
+
+        // Check trim edges (excluding fade zones)
+        // Left trim edge
+        if (x >= regionBounds.getX() - EDGE_DETECT_WIDTH / 2 &&
+            x <= regionBounds.getX() + EDGE_DETECT_WIDTH / 2)
+        {
+            return SmartToolZone::TrimLeft;
+        }
+
+        // Right trim edge
+        if (x >= regionBounds.getRight() - EDGE_DETECT_WIDTH / 2 &&
+            x <= regionBounds.getRight() + EDGE_DETECT_WIDTH / 2)
+        {
+            return SmartToolZone::TrimRight;
+        }
+
+        // Center of region - move operation
+        if (x > regionBounds.getX() + EDGE_DETECT_WIDTH / 2 &&
+            x < regionBounds.getRight() - EDGE_DETECT_WIDTH / 2)
+        {
+            return SmartToolZone::Move;
+        }
+
+        return SmartToolZone::None;
+    };
+
+    // Check audio tracks
+    if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
+    {
+        for (int i = 0; i < audioTrack->getNumRegions(); ++i)
+        {
+            SmartToolZone zone = checkRegionZone(audioTrack->getRegion(i));
+            if (zone != SmartToolZone::None)
+                return zone;
+        }
+    }
+    // Check MIDI tracks
+    else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
+    {
+        for (int i = 0; i < midiTrack->getNumRegions(); ++i)
+        {
+            SmartToolZone zone = checkRegionZone(midiTrack->getRegion(i));
+            if (zone != SmartToolZone::None)
+                return zone;
+        }
+    }
+
+    return SmartToolZone::None;
+}
+
 void TimelineView::updateCursorForPosition(int x, int y)
 {
-    // Check if hovering over a region edge
-    Region* edgeRegion = nullptr;
+    // Use Smart Tool to determine zone and set appropriate cursor
+    Region* region = nullptr;
     int trackIndex = -1;
-    RegionEdge edge = getRegionEdgeAtPosition(x, y, edgeRegion, trackIndex);
+    SmartToolZone zone = getSmartToolZone(x, y, region, trackIndex);
 
-    if (edge == RegionEdge::Left || edge == RegionEdge::Right)
+    // Update current zone for potential status display
+    currentSmartToolZone = zone;
+
+    switch (zone)
     {
-        // Show horizontal resize cursor
+    case SmartToolZone::TrimLeft:
+    case SmartToolZone::TrimRight:
+        // Horizontal resize cursor for trim operations
         setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-    }
-    else
-    {
-        // Normal cursor
+        break;
+
+    case SmartToolZone::Move:
+        // Pointing hand or drag cursor for move operations
+        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        break;
+
+    case SmartToolZone::FadeIn:
+    case SmartToolZone::FadeOut:
+        // Use crosshair cursor for fade operations (diagonal resize would be ideal)
+        setMouseCursor(juce::MouseCursor::CrosshairCursor);
+        break;
+
+    case SmartToolZone::None:
+    default:
+        // Normal cursor when not over a region
         setMouseCursor(juce::MouseCursor::NormalCursor);
+        break;
     }
 }
 
@@ -1431,4 +1976,653 @@ void TimelineView::splitSelectedRegion(int64_t splitPosition)
     }
 
     repaint();
+}
+
+// ============================================================================
+// Automation Lane UI Implementation
+// ============================================================================
+
+void TimelineView::setAutomationMode(AutomationMode mode)
+{
+    if (automationMode != mode)
+    {
+        automationMode = mode;
+
+        // Stop recording if switching away from Write mode
+        if (mode != AutomationMode::Write && mode != AutomationMode::Touch && mode != AutomationMode::Latch)
+        {
+            isRecordingAutomation = false;
+        }
+
+        if (onAutomationModeChanged)
+            onAutomationModeChanged(mode);
+
+        repaint();
+    }
+}
+
+void TimelineView::setAutomationLaneVisible(int trackIndex, const juce::String& paramName, bool visible)
+{
+    if (timelinePtr == nullptr || trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return;
+
+    // Find or create the automation lane
+    AutomationLane* lane = track->findAutomationLane(paramName);
+
+    if (lane == nullptr && visible)
+    {
+        // Create the lane if it doesn't exist and we want to show it
+        lane = track->addAutomationLane(paramName);
+
+        // Set appropriate value range for Volume and Pan
+        if (paramName.equalsIgnoreCase("Volume"))
+        {
+            lane->setValueRange(0.0f, 2.0f);
+            lane->setDefaultValue(1.0f);
+        }
+        else if (paramName.equalsIgnoreCase("Pan"))
+        {
+            lane->setValueRange(-1.0f, 1.0f);
+            lane->setDefaultValue(0.0f);
+        }
+    }
+
+    if (lane != nullptr)
+    {
+        lane->setVisible(visible);
+        resized();  // Recalculate layout for track headers
+        repaint();
+    }
+}
+
+bool TimelineView::isAutomationLaneVisible(int trackIndex, const juce::String& paramName) const
+{
+    if (timelinePtr == nullptr || trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return false;
+
+    const Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return false;
+
+    const AutomationLane* lane = track->findAutomationLane(paramName);
+    return lane != nullptr && lane->isVisible();
+}
+
+void TimelineView::toggleAutomationLane(int trackIndex, const juce::String& paramName)
+{
+    bool currentlyVisible = isAutomationLaneVisible(trackIndex, paramName);
+    setAutomationLaneVisible(trackIndex, paramName, !currentlyVisible);
+}
+
+void TimelineView::addAutomationPoint(int trackIndex, const juce::String& paramName, int64_t position, float value)
+{
+    if (timelinePtr == nullptr || trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return;
+
+    AutomationLane* lane = track->findAutomationLane(paramName);
+    if (lane == nullptr)
+    {
+        // Create lane if it doesn't exist
+        lane = track->addAutomationLane(paramName);
+        if (paramName.equalsIgnoreCase("Volume"))
+        {
+            lane->setValueRange(0.0f, 2.0f);
+            lane->setDefaultValue(1.0f);
+        }
+        else if (paramName.equalsIgnoreCase("Pan"))
+        {
+            lane->setValueRange(-1.0f, 1.0f);
+            lane->setDefaultValue(0.0f);
+        }
+    }
+
+    if (lane != nullptr)
+    {
+        lane->addPoint(position, value);
+        repaint();
+    }
+}
+
+void TimelineView::deleteAutomationPointsInRange(int trackIndex, const juce::String& paramName, int64_t start, int64_t end)
+{
+    if (timelinePtr == nullptr || trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return;
+
+    AutomationLane* lane = track->findAutomationLane(paramName);
+    if (lane != nullptr)
+    {
+        lane->removePointsInRange(start, end);
+        repaint();
+    }
+}
+
+int TimelineView::getNumVisibleAutomationLanes(int trackIndex) const
+{
+    if (timelinePtr == nullptr || trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return 0;
+
+    const Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return 0;
+
+    int count = 0;
+    for (size_t i = 0; i < track->getNumAutomationLanes(); ++i)
+    {
+        const AutomationLane* lane = track->getAutomationLane(i);
+        if (lane != nullptr && lane->isVisible())
+            ++count;
+    }
+    return count;
+}
+
+int TimelineView::getTotalTrackHeight(int trackIndex) const
+{
+    int baseHeight = trackHeight;
+    int numLanes = getNumVisibleAutomationLanes(trackIndex);
+    return baseHeight + (numLanes * AUTOMATION_LANE_HEIGHT);
+}
+
+AutomationLane* TimelineView::getAutomationLaneForTrack(int trackIndex, int laneIndex) const
+{
+    if (timelinePtr == nullptr || trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return nullptr;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return nullptr;
+
+    // Iterate through lanes and find the nth visible one
+    int visibleCount = 0;
+    for (size_t i = 0; i < track->getNumAutomationLanes(); ++i)
+    {
+        AutomationLane* lane = track->getAutomationLane(i);
+        if (lane != nullptr && lane->isVisible())
+        {
+            if (visibleCount == laneIndex)
+                return lane;
+            ++visibleCount;
+        }
+    }
+    return nullptr;
+}
+
+juce::Rectangle<int> TimelineView::getAutomationLaneBounds(int trackIndex, int laneIndex) const
+{
+    if (timelinePtr == nullptr)
+        return juce::Rectangle<int>();
+
+    // Calculate Y position for the track
+    int y = RULER_HEIGHT;
+    for (int i = 0; i < trackIndex; ++i)
+    {
+        y += getTotalTrackHeight(i);
+    }
+
+    // Add track height to get to automation lanes area
+    y += trackHeight;
+
+    // Add height for previous automation lanes
+    y += laneIndex * AUTOMATION_LANE_HEIGHT;
+
+    int x = HEADER_WIDTH;
+    int width = getWidth() - HEADER_WIDTH;
+
+    return juce::Rectangle<int>(x, y, width, AUTOMATION_LANE_HEIGHT);
+}
+
+int TimelineView::getAutomationLaneAtY(int y, int trackIndex) const
+{
+    if (timelinePtr == nullptr)
+        return -1;
+
+    // Calculate Y position for the track
+    int trackY = RULER_HEIGHT;
+    for (int i = 0; i < trackIndex; ++i)
+    {
+        trackY += getTotalTrackHeight(i);
+    }
+
+    // Check if y is within the track's automation lanes area
+    int automationAreaStart = trackY + trackHeight;
+    int numLanes = getNumVisibleAutomationLanes(trackIndex);
+
+    if (y < automationAreaStart || y >= automationAreaStart + numLanes * AUTOMATION_LANE_HEIGHT)
+        return -1;
+
+    // Calculate which lane
+    int relativeY = y - automationAreaStart;
+    return relativeY / AUTOMATION_LANE_HEIGHT;
+}
+
+int TimelineView::automationValueToY(float value, juce::Rectangle<int> laneBounds) const
+{
+    // Value is normalized 0.0 to 1.0
+    // Y increases downward, so higher values should be at top
+    float normalizedValue = juce::jlimit(0.0f, 1.0f, value);
+    int y = laneBounds.getBottom() - static_cast<int>(normalizedValue * laneBounds.getHeight());
+    return y;
+}
+
+float TimelineView::yToAutomationValue(int y, juce::Rectangle<int> laneBounds) const
+{
+    // Convert Y position to normalized value (0.0 to 1.0)
+    float relativeY = static_cast<float>(laneBounds.getBottom() - y);
+    float value = relativeY / static_cast<float>(laneBounds.getHeight());
+    return juce::jlimit(0.0f, 1.0f, value);
+}
+
+int TimelineView::findAutomationPointAtPosition(AutomationLane* lane, int x, int y, juce::Rectangle<int> laneBounds) const
+{
+    if (lane == nullptr)
+        return -1;
+
+    for (size_t i = 0; i < lane->getNumPoints(); ++i)
+    {
+        const AutomationPoint& point = lane->getPoint(i);
+
+        // Convert point position to screen coordinates
+        int pointX = HEADER_WIDTH + sampleToPixel(point.position) - static_cast<int>(horizontalScrollOffset);
+        int pointY = automationValueToY(point.value, laneBounds);
+
+        // Check if mouse is within hit radius
+        int dx = x - pointX;
+        int dy = y - pointY;
+        if (dx * dx + dy * dy <= AUTOMATION_POINT_RADIUS * AUTOMATION_POINT_RADIUS * 4)
+        {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void TimelineView::drawAutomationLanes(juce::Graphics& g, juce::Rectangle<int> bounds, int trackIndex)
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return;
+
+    int laneIndex = 0;
+    for (size_t i = 0; i < track->getNumAutomationLanes(); ++i)
+    {
+        AutomationLane* lane = track->getAutomationLane(i);
+        if (lane != nullptr && lane->isVisible())
+        {
+            juce::Rectangle<int> laneBounds = getAutomationLaneBounds(trackIndex, laneIndex);
+
+            // Draw header area
+            auto headerBounds = laneBounds.removeFromLeft(0);  // Header is handled separately
+            juce::ignoreUnused(headerBounds);
+
+            // Draw the automation lane
+            drawAutomationLane(g, laneBounds, lane);
+
+            ++laneIndex;
+        }
+    }
+}
+
+void TimelineView::drawAutomationLane(juce::Graphics& g, juce::Rectangle<int> bounds, AutomationLane* lane)
+{
+    if (lane == nullptr)
+        return;
+
+    // Background
+    g.setColour(MidiSingLookAndFeel::backgroundMid.darker(0.2f));
+    g.fillRect(bounds);
+
+    // Draw beat grid
+    drawBeatGrid(g, bounds);
+
+    // Draw lane header
+    drawAutomationLaneHeader(g, bounds.withWidth(60), lane);
+
+    // Adjust bounds for content area (after header)
+    auto contentBounds = bounds.withTrimmedLeft(60);
+
+    // Draw horizontal guide lines
+    g.setColour(MidiSingLookAndFeel::borderColour.withAlpha(0.3f));
+    for (int i = 1; i < 4; ++i)
+    {
+        int lineY = bounds.getY() + (bounds.getHeight() * i) / 4;
+        g.drawHorizontalLine(lineY, static_cast<float>(contentBounds.getX()), static_cast<float>(contentBounds.getRight()));
+    }
+
+    // Draw the automation curve
+    drawAutomationCurve(g, contentBounds, lane);
+
+    // Draw automation points
+    drawAutomationPoints(g, contentBounds, lane);
+
+    // Bottom border
+    g.setColour(MidiSingLookAndFeel::borderColour);
+    g.drawHorizontalLine(bounds.getBottom() - 1, static_cast<float>(bounds.getX()), static_cast<float>(bounds.getRight()));
+}
+
+void TimelineView::drawAutomationLaneHeader(juce::Graphics& g, juce::Rectangle<int> bounds, AutomationLane* lane)
+{
+    if (lane == nullptr)
+        return;
+
+    // Header background
+    g.setColour(MidiSingLookAndFeel::backgroundMid);
+    g.fillRect(bounds);
+
+    // Parameter name
+    g.setColour(MidiSingLookAndFeel::textColour);
+    g.setFont(10.0f);
+    g.drawText(lane->getParameterName(), bounds.reduced(4), juce::Justification::centredLeft, true);
+
+    // Draw mode indicator
+    juce::String modeText;
+    juce::Colour modeColour = MidiSingLookAndFeel::textDimColour;
+
+    switch (automationMode)
+    {
+    case AutomationMode::Off:
+        modeText = "OFF";
+        break;
+    case AutomationMode::Read:
+        modeText = "R";
+        modeColour = juce::Colour(0xff5ad4cf);  // Cyan for read
+        break;
+    case AutomationMode::Write:
+        modeText = "W";
+        modeColour = MidiSingLookAndFeel::recordColour;  // Red for write
+        break;
+    case AutomationMode::Touch:
+        modeText = "T";
+        modeColour = juce::Colour(0xffd4a85a);  // Orange for touch
+        break;
+    case AutomationMode::Latch:
+        modeText = "L";
+        modeColour = juce::Colour(0xffa85ad4);  // Purple for latch
+        break;
+    }
+
+    auto modeRect = bounds.removeFromBottom(16).reduced(4, 2);
+    g.setColour(modeColour);
+    g.drawText(modeText, modeRect, juce::Justification::centred, false);
+
+    // Right border
+    g.setColour(MidiSingLookAndFeel::borderColour);
+    g.drawVerticalLine(bounds.getRight() - 1, static_cast<float>(bounds.getY()), static_cast<float>(bounds.getBottom()));
+}
+
+void TimelineView::drawAutomationCurve(juce::Graphics& g, juce::Rectangle<int> bounds, AutomationLane* lane)
+{
+    if (lane == nullptr || lane->getNumPoints() == 0)
+        return;
+
+    // Draw the automation curve as connected lines
+    juce::Path curvePath;
+    bool firstPoint = true;
+
+    // Get visible range
+    double startBeat = horizontalScrollOffset / pixelsPerBeat;
+    double endBeat = startBeat + bounds.getWidth() / pixelsPerBeat;
+    int64_t startSample = timelinePtr ? timelinePtr->beatsToSamples(startBeat) : 0;
+    int64_t endSample = timelinePtr ? timelinePtr->beatsToSamples(endBeat) : 0;
+
+    // Draw from default value at start if first point is not at position 0
+    if (lane->getNumPoints() > 0)
+    {
+        const AutomationPoint& firstPt = lane->getPoint(0);
+        if (firstPt.position > startSample)
+        {
+            // Draw flat line from start to first point at default value
+            float defaultValue = lane->getDefaultValue();
+            // Normalize the default value
+            float minVal = lane->getMinValue();
+            float maxVal = lane->getMaxValue();
+            float normalizedDefault = (defaultValue - minVal) / (maxVal - minVal);
+
+            int x = bounds.getX();
+            int y = automationValueToY(normalizedDefault, bounds);
+            curvePath.startNewSubPath(static_cast<float>(x), static_cast<float>(y));
+            firstPoint = false;
+        }
+    }
+
+    for (size_t i = 0; i < lane->getNumPoints(); ++i)
+    {
+        const AutomationPoint& point = lane->getPoint(i);
+
+        int x = HEADER_WIDTH + sampleToPixel(point.position) - static_cast<int>(horizontalScrollOffset);
+        int y = automationValueToY(point.value, bounds);
+
+        // Clamp to visible area
+        x = juce::jmax(bounds.getX(), juce::jmin(x, bounds.getRight()));
+
+        if (firstPoint)
+        {
+            curvePath.startNewSubPath(static_cast<float>(x), static_cast<float>(y));
+            firstPoint = false;
+        }
+        else
+        {
+            curvePath.lineTo(static_cast<float>(x), static_cast<float>(y));
+        }
+    }
+
+    // Extend to end of visible area
+    if (lane->getNumPoints() > 0)
+    {
+        const AutomationPoint& lastPt = lane->getPoint(lane->getNumPoints() - 1);
+        int lastX = HEADER_WIDTH + sampleToPixel(lastPt.position) - static_cast<int>(horizontalScrollOffset);
+        if (lastX < bounds.getRight())
+        {
+            int y = automationValueToY(lastPt.value, bounds);
+            curvePath.lineTo(static_cast<float>(bounds.getRight()), static_cast<float>(y));
+        }
+    }
+
+    // Draw the curve
+    g.setColour(MidiSingLookAndFeel::accentColour);
+    g.strokePath(curvePath, juce::PathStrokeType(2.0f));
+
+    // Draw filled area below curve (optional, subtle)
+    if (!curvePath.isEmpty())
+    {
+        juce::Path fillPath = curvePath;
+        fillPath.lineTo(static_cast<float>(bounds.getRight()), static_cast<float>(bounds.getBottom()));
+        fillPath.lineTo(static_cast<float>(bounds.getX()), static_cast<float>(bounds.getBottom()));
+        fillPath.closeSubPath();
+
+        g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.1f));
+        g.fillPath(fillPath);
+    }
+}
+
+void TimelineView::drawAutomationPoints(juce::Graphics& g, juce::Rectangle<int> bounds, AutomationLane* lane)
+{
+    if (lane == nullptr)
+        return;
+
+    for (size_t i = 0; i < lane->getNumPoints(); ++i)
+    {
+        const AutomationPoint& point = lane->getPoint(i);
+
+        int x = HEADER_WIDTH + sampleToPixel(point.position) - static_cast<int>(horizontalScrollOffset);
+        int y = automationValueToY(point.value, bounds);
+
+        // Skip if outside visible area
+        if (x < bounds.getX() - AUTOMATION_POINT_RADIUS || x > bounds.getRight() + AUTOMATION_POINT_RADIUS)
+            continue;
+
+        // Determine if this point is being edited
+        bool isEditing = (isDraggingAutomationPoint &&
+                          automationEditLane == lane &&
+                          automationEditPointIndex == static_cast<int>(i));
+
+        // Draw point handle
+        if (isEditing)
+        {
+            // Larger, highlighted point when editing
+            g.setColour(MidiSingLookAndFeel::accentColour);
+            g.fillEllipse(static_cast<float>(x - AUTOMATION_POINT_RADIUS - 1),
+                          static_cast<float>(y - AUTOMATION_POINT_RADIUS - 1),
+                          static_cast<float>((AUTOMATION_POINT_RADIUS + 1) * 2),
+                          static_cast<float>((AUTOMATION_POINT_RADIUS + 1) * 2));
+        }
+        else
+        {
+            // Normal point
+            g.setColour(MidiSingLookAndFeel::accentColour);
+            g.fillEllipse(static_cast<float>(x - AUTOMATION_POINT_RADIUS),
+                          static_cast<float>(y - AUTOMATION_POINT_RADIUS),
+                          static_cast<float>(AUTOMATION_POINT_RADIUS * 2),
+                          static_cast<float>(AUTOMATION_POINT_RADIUS * 2));
+
+            // White outline
+            g.setColour(juce::Colours::white);
+            g.drawEllipse(static_cast<float>(x - AUTOMATION_POINT_RADIUS),
+                          static_cast<float>(y - AUTOMATION_POINT_RADIUS),
+                          static_cast<float>(AUTOMATION_POINT_RADIUS * 2),
+                          static_cast<float>(AUTOMATION_POINT_RADIUS * 2),
+                          1.0f);
+        }
+    }
+}
+
+void TimelineView::handleAutomationMouseDown(const juce::MouseEvent& e, int trackIndex, int laneIndex)
+{
+    AutomationLane* lane = getAutomationLaneForTrack(trackIndex, laneIndex);
+    if (lane == nullptr)
+        return;
+
+    juce::Rectangle<int> laneBounds = getAutomationLaneBounds(trackIndex, laneIndex);
+
+    // Check if clicking on an existing point
+    int pointIndex = findAutomationPointAtPosition(lane, e.x, e.y, laneBounds);
+
+    automationEditTrackIndex = trackIndex;
+    automationEditLaneIndex = laneIndex;
+    automationEditLane = lane;
+    automationEditLaneBounds = laneBounds;
+
+    if (pointIndex >= 0)
+    {
+        // Clicking on existing point - start dragging
+        automationEditPointIndex = pointIndex;
+        isDraggingAutomationPoint = true;
+        automationDragStartPosition = lane->getPoint(static_cast<size_t>(pointIndex)).position;
+        automationDragStartValue = lane->getPoint(static_cast<size_t>(pointIndex)).value;
+    }
+    else if (automationMode != AutomationMode::Off)
+    {
+        // Clicking on empty area - create new point
+        int64_t position = pixelToSample(e.x);
+        float value = yToAutomationValue(e.y, laneBounds);
+
+        lane->addPoint(position, value);
+
+        // Find the newly added point and start dragging it
+        int newPointIndex = lane->findPointAtPosition(position, 100);
+        if (newPointIndex >= 0)
+        {
+            automationEditPointIndex = newPointIndex;
+            isDraggingAutomationPoint = true;
+            automationDragStartPosition = position;
+            automationDragStartValue = value;
+        }
+    }
+
+    isEditingAutomation = true;
+    repaint();
+}
+
+void TimelineView::handleAutomationMouseDrag(const juce::MouseEvent& e)
+{
+    if (!isDraggingAutomationPoint || automationEditLane == nullptr || automationEditPointIndex < 0)
+        return;
+
+    // Calculate new position and value
+    int64_t newPosition = pixelToSample(e.x);
+    float newValue = yToAutomationValue(e.y, automationEditLaneBounds);
+
+    // Snap to grid if enabled
+    if (snapToGrid)
+    {
+        newPosition = snapPositionToGrid(newPosition);
+    }
+
+    // Update the point
+    automationEditLane->movePoint(static_cast<size_t>(automationEditPointIndex), newPosition, newValue);
+
+    repaint();
+}
+
+void TimelineView::handleAutomationMouseUp(const juce::MouseEvent& e)
+{
+    juce::ignoreUnused(e);
+
+    isDraggingAutomationPoint = false;
+    isEditingAutomation = false;
+    automationEditLane = nullptr;
+    automationEditPointIndex = -1;
+
+    repaint();
+}
+
+void TimelineView::recordAutomationAtPlayhead()
+{
+    if (transportPtr == nullptr || timelinePtr == nullptr)
+        return;
+
+    if (automationMode != AutomationMode::Write && automationMode != AutomationMode::Touch && automationMode != AutomationMode::Latch)
+        return;
+
+    if (transportPtr->isStopped())
+        return;
+
+    int64_t playheadPos = transportPtr->getPlayheadPosition();
+
+    // Record automation for all visible lanes on all tracks
+    for (int trackIndex = 0; trackIndex < timelinePtr->getNumTracks(); ++trackIndex)
+    {
+        Track* track = timelinePtr->getTrack(trackIndex);
+        if (track == nullptr)
+            continue;
+
+        // Record volume automation
+        AutomationLane* volumeLane = track->findAutomationLane("Volume");
+        if (volumeLane != nullptr && volumeLane->isVisible() && !volumeLane->isBypassed())
+        {
+            // Get current fader value and record it
+            float currentVolume = track->getVolume();
+            // Normalize to 0-1 range for storage
+            float minVal = volumeLane->getMinValue();
+            float maxVal = volumeLane->getMaxValue();
+            float normalizedValue = (currentVolume - minVal) / (maxVal - minVal);
+            volumeLane->addPoint(playheadPos, normalizedValue);
+        }
+
+        // Record pan automation
+        AutomationLane* panLane = track->findAutomationLane("Pan");
+        if (panLane != nullptr && panLane->isVisible() && !panLane->isBypassed())
+        {
+            float currentPan = track->getPan();
+            float minVal = panLane->getMinValue();
+            float maxVal = panLane->getMaxValue();
+            float normalizedValue = (currentPan - minVal) / (maxVal - minVal);
+            panLane->addPoint(playheadPos, normalizedValue);
+        }
+    }
+
+    lastAutomationRecordPosition = playheadPos;
 }
