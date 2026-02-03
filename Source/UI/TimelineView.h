@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Timeline/Timeline.h"
+#include "../Timeline/AutomationLane.h"
 #include "../Audio/Transport.h"
 #include "../Audio/AudioImporter.h"
 #include "../MIDI/MidiImporter.h"
@@ -14,8 +15,21 @@
 #include <memory>
 
 /**
+ * Automation mode for Read/Write control.
+ */
+enum class AutomationMode
+{
+    Off,        // Automation is disabled
+    Read,       // Read automation curves (default)
+    Write,      // Overwrite automation at playhead position
+    Touch,      // Write only while mouse is pressed
+    Latch       // Write from first touch until stopped
+};
+
+/**
  * TimelineView displays tracks, regions, time ruler, and playhead.
  * Main arrangement view of the DAW. Supports drag-and-drop for audio files.
+ * Supports automation lanes with Read/Write modes for Volume and Pan.
  */
 class TimelineView : public juce::Component,
                      public juce::Timer,
@@ -71,9 +85,25 @@ public:
     int getSelectedTrackIndex() const { return selectedTrackIndex; }
     void clearSelection();
 
-    // Track header width
+    // Automation lane management
+    void setAutomationMode(AutomationMode mode);
+    AutomationMode getAutomationMode() const { return automationMode; }
+    void setAutomationLaneVisible(int trackIndex, const juce::String& paramName, bool visible);
+    bool isAutomationLaneVisible(int trackIndex, const juce::String& paramName) const;
+    void toggleAutomationLane(int trackIndex, const juce::String& paramName);
+
+    // Automation editing
+    void addAutomationPoint(int trackIndex, const juce::String& paramName, int64_t position, float value);
+    void deleteAutomationPointsInRange(int trackIndex, const juce::String& paramName, int64_t start, int64_t end);
+
+    // Callbacks for track header
+    std::function<void(AutomationMode)> onAutomationModeChanged;
+
+    // Track header width and layout constants
     static constexpr int HEADER_WIDTH = 150;
     static constexpr int RULER_HEIGHT = 30;
+    static constexpr int AUTOMATION_LANE_HEIGHT = 60;  // Height of each automation lane
+    static constexpr int AUTOMATION_POINT_RADIUS = 5;  // Radius for automation point handles
 
 private:
     void drawTimeRuler(juce::Graphics& g, juce::Rectangle<int> bounds);
@@ -81,7 +111,32 @@ private:
     void drawPlayhead(juce::Graphics& g);
     void drawBeatGrid(juce::Graphics& g, juce::Rectangle<int> bounds);
     void updateTrackHeaders();
-    
+
+    // Automation lane drawing
+    void drawAutomationLanes(juce::Graphics& g, juce::Rectangle<int> bounds, int trackIndex);
+    void drawAutomationLane(juce::Graphics& g, juce::Rectangle<int> bounds, AutomationLane* lane);
+    void drawAutomationCurve(juce::Graphics& g, juce::Rectangle<int> bounds, AutomationLane* lane);
+    void drawAutomationPoints(juce::Graphics& g, juce::Rectangle<int> bounds, AutomationLane* lane);
+    void drawAutomationLaneHeader(juce::Graphics& g, juce::Rectangle<int> bounds, AutomationLane* lane);
+
+    // Automation lane hit testing and coordinate conversion
+    int getAutomationLaneAtY(int y, int trackIndex) const;
+    AutomationLane* getAutomationLaneForTrack(int trackIndex, int laneIndex) const;
+    int automationValueToY(float value, juce::Rectangle<int> laneBounds) const;
+    float yToAutomationValue(int y, juce::Rectangle<int> laneBounds) const;
+    juce::Rectangle<int> getAutomationLaneBounds(int trackIndex, int laneIndex) const;
+    int findAutomationPointAtPosition(AutomationLane* lane, int x, int y, juce::Rectangle<int> laneBounds) const;
+
+    // Automation mouse handlers
+    void handleAutomationMouseDown(const juce::MouseEvent& e, int trackIndex, int laneIndex);
+    void handleAutomationMouseDrag(const juce::MouseEvent& e);
+    void handleAutomationMouseUp(const juce::MouseEvent& e);
+    void recordAutomationAtPlayhead();
+
+    // Calculate total height for a track (including visible automation lanes)
+    int getTotalTrackHeight(int trackIndex) const;
+    int getNumVisibleAutomationLanes(int trackIndex) const;
+
     int getTrackIndexAtY(int y) const;
     void importAudioFileToTrack(const juce::File& file, int trackIndex, int x);
     void importMidiFileToTrack(const juce::File& file, int trackIndex, int x);
@@ -208,6 +263,24 @@ private:
 
     ClipboardData clipboard;
     int64_t lastClickSamplePosition = 0;  // For paste position
+
+    // Automation mode and editing state
+    AutomationMode automationMode = AutomationMode::Read;
+
+    // Automation editing state
+    bool isEditingAutomation = false;
+    int automationEditTrackIndex = -1;
+    int automationEditLaneIndex = -1;
+    int automationEditPointIndex = -1;    // -1 = creating new point, >= 0 = editing existing
+    AutomationLane* automationEditLane = nullptr;
+    juce::Rectangle<int> automationEditLaneBounds;
+    bool isDraggingAutomationPoint = false;
+    int64_t automationDragStartPosition = 0;
+    float automationDragStartValue = 0.0f;
+
+    // For Write mode: record automation at playhead during playback
+    bool isRecordingAutomation = false;
+    int64_t lastAutomationRecordPosition = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimelineView)
 };
