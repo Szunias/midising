@@ -249,6 +249,10 @@ private:
     int drawTrackIndex = -1;                     // Track index where drawing started
     juce::Rectangle<int> ghostPreviewBounds;    // Preview rectangle for visual feedback
 
+    // Double-click handlers
+    void handleDoubleClickOnRegion(Region* region, int trackIndex);
+    void handleDoubleClickOnEmptyArea(int trackIndex, int clickX);
+
     // Context menu and clipboard operations
     void showContextMenu(const juce::MouseEvent& e);
     void cutSelectedRegion();

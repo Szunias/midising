@@ -98,6 +98,30 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
     // Store click position for paste operations
     lastClickSamplePosition = pixelToSample(e.x);
 
+    // Handle double-click for regions and empty areas
+    if (e.getNumberOfClicks() == 2 && e.x > HEADER_WIDTH && e.y > RULER_HEIGHT)
+    {
+        int trackIndex = -1;
+        Region* clickedRegion = getRegionAtPosition(e.x, e.y, trackIndex);
+
+        if (clickedRegion != nullptr)
+        {
+            // Double-click on a region - open appropriate editor
+            handleDoubleClickOnRegion(clickedRegion, trackIndex);
+            return;
+        }
+        else
+        {
+            // Double-click on empty track area - create 4-bar region
+            int trackIdx = getTrackIndexAtY(e.y);
+            if (trackIdx >= 0 && trackIdx < timelinePtr->getNumTracks())
+            {
+                handleDoubleClickOnEmptyArea(trackIdx, e.x);
+                return;
+            }
+        }
+    }
+
     // Handle right-click for context menu
     if (e.mods.isPopupMenu())
     {
@@ -1653,6 +1677,85 @@ void TimelineView::drawDrawGhost(juce::Graphics& g)
     g.setColour(MidiSingLookAndFeel::accentColour);
     g.drawLine(static_cast<float>(ghostBounds.getX()), static_cast<float>(RULER_HEIGHT),
                static_cast<float>(ghostBounds.getX()), static_cast<float>(getHeight()), 1.0f);
+}
+
+void TimelineView::handleDoubleClickOnRegion(Region* region, int trackIndex)
+{
+    if (region == nullptr || timelinePtr == nullptr)
+        return;
+
+    // Select the region first
+    selectedRegion = region;
+    selectedTrackIndex = trackIndex;
+
+    // Check if it's a MIDI region - if so, we should open Piano Roll
+    // This will be implemented in subtask-5-2 by adding a callback to MainComponent
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track != nullptr)
+    {
+        if (dynamic_cast<MidiTrack*>(track) != nullptr)
+        {
+            // MIDI region double-click: open Piano Roll (callback to be wired in subtask-5-2)
+            // For now, just select the region
+            DBG("Double-click on MIDI region - should open Piano Roll");
+        }
+        else if (dynamic_cast<AudioTrack*>(track) != nullptr)
+        {
+            // Audio region double-click: could open waveform editor in the future
+            DBG("Double-click on Audio region");
+        }
+    }
+
+    repaint();
+}
+
+void TimelineView::handleDoubleClickOnEmptyArea(int trackIndex, int clickX)
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return;
+
+    // Calculate position in samples and snap to grid
+    int64_t clickSample = pixelToSample(clickX);
+    if (snapToGrid)
+    {
+        clickSample = snapPositionToGrid(clickSample);
+    }
+
+    // Create a 4-bar region (16 beats in 4/4 time)
+    const double bpm = transportPtr != nullptr ? transportPtr->getTempo() : 120.0;
+    const double beatsPerBar = 4.0;
+    const double numBars = 4.0;
+    const double totalBeats = beatsPerBar * numBars;  // 16 beats for 4 bars
+    const int64_t regionLength = static_cast<int64_t>((60.0 / bpm) * totalBeats * sampleRate);
+
+    // This will be fully implemented in subtask-5-3
+    // For now, create the appropriate region type based on track type
+    if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
+    {
+        // Create empty audio region
+        auto newRegion = std::make_unique<AudioRegion>(clickSample, regionLength);
+        newRegion->setName("New Audio Region");
+        selectedRegion = newRegion.get();
+        selectedTrackIndex = trackIndex;
+        audioTrack->addRegion(std::move(newRegion));
+        DBG("Created 4-bar Audio region via double-click");
+    }
+    else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
+    {
+        // Create empty MIDI region
+        auto newRegion = std::make_unique<MidiRegion>(clickSample, regionLength);
+        newRegion->setName("New MIDI Region");
+        selectedRegion = newRegion.get();
+        selectedTrackIndex = trackIndex;
+        midiTrack->addRegion(std::move(newRegion));
+        DBG("Created 4-bar MIDI region via double-click");
+    }
+
+    repaint();
 }
 
 TimelineView::RegionEdge TimelineView::getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const
