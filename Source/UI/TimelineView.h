@@ -10,6 +10,7 @@
 #include "../Audio/WaveformCache.h"
 #include "LookAndFeel.h"
 #include "TrackHeader.h"
+#include "ToolBar.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <vector>
 #include <memory>
@@ -85,6 +86,11 @@ public:
     int getSelectedTrackIndex() const { return selectedTrackIndex; }
     void clearSelection();
 
+    // Region editing operations (public wrappers for menu/shortcut access)
+    void deleteSelection();
+    void splitSelectionAtPosition(int64_t samplePosition);
+    void selectFirstRegion();
+
     // Automation lane management
     void setAutomationMode(AutomationMode mode);
     AutomationMode getAutomationMode() const { return automationMode; }
@@ -96,8 +102,15 @@ public:
     void addAutomationPoint(int trackIndex, const juce::String& paramName, int64_t position, float value);
     void deleteAutomationPointsInRange(int trackIndex, const juce::String& paramName, int64_t start, int64_t end);
 
+    // Tool mode management
+    void setToolMode(ToolMode mode);
+    ToolMode getToolMode() const { return currentToolMode; }
+
     // Callbacks for track header
     std::function<void(AutomationMode)> onAutomationModeChanged;
+
+    // Callback for double-click on MIDI region (to open Piano Roll)
+    std::function<void(MidiRegion*)> onMidiRegionDoubleClicked;
 
     // Track header width and layout constants
     static constexpr int HEADER_WIDTH = 150;
@@ -223,6 +236,7 @@ private:
     void drawDragGhost(juce::Graphics& g);
     void drawResizeGhost(juce::Graphics& g);
     void drawFadeGhost(juce::Graphics& g);
+    void drawDrawGhost(juce::Graphics& g);
     RegionEdge getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const;
     SmartToolZone getSmartToolZone(int x, int y, Region*& outRegion, int& outTrackIndex) const;
     void updateCursorForPosition(int x, int y);
@@ -237,6 +251,16 @@ private:
     int64_t fadeCurrentLength = 0;
     int fadeStartMouseX = 0;
 
+    // Draw tool state (for creating regions via Draw tool)
+    bool isDrawingRegion = false;
+    int drawStartX = 0;                          // Starting X coordinate for draw operation
+    int drawTrackIndex = -1;                     // Track index where drawing started
+    juce::Rectangle<int> ghostPreviewBounds;    // Preview rectangle for visual feedback
+
+    // Double-click handlers
+    void handleDoubleClickOnRegion(Region* region, int trackIndex);
+    void handleDoubleClickOnEmptyArea(int trackIndex, int clickX);
+
     // Context menu and clipboard operations
     void showContextMenu(const juce::MouseEvent& e);
     void cutSelectedRegion();
@@ -244,6 +268,14 @@ private:
     void pasteRegion(int64_t pastePosition);
     void deleteSelectedRegion();
     void splitSelectedRegion(int64_t splitPosition);
+
+    // Track management operations (context menu)
+    void addAudioTrack();
+    void addMidiTrack();
+    void deleteTrack(int trackIndex);
+    void duplicateTrack(int trackIndex);
+    void showImportAudioDialog();
+    void showImportMidiDialog();
 
     // Clipboard data structure for copy/paste
     struct ClipboardData
@@ -263,6 +295,13 @@ private:
 
     ClipboardData clipboard;
     int64_t lastClickSamplePosition = 0;  // For paste position
+    int contextMenuTrackIndex = -1;  // Track index for context menu operations
+
+    // FileChooser for import dialogs (must persist during async operation)
+    std::unique_ptr<juce::FileChooser> fileChooser;
+
+    // Tool mode state (from ToolBar)
+    ToolMode currentToolMode = ToolMode::Select;
 
     // Automation mode and editing state
     AutomationMode automationMode = AutomationMode::Read;

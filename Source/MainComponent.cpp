@@ -30,7 +30,10 @@ MainComponent::MainComponent()
     transportBar.setTransport(&audioEngine.getTransport());
     setupTransportCallbacks();
     addAndMakeVisible(transportBar);
-    
+
+    // Setup tool bar (below transport bar)
+    addAndMakeVisible(toolBar);
+
     // Setup status bar
     addAndMakeVisible(statusBar);
     
@@ -53,6 +56,12 @@ MainComponent::MainComponent()
 
     // Setup collapsible panels (Browser, Mixer, PianoRoll)
     setupCollapsiblePanels();
+
+    // Wire up timeline view callback for double-click on MIDI regions
+    timelineView.onMidiRegionDoubleClicked = [this](MidiRegion* region)
+    {
+        showPianoRollWithRegion(region);
+    };
 
     // Setup resizable splitters between panels
     setupSplitters();
@@ -194,6 +203,9 @@ void MainComponent::resized()
 
     // Transport bar below menu bar
     transportBar.setBounds(bounds.removeFromTop(50));
+
+    // Tool bar below transport bar
+    toolBar.setBounds(bounds.removeFromTop(40));
 
     // Status bar at bottom
     statusBar.setBounds(bounds.removeFromBottom(24));
@@ -627,6 +639,18 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::toggleBrowser);
     commands.add(CommandIDs::toggleMixer);
     commands.add(CommandIDs::togglePianoRoll);
+
+    // Tool mode commands
+    commands.add(CommandIDs::toolSelect);
+    commands.add(CommandIDs::toolDraw);
+    commands.add(CommandIDs::toolSplit);
+    commands.add(CommandIDs::toolErase);
+    commands.add(CommandIDs::toolMute);
+
+    // Edit commands
+    commands.add(CommandIDs::selectAll);
+    commands.add(CommandIDs::deleteSelection);
+    commands.add(CommandIDs::splitAtPlayhead);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -706,6 +730,44 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
         result.addDefaultKeypress('p', juce::ModifierKeys::commandModifier);
         result.setTicked(pianoRollVisible);
         break;
+
+    // Tool mode shortcuts
+    case CommandIDs::toolSelect:
+        result.setInfo("Select Tool", "Switch to selection tool", "Tools", 0);
+        result.addDefaultKeypress('v', 0);
+        break;
+    case CommandIDs::toolDraw:
+        result.setInfo("Draw Tool", "Switch to draw tool for creating regions", "Tools", 0);
+        result.addDefaultKeypress('d', 0);
+        break;
+    case CommandIDs::toolSplit:
+        result.setInfo("Split Tool", "Switch to split tool for cutting regions", "Tools", 0);
+        result.addDefaultKeypress('s', 0);
+        break;
+    case CommandIDs::toolErase:
+        result.setInfo("Erase Tool", "Switch to erase tool for deleting regions", "Tools", 0);
+        result.addDefaultKeypress('e', 0);
+        break;
+    case CommandIDs::toolMute:
+        result.setInfo("Mute Tool", "Switch to mute tool for muting regions", "Tools", 0);
+        result.addDefaultKeypress('m', 0);
+        break;
+
+    // Edit commands
+    case CommandIDs::selectAll:
+        result.setInfo("Select All", "Select all regions", "Edit", 0);
+        result.addDefaultKeypress('a', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::deleteSelection:
+        result.setInfo("Delete", "Delete selected region", "Edit", 0);
+        result.addDefaultKeypress(juce::KeyPress::deleteKey, 0);
+        result.addDefaultKeypress(juce::KeyPress::backspaceKey, 0);
+        break;
+    case CommandIDs::splitAtPlayhead:
+        result.setInfo("Split at Playhead", "Split selected region at playhead position", "Edit", 0);
+        result.addDefaultKeypress('b', juce::ModifierKeys::commandModifier);
+        break;
+
     default:
         break;
     }
@@ -786,6 +848,46 @@ bool MainComponent::perform(const InvocationInfo& info)
     case CommandIDs::togglePianoRoll:
         togglePianoRollPanel();
         return true;
+
+    // Tool mode shortcuts
+    case CommandIDs::toolSelect:
+        toolBar.setToolMode(ToolMode::Select);
+        timelineView.setToolMode(ToolMode::Select);
+        return true;
+    case CommandIDs::toolDraw:
+        toolBar.setToolMode(ToolMode::Draw);
+        timelineView.setToolMode(ToolMode::Draw);
+        return true;
+    case CommandIDs::toolSplit:
+        toolBar.setToolMode(ToolMode::Split);
+        timelineView.setToolMode(ToolMode::Split);
+        return true;
+    case CommandIDs::toolErase:
+        toolBar.setToolMode(ToolMode::Erase);
+        timelineView.setToolMode(ToolMode::Erase);
+        return true;
+    case CommandIDs::toolMute:
+        // Mute tool - no dedicated ToolMode, this could toggle region muting
+        // For now, just return true to acknowledge the command
+        return true;
+
+    // Edit commands
+    case CommandIDs::selectAll:
+        timelineView.selectFirstRegion();
+        return true;
+    case CommandIDs::deleteSelection:
+        timelineView.deleteSelection();
+        setHasUnsavedChanges(true);
+        return true;
+    case CommandIDs::splitAtPlayhead:
+        {
+            // Get the current playhead position from the transport
+            int64_t playheadPosition = audioEngine.getTransport().getPlayheadPosition();
+            timelineView.splitSelectionAtPosition(playheadPosition);
+            setHasUnsavedChanges(true);
+        }
+        return true;
+
     default:
         return false;
     }
@@ -795,7 +897,7 @@ bool MainComponent::perform(const InvocationInfo& info)
 // MenuBarModel implementation
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "File", "View", "Track" };
+    return { "File", "Edit", "View", "Track" };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName)
@@ -837,13 +939,23 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addSeparator();
         menu.addCommandItem(&commandManager, juce::StandardApplicationCommandIDs::quit);
     }
-    else if (topLevelMenuIndex == 1)  // View menu
+    else if (topLevelMenuIndex == 1)  // Edit menu
+    {
+        menu.addCommandItem(&commandManager, CommandIDs::undo);
+        menu.addCommandItem(&commandManager, CommandIDs::redo);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::selectAll);
+        menu.addCommandItem(&commandManager, CommandIDs::deleteSelection);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::splitAtPlayhead);
+    }
+    else if (topLevelMenuIndex == 2)  // View menu
     {
         menu.addCommandItem(&commandManager, CommandIDs::toggleBrowser);
         menu.addCommandItem(&commandManager, CommandIDs::toggleMixer);
         menu.addCommandItem(&commandManager, CommandIDs::togglePianoRoll);
     }
-    else if (topLevelMenuIndex == 2)  // Track menu
+    else if (topLevelMenuIndex == 3)  // Track menu
     {
         menu.addCommandItem(&commandManager, CommandIDs::addAudioTrack);
         menu.addCommandItem(&commandManager, CommandIDs::addMidiTrack);
@@ -1264,6 +1376,41 @@ void MainComponent::togglePianoRollPanel()
     commandManager.commandStatusChanged();
 }
 
+void MainComponent::showPianoRollWithRegion(MidiRegion* region)
+{
+    // Ensure piano roll panel is visible
+    if (!pianoRollVisible)
+    {
+        pianoRollVisible = true;
+
+        if (pianoRollPanel != nullptr)
+        {
+            pianoRollPanel->setVisible(true);
+        }
+
+        // If showing piano roll and mixer is visible, hide mixer
+        // (they share the same bottom space)
+        if (mixerVisible)
+        {
+            mixerVisible = false;
+            if (mixerPanel != nullptr)
+                mixerPanel->setVisible(false);
+        }
+
+        // Update layout
+        resized();
+
+        // Update menu checkmarks
+        commandManager.commandStatusChanged();
+    }
+
+    // Set the MIDI region on the piano roll
+    if (pianoRollContent != nullptr && region != nullptr)
+    {
+        pianoRollContent->setMidiRegion(region);
+    }
+}
+
 void MainComponent::updatePanelLayout()
 {
     // Force layout update
@@ -1336,11 +1483,12 @@ void MainComponent::updateSplitterPositions()
         // Calculate available height for bottom panel
         int menuHeight = juce::LookAndFeel::getDefaultLookAndFeel().getDefaultMenuBarHeight();
         int transportHeight = 50;
+        int toolBarHeight = 40;
         int statusHeight = 24;
         int spectrumHeight = 60;
         int minTimelineHeight = 200;
 
-        int availableHeight = getHeight() - menuHeight - transportHeight - statusHeight - spectrumHeight;
+        int availableHeight = getHeight() - menuHeight - transportHeight - toolBarHeight - statusHeight - spectrumHeight;
         int maxBottomHeight = availableHeight - minTimelineHeight;
 
         bottomSplitter->setLimits(100, juce::jmax(100, maxBottomHeight));

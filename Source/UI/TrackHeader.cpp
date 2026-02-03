@@ -1,5 +1,6 @@
 #include "TrackHeader.h"
 #include "../Timeline/AutomationLane.h"
+#include <juce_gui_extra/juce_gui_extra.h>
 
 TrackHeader::TrackHeader()
 {
@@ -213,7 +214,7 @@ void TrackHeader::mouseDown(const juce::MouseEvent& event)
 {
     if (event.mods.isPopupMenu())
     {
-        showContextMenu();
+        showContextMenu(event.getScreenPosition());
     }
     else
     {
@@ -224,13 +225,18 @@ void TrackHeader::mouseDown(const juce::MouseEvent& event)
     }
 }
 
-void TrackHeader::showContextMenu()
+void TrackHeader::mouseDoubleClick(const juce::MouseEvent& /*event*/)
+{
+    showPropertiesDialog();
+}
+
+void TrackHeader::showContextMenu(juce::Point<int> screenPosition)
 {
     juce::PopupMenu menu;
 
     menu.addItem(DeleteTrackId, "Delete Track", trackPtr != nullptr);
 
-    menu.showMenuAsync(juce::PopupMenu::Options(),
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(juce::Rectangle<int>(screenPosition, screenPosition)),
         [this](int result)
         {
             if (result == DeleteTrackId && trackPtr != nullptr)
@@ -322,4 +328,129 @@ void TrackHeader::showAutomationMenu()
                 onToggleAutomationLane(trackIndex, "Pan");
             }
         });
+}
+
+//==============================================================================
+// Track Properties Dialog
+//==============================================================================
+
+/**
+ * Custom component that contains the track properties editor.
+ */
+class TrackPropertiesComponent : public juce::Component,
+                                  public juce::ChangeListener
+{
+public:
+    TrackPropertiesComponent(Track* track, std::function<void()> onChanged)
+        : trackPtr(track), onPropertiesChanged(std::move(onChanged))
+    {
+        // Track name label
+        nameLabel.setText("Track Name:", juce::dontSendNotification);
+        nameLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
+        addAndMakeVisible(nameLabel);
+
+        // Track name editor
+        nameEditor.setText(track->getName(), juce::dontSendNotification);
+        nameEditor.setColour(juce::TextEditor::backgroundColourId, MidiSingLookAndFeel::buttonBackground);
+        nameEditor.setColour(juce::TextEditor::textColourId, MidiSingLookAndFeel::textColour);
+        nameEditor.setColour(juce::TextEditor::outlineColourId, MidiSingLookAndFeel::borderColour);
+        nameEditor.onTextChange = [this]()
+        {
+            if (trackPtr != nullptr)
+            {
+                trackPtr->setName(nameEditor.getText());
+                if (onPropertiesChanged)
+                    onPropertiesChanged();
+            }
+        };
+        addAndMakeVisible(nameEditor);
+
+        // Track colour label
+        colourLabel.setText("Track Colour:", juce::dontSendNotification);
+        colourLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
+        addAndMakeVisible(colourLabel);
+
+        // Colour selector
+        colourSelector.setCurrentColour(track->getColour());
+        colourSelector.addChangeListener(this);
+        addAndMakeVisible(colourSelector);
+
+        setSize(300, 280);
+    }
+
+    ~TrackPropertiesComponent() override
+    {
+        colourSelector.removeChangeListener(this);
+    }
+
+    void resized() override
+    {
+        auto bounds = getLocalBounds().reduced(10);
+
+        // Name label and editor
+        auto nameRow = bounds.removeFromTop(24);
+        nameLabel.setBounds(nameRow.removeFromLeft(90));
+        nameEditor.setBounds(nameRow);
+
+        bounds.removeFromTop(10);
+
+        // Colour label
+        colourLabel.setBounds(bounds.removeFromTop(24));
+
+        bounds.removeFromTop(5);
+
+        // Colour selector takes the rest
+        colourSelector.setBounds(bounds);
+    }
+
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override
+    {
+        if (source == &colourSelector && trackPtr != nullptr)
+        {
+            trackPtr->setColour(colourSelector.getCurrentColour());
+            if (onPropertiesChanged)
+                onPropertiesChanged();
+        }
+    }
+
+private:
+    Track* trackPtr;
+    std::function<void()> onPropertiesChanged;
+
+    juce::Label nameLabel;
+    juce::TextEditor nameEditor;
+    juce::Label colourLabel;
+    juce::ColourSelector colourSelector { juce::ColourSelector::showColourAtTop
+                                        | juce::ColourSelector::showSliders
+                                        | juce::ColourSelector::showColourspace };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TrackPropertiesComponent)
+};
+
+void TrackHeader::showPropertiesDialog()
+{
+    if (trackPtr == nullptr)
+        return;
+
+    // Create the properties component
+    auto* propertiesComponent = new TrackPropertiesComponent(trackPtr, [this]()
+    {
+        // Update the UI when properties change
+        updateFromTrack();
+        repaint();
+        if (onTrackPropertiesChanged)
+            onTrackPropertiesChanged(trackPtr);
+    });
+
+    // Configure the dialog window
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned(propertiesComponent);
+    options.dialogTitle = "Track Properties - " + trackPtr->getName();
+    options.dialogBackgroundColour = MidiSingLookAndFeel::backgroundDark;
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = false;
+
+    // Launch the dialog as a non-modal window
+    options.launchAsync();
 }

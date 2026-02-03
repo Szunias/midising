@@ -15,6 +15,7 @@
 #include "Audio/AudioEngine.h"
 #include "UI/LookAndFeel.h"
 #include "UI/TransportBar.h"
+#include "UI/ToolBar.h"
 #include "UI/TimelineView.h"
 #include "UI/StatusBar.h"
 #include "UI/SpectrumDisplay.h"
@@ -115,6 +116,7 @@ private:
     void toggleBrowserPanel();
     void toggleMixerPanel();
     void togglePianoRollPanel();
+    void showPianoRollWithRegion(MidiRegion* region);
     void updatePanelLayout();
 
     // Auto-save and recovery system
@@ -131,6 +133,7 @@ private:
     MidiSingLookAndFeel lookAndFeel;
     AudioEngine audioEngine;
     TransportBar transportBar;
+    ToolBar toolBar;
     TimelineView timelineView;
     StatusBar statusBar;
     SpectrumDisplay spectrumDisplay;

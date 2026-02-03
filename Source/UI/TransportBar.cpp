@@ -2,6 +2,15 @@
 
 TransportBar::TransportBar()
 {
+    // Rewind button
+    rewindButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    rewindButton.onClick = [this]()
+    {
+        if (onRewind)
+            onRewind();
+    };
+    addAndMakeVisible(rewindButton);
+
     // Play button
     playButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
     playButton.onClick = [this]()
@@ -31,6 +40,16 @@ TransportBar::TransportBar()
         updateButtonStates();
     };
     addAndMakeVisible(recordButton);
+
+    // Loop button
+    loopButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    loopButton.setClickingTogglesState(true);
+    loopButton.onClick = [this]()
+    {
+        if (onLoopToggle)
+            onLoopToggle(loopButton.getToggleState());
+    };
+    addAndMakeVisible(loopButton);
 
     // Save button
     saveButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
@@ -66,9 +85,10 @@ TransportBar::TransportBar()
     bpmLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
     addAndMakeVisible(bpmLabel);
 
-    // Position label
+    // Position label - use monospace font to prevent width jumping when digits change
     positionLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
-    positionLabel.setFont(juce::Font(16.0f, juce::Font::bold));
+    juce::Font monoFont(juce::Font::getDefaultMonospacedFontName(), 16.0f, juce::Font::bold);
+    positionLabel.setFont(monoFont);
     positionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(positionLabel);
 
@@ -93,45 +113,82 @@ void TransportBar::paint(juce::Graphics& g)
 
 void TransportBar::resized()
 {
-    auto bounds = getLocalBounds().reduced(10, 5);
+    // Fixed button dimensions - 40x30px as per spec
+    constexpr int buttonWidth = 40;
+    constexpr int buttonHeight = 30;
+    constexpr int buttonSpacing = 5;
+    constexpr int sectionSpacing = 15;
+    constexpr int margin = 10;
 
-    // Transport buttons on left
-    playButton.setBounds(bounds.removeFromLeft(60));
-    bounds.removeFromLeft(5);
-    stopButton.setBounds(bounds.removeFromLeft(60));
-    bounds.removeFromLeft(5);
-    recordButton.setBounds(bounds.removeFromLeft(50));
-    bounds.removeFromLeft(20);
+    // Calculate vertical center for buttons
+    const int y = (getHeight() - buttonHeight) / 2;
+    int x = margin;
 
-    // Project buttons
-    saveButton.setBounds(bounds.removeFromLeft(50));
-    bounds.removeFromLeft(5);
-    openButton.setBounds(bounds.removeFromLeft(50));
-    bounds.removeFromLeft(20);
+    // Transport buttons - fixed 40x30px with explicit pixel coordinates
+    rewindButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + buttonSpacing;
 
-    // Position display
-    positionLabel.setBounds(bounds.removeFromLeft(100));
-    bounds.removeFromLeft(20);
+    playButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + buttonSpacing;
 
-    // BPM controls on right
-    auto rightBounds = bounds.removeFromRight(350);
-    
-    // Metronome volume
-    metronomeVolumeSlider.setBounds(rightBounds.removeFromRight(100));
-    rightBounds.removeFromRight(10);
-    
-    // Metronome toggle
-    metronomeButton.setBounds(rightBounds.removeFromRight(60));
-    rightBounds.removeFromRight(20);
+    stopButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + buttonSpacing;
 
-    // BPM
-    bpmLabel.setBounds(rightBounds.removeFromLeft(40));
-    bpmSlider.setBounds(rightBounds);
+    recordButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + buttonSpacing;
+
+    loopButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + sectionSpacing;
+
+    // Project buttons - fixed 40x30px
+    saveButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + buttonSpacing;
+
+    openButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + sectionSpacing;
+
+    // Position display - fixed width
+    constexpr int positionLabelWidth = 80;
+    positionLabel.setBounds(x, y, positionLabelWidth, buttonHeight);
+    x += positionLabelWidth + sectionSpacing;
+
+    // BPM controls - positioned from right side with fixed coordinates
+    int rightX = getWidth() - margin;
+
+    // Metronome volume slider - fixed 100px width
+    constexpr int metronomeVolumeWidth = 100;
+    rightX -= metronomeVolumeWidth;
+    metronomeVolumeSlider.setBounds(rightX, y, metronomeVolumeWidth, buttonHeight);
+    rightX -= buttonSpacing;
+
+    // Metronome toggle button - fixed 40x30px
+    rightX -= buttonWidth;
+    metronomeButton.setBounds(rightX, y, buttonWidth, buttonHeight);
+    rightX -= sectionSpacing;
+
+    // BPM slider - fixed 120px width
+    constexpr int bpmSliderWidth = 120;
+    rightX -= bpmSliderWidth;
+    bpmSlider.setBounds(rightX, y, bpmSliderWidth, buttonHeight);
+    rightX -= buttonSpacing;
+
+    // BPM label - fixed 35px width
+    constexpr int bpmLabelWidth = 35;
+    rightX -= bpmLabelWidth;
+    bpmLabel.setBounds(rightX, y, bpmLabelWidth, buttonHeight);
 }
 
 void TransportBar::setMetronomeEnabled(bool enabled)
 {
     metronomeButton.setToggleState(enabled, juce::dontSendNotification);
+}
+
+void TransportBar::setLoopEnabled(bool enabled)
+{
+    loopButton.setToggleState(enabled, juce::dontSendNotification);
+    loopButton.setColour(juce::TextButton::buttonColourId,
+                         enabled ? MidiSingLookAndFeel::accentColour
+                                 : MidiSingLookAndFeel::buttonBackground);
 }
 
 void TransportBar::timerCallback()
@@ -168,4 +225,9 @@ void TransportBar::updateButtonStates()
     recordButton.setColour(juce::TextButton::buttonColourId,
                            isRecording ? MidiSingLookAndFeel::recordColour
                                        : MidiSingLookAndFeel::buttonBackground);
+
+    // Update loop button color based on toggle state
+    loopButton.setColour(juce::TextButton::buttonColourId,
+                         loopButton.getToggleState() ? MidiSingLookAndFeel::accentColour
+                                                     : MidiSingLookAndFeel::buttonBackground);
 }

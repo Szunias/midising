@@ -1,5 +1,7 @@
 #include "TimelineView.h"
+#include "Cursors.h"
 #include "../Utils/TimeConversion.h"
+#include <algorithm>
 #include <cmath>
 
 TimelineView::TimelineView()
@@ -55,6 +57,9 @@ void TimelineView::paint(juce::Graphics& g)
     // Draw fade ghost for visual feedback during fade editing
     drawFadeGhost(g);
 
+    // Draw draw ghost for visual feedback during Draw tool region creation
+    drawDrawGhost(g);
+
     // Draw playhead on top of everything
     drawPlayhead(g);
 }
@@ -93,6 +98,30 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
     // Store click position for paste operations
     lastClickSamplePosition = pixelToSample(e.x);
 
+    // Handle double-click for regions and empty areas
+    if (e.getNumberOfClicks() == 2 && e.x > HEADER_WIDTH && e.y > RULER_HEIGHT)
+    {
+        int trackIndex = -1;
+        Region* clickedRegion = getRegionAtPosition(e.x, e.y, trackIndex);
+
+        if (clickedRegion != nullptr)
+        {
+            // Double-click on a region - open appropriate editor
+            handleDoubleClickOnRegion(clickedRegion, trackIndex);
+            return;
+        }
+        else
+        {
+            // Double-click on empty track area - create 4-bar region
+            int trackIdx = getTrackIndexAtY(e.y);
+            if (trackIdx >= 0 && trackIdx < timelinePtr->getNumTracks())
+            {
+                handleDoubleClickOnEmptyArea(trackIdx, e.x);
+                return;
+            }
+        }
+    }
+
     // Handle right-click for context menu
     if (e.mods.isPopupMenu())
     {
@@ -110,6 +139,43 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
         // Show context menu (works on regions or empty timeline area)
         showContextMenu(e);
         return;
+    }
+
+    // Handle Draw tool - start region creation on empty track area
+    if (currentToolMode == ToolMode::Draw)
+    {
+        // Only start drawing in the track area (not ruler, not header)
+        if (e.x > HEADER_WIDTH && e.y > RULER_HEIGHT)
+        {
+            int trackIdx = getTrackIndexAtY(e.y);
+            if (trackIdx >= 0 && trackIdx < timelinePtr->getNumTracks())
+            {
+                // Check if clicking on an existing region - don't start draw if so
+                int regionTrackIndex = -1;
+                Region* existingRegion = getRegionAtPosition(e.x, e.y, regionTrackIndex);
+
+                if (existingRegion == nullptr)
+                {
+                    // Start drawing a new region
+                    isDrawingRegion = true;
+                    drawStartX = e.x;
+                    drawTrackIndex = trackIdx;
+
+                    // Initialize ghost preview bounds at click position
+                    int trackY = RULER_HEIGHT;
+                    for (int i = 0; i < trackIdx; ++i)
+                    {
+                        trackY += getTotalTrackHeight(i);
+                    }
+
+                    // Create initial ghost preview (will be updated in mouseDrag)
+                    ghostPreviewBounds = juce::Rectangle<int>(e.x, trackY, 1, trackHeight);
+
+                    repaint();
+                    return;
+                }
+            }
+        }
     }
 
     // Use Smart Tool to determine operation based on click position
@@ -351,6 +417,47 @@ void TimelineView::mouseDrag(const juce::MouseEvent& e)
         return;
     }
 
+    // Handle Draw tool region creation - update ghost preview
+    if (isDrawingRegion && drawTrackIndex >= 0 && timelinePtr != nullptr)
+    {
+        // Convert start and current X to sample positions
+        int64_t startSample = pixelToSample(drawStartX);
+        int64_t endSample = pixelToSample(e.x);
+
+        // Snap to grid if enabled
+        if (snapToGrid)
+        {
+            startSample = snapPositionToGrid(startSample);
+            endSample = snapPositionToGrid(endSample);
+        }
+
+        // Ensure start < end (allow dragging in either direction)
+        if (endSample < startSample)
+            std::swap(startSample, endSample);
+
+        // Enforce minimum length (1 beat worth of samples)
+        int64_t minLength = timelinePtr->beatsToSamples(1.0);
+        if (endSample - startSample < minLength)
+            endSample = startSample + minLength;
+
+        // Calculate track Y position
+        int trackY = RULER_HEIGHT;
+        for (int i = 0; i < drawTrackIndex; ++i)
+        {
+            trackY += getTotalTrackHeight(i);
+        }
+
+        // Convert samples back to screen pixels for ghost preview
+        int startPixel = sampleToPixel(startSample) - static_cast<int>(horizontalScrollOffset) + HEADER_WIDTH;
+        int endPixel = sampleToPixel(endSample) - static_cast<int>(horizontalScrollOffset) + HEADER_WIDTH;
+
+        // Update ghost preview bounds
+        ghostPreviewBounds = juce::Rectangle<int>(startPixel, trackY, endPixel - startPixel, trackHeight);
+
+        repaint();
+        return;
+    }
+
     // If no region is being dragged, allow playhead scrubbing
     if (transportPtr != nullptr && e.x > HEADER_WIDTH)
     {
@@ -423,9 +530,74 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
         return;
     }
 
+    // Finalize Draw tool region creation
+    if (isDrawingRegion && drawTrackIndex >= 0 && timelinePtr != nullptr)
+    {
+        // Calculate final sample positions from mouse coordinates
+        int64_t startSample = pixelToSample(drawStartX);
+        int64_t endSample = pixelToSample(e.x);
+
+        // Snap to grid if enabled
+        if (snapToGrid)
+        {
+            startSample = snapPositionToGrid(startSample);
+            endSample = snapPositionToGrid(endSample);
+        }
+
+        // Ensure start < end (allow dragging in either direction)
+        if (endSample < startSample)
+            std::swap(startSample, endSample);
+
+        // Enforce minimum length (1 beat worth of samples)
+        int64_t minLength = timelinePtr->beatsToSamples(1.0);
+        if (endSample - startSample < minLength)
+            endSample = startSample + minLength;
+
+        int64_t regionLength = endSample - startSample;
+
+        // Get the track and create appropriate region type
+        Track* track = timelinePtr->getTrack(drawTrackIndex);
+        if (track != nullptr && regionLength > 0)
+        {
+            if (track->getType() == TrackType::Audio)
+            {
+                // Create empty AudioRegion on audio track
+                auto* audioTrack = static_cast<AudioTrack*>(track);
+                auto newRegion = std::make_unique<AudioRegion>(startSample, regionLength);
+                newRegion->setName("New Audio Region");
+
+                // Initialize empty audio buffer (silent)
+                juce::AudioBuffer<float> emptyBuffer(2, static_cast<int>(regionLength));
+                emptyBuffer.clear();
+                newRegion->setAudioBuffer(emptyBuffer);
+
+                audioTrack->addRegion(std::move(newRegion));
+            }
+            else if (track->getType() == TrackType::MIDI)
+            {
+                // Create empty MidiRegion on MIDI track
+                auto* midiTrack = static_cast<MidiTrack*>(track);
+                auto newRegion = std::make_unique<MidiRegion>(startSample, regionLength);
+                newRegion->setName("New MIDI Region");
+
+                midiTrack->addRegion(std::move(newRegion));
+            }
+        }
+
+        // Reset drawing state
+        isDrawingRegion = false;
+        drawTrackIndex = -1;
+        drawStartX = 0;
+        ghostPreviewBounds = juce::Rectangle<int>();
+
+        repaint();
+        return;
+    }
+
     isDraggingRegion = false;
     isResizingRegion = false;
     isEditingFade = false;
+    isDrawingRegion = false;
 }
 
 void TimelineView::mouseMove(const juce::MouseEvent& e)
@@ -455,8 +627,8 @@ void TimelineView::mouseExit(const juce::MouseEvent& /*e*/)
         repaint();
     }
 
-    // Reset cursor
-    setMouseCursor(juce::MouseCursor::NormalCursor);
+    // Reset cursor to current tool mode's cursor
+    setMouseCursor(Cursors::getCursorForTool(currentToolMode));
 }
 
 void TimelineView::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -768,7 +940,8 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
             
             double regionHeight = static_cast<double>(regionBounds.getHeight());
             double noteHeight = juce::jmax(2.0, regionHeight / 24.0); // Rough approximation
-            
+            juce::ignoreUnused(noteHeight);  // Currently unused, kept for future note length visualization
+
             // Calculate relative offset of the region
             int64_t regionOffset = region->getOffset();
 
@@ -794,10 +967,11 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
                      // But drawing NoteOns is simpler. Let's try to get length.
                      
                      double noteLengthSamples = 0;
+                     juce::ignoreUnused(noteLengthSamples);  // Kept for future note length visualization
                      // Rough check for note length or assume default for now to be safe/fast
                      // Really we should iterate matches pairs if updated.
                      // But sequence is straight list.
-                     
+
                      // Just draw simple dots/lines for note ons
                      int noteX = x1 + sampleToPixel(noteStart) - sampleToPixel(0);
                      int noteY = regionBounds.getY() + static_cast<int>(regionHeight * (1.0 - (event->message.getNoteNumber() / 128.0)));
@@ -1481,6 +1655,117 @@ void TimelineView::drawFadeGhost(juce::Graphics& g)
     }
 }
 
+void TimelineView::drawDrawGhost(juce::Graphics& g)
+{
+    if (!isDrawingRegion || drawTrackIndex < 0)
+        return;
+
+    // Use the pre-calculated ghost preview bounds with slight padding
+    juce::Rectangle<int> ghostBounds = ghostPreviewBounds.reduced(0, 2);
+
+    // Ensure minimum width for visibility
+    if (ghostBounds.getWidth() < 2)
+        ghostBounds.setWidth(2);
+
+    // Draw semi-transparent fill for ghost preview
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.3f));
+    g.fillRect(ghostBounds);
+
+    // Draw ghost border
+    g.setColour(MidiSingLookAndFeel::accentColour.withAlpha(0.8f));
+    g.drawRect(ghostBounds, 2);
+
+    // Draw snap indicator line at the start position
+    g.setColour(MidiSingLookAndFeel::accentColour);
+    g.drawLine(static_cast<float>(ghostBounds.getX()), static_cast<float>(RULER_HEIGHT),
+               static_cast<float>(ghostBounds.getX()), static_cast<float>(getHeight()), 1.0f);
+}
+
+void TimelineView::handleDoubleClickOnRegion(Region* region, int trackIndex)
+{
+    if (region == nullptr || timelinePtr == nullptr)
+        return;
+
+    // Select the region first
+    selectedRegion = region;
+    selectedTrackIndex = trackIndex;
+
+    // Check if it's a MIDI region - if so, open Piano Roll
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track != nullptr)
+    {
+        if (dynamic_cast<MidiTrack*>(track) != nullptr)
+        {
+            // MIDI region double-click: open Piano Roll with this region
+            auto* midiRegion = dynamic_cast<MidiRegion*>(region);
+            if (midiRegion != nullptr && onMidiRegionDoubleClicked)
+            {
+                onMidiRegionDoubleClicked(midiRegion);
+            }
+        }
+        else if (dynamic_cast<AudioTrack*>(track) != nullptr)
+        {
+            // Audio region double-click: could open waveform editor in the future
+            // For now, just select the region
+        }
+    }
+
+    repaint();
+}
+
+void TimelineView::handleDoubleClickOnEmptyArea(int trackIndex, int clickX)
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    Track* track = timelinePtr->getTrack(trackIndex);
+    if (track == nullptr)
+        return;
+
+    // Calculate position in samples and snap to grid
+    int64_t clickSample = pixelToSample(clickX);
+    if (snapToGrid)
+    {
+        clickSample = snapPositionToGrid(clickSample);
+    }
+
+    // Create a 4-bar region (16 beats in 4/4 time)
+    const double bpm = transportPtr != nullptr ? transportPtr->getTempo() : 120.0;
+    const double beatsPerBar = 4.0;
+    const double numBars = 4.0;
+    const double totalBeats = beatsPerBar * numBars;  // 16 beats for 4 bars
+    const int64_t regionLength = static_cast<int64_t>((60.0 / bpm) * totalBeats * sampleRate);
+
+    // Create the appropriate region type based on track type
+    if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
+    {
+        // Create empty AudioRegion on Audio track
+        auto newRegion = std::make_unique<AudioRegion>(clickSample, regionLength);
+        newRegion->setName("New Audio Region");
+
+        // Initialize empty audio buffer (silent)
+        juce::AudioBuffer<float> emptyBuffer(2, static_cast<int>(regionLength));
+        emptyBuffer.clear();
+        newRegion->setAudioBuffer(emptyBuffer);
+
+        selectedRegion = newRegion.get();
+        selectedTrackIndex = trackIndex;
+        audioTrack->addRegion(std::move(newRegion));
+    }
+    else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
+    {
+        // Create empty MidiRegion on MIDI track
+        auto newRegion = std::make_unique<MidiRegion>(clickSample, regionLength);
+        newRegion->setName("New MIDI Region");
+
+        selectedRegion = newRegion.get();
+        selectedTrackIndex = trackIndex;
+        midiTrack->addRegion(std::move(newRegion));
+    }
+
+    repaint();
+}
+
 TimelineView::RegionEdge TimelineView::getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const
 {
     outRegion = nullptr;
@@ -1674,30 +1959,40 @@ void TimelineView::updateCursorForPosition(int x, int y)
     // Update current zone for potential status display
     currentSmartToolZone = zone;
 
-    switch (zone)
+    // In Select mode, use smart tool cursor logic based on zone
+    // In other modes, use the tool-specific cursor
+    if (currentToolMode == ToolMode::Select)
     {
-    case SmartToolZone::TrimLeft:
-    case SmartToolZone::TrimRight:
-        // Horizontal resize cursor for trim operations
-        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-        break;
+        switch (zone)
+        {
+        case SmartToolZone::TrimLeft:
+        case SmartToolZone::TrimRight:
+            // Horizontal resize cursor for trim operations
+            setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+            break;
 
-    case SmartToolZone::Move:
-        // Pointing hand or drag cursor for move operations
-        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
-        break;
+        case SmartToolZone::Move:
+            // Pointing hand or drag cursor for move operations
+            setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+            break;
 
-    case SmartToolZone::FadeIn:
-    case SmartToolZone::FadeOut:
-        // Use crosshair cursor for fade operations (diagonal resize would be ideal)
-        setMouseCursor(juce::MouseCursor::CrosshairCursor);
-        break;
+        case SmartToolZone::FadeIn:
+        case SmartToolZone::FadeOut:
+            // Use crosshair cursor for fade operations (diagonal resize would be ideal)
+            setMouseCursor(juce::MouseCursor::CrosshairCursor);
+            break;
 
-    case SmartToolZone::None:
-    default:
-        // Normal cursor when not over a region
-        setMouseCursor(juce::MouseCursor::NormalCursor);
-        break;
+        case SmartToolZone::None:
+        default:
+            // Normal cursor when not over a region
+            setMouseCursor(juce::MouseCursor::NormalCursor);
+            break;
+        }
+    }
+    else
+    {
+        // Use the cursor associated with the current tool mode
+        setMouseCursor(Cursors::getCursorForTool(currentToolMode));
     }
 }
 
@@ -1712,23 +2007,50 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
         CopyRegion,
         PasteRegion,
         DeleteRegion,
-        SplitRegion
+        SplitRegion,
+        AddAudioTrack,
+        AddMidiTrack,
+        ImportAudio,
+        ImportMidi,
+        DeleteTrack,
+        DuplicateTrack
     };
 
     bool hasSelection = (selectedRegion != nullptr && selectedTrackIndex >= 0);
     bool canPaste = clipboard.hasData;
 
-    // Add menu items
+    // Determine the track index at the click position
+    int clickedTrackIndex = getTrackIndexAtY(e.y);
+    contextMenuTrackIndex = clickedTrackIndex;
+    bool hasTrackAtPosition = (clickedTrackIndex >= 0 && timelinePtr != nullptr &&
+                               clickedTrackIndex < timelinePtr->getNumTracks());
+
+    // Region operations section
     menu.addItem(CutRegion, "Cut", hasSelection);
     menu.addItem(CopyRegion, "Copy", hasSelection);
     menu.addItem(PasteRegion, "Paste", canPaste);
     menu.addSeparator();
-    menu.addItem(DeleteRegion, "Delete", hasSelection);
-    menu.addSeparator();
-    menu.addItem(SplitRegion, "Split", hasSelection);
+    menu.addItem(DeleteRegion, "Delete Region", hasSelection);
+    menu.addItem(SplitRegion, "Split Region", hasSelection);
 
-    // Show menu and handle selection
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+    // Track operations section
+    menu.addSeparator();
+    menu.addSectionHeader("Track");
+    menu.addItem(AddAudioTrack, "Add Audio Track");
+    menu.addItem(AddMidiTrack, "Add MIDI Track");
+    menu.addSeparator();
+    menu.addItem(DeleteTrack, "Delete Track", hasTrackAtPosition);
+    menu.addItem(DuplicateTrack, "Duplicate Track", hasTrackAtPosition);
+
+    // Import operations section
+    menu.addSeparator();
+    menu.addSectionHeader("Import");
+    menu.addItem(ImportAudio, "Import Audio...");
+    menu.addItem(ImportMidi, "Import MIDI...");
+
+    // Show menu and handle selection - use screen coordinates for proper positioning
+    auto screenPos = juce::Point<int>(e.getScreenX(), e.getScreenY());
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(juce::Rectangle<int>(screenPos, screenPos)),
         [this, clickX = e.x](int result)
         {
             switch (result)
@@ -1747,6 +2069,24 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
                 break;
             case SplitRegion:
                 splitSelectedRegion(lastClickSamplePosition);
+                break;
+            case AddAudioTrack:
+                addAudioTrack();
+                break;
+            case AddMidiTrack:
+                addMidiTrack();
+                break;
+            case ImportAudio:
+                showImportAudioDialog();
+                break;
+            case ImportMidi:
+                showImportMidiDialog();
+                break;
+            case DeleteTrack:
+                deleteTrack(contextMenuTrackIndex);
+                break;
+            case DuplicateTrack:
+                duplicateTrack(contextMenuTrackIndex);
                 break;
             default:
                 break;
@@ -1979,6 +2319,250 @@ void TimelineView::splitSelectedRegion(int64_t splitPosition)
 }
 
 // ============================================================================
+// Public Region Editing Operations (for menu/shortcut access)
+// ============================================================================
+
+void TimelineView::deleteSelection()
+{
+    deleteSelectedRegion();
+}
+
+void TimelineView::splitSelectionAtPosition(int64_t samplePosition)
+{
+    splitSelectedRegion(samplePosition);
+}
+
+void TimelineView::selectFirstRegion()
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    // Iterate through all tracks to find the first region
+    for (int trackIndex = 0; trackIndex < timelinePtr->getNumTracks(); ++trackIndex)
+    {
+        Track* track = timelinePtr->getTrack(trackIndex);
+        if (track == nullptr)
+            continue;
+
+        // Check for Audio regions
+        if (auto* audioTrack = dynamic_cast<AudioTrack*>(track))
+        {
+            if (audioTrack->getNumRegions() > 0)
+            {
+                selectedRegion = audioTrack->getRegion(0);
+                selectedTrackIndex = trackIndex;
+                repaint();
+                return;
+            }
+        }
+        // Check for MIDI regions
+        else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
+        {
+            if (midiTrack->getNumRegions() > 0)
+            {
+                selectedRegion = midiTrack->getRegion(0);
+                selectedTrackIndex = trackIndex;
+                repaint();
+                return;
+            }
+        }
+    }
+
+    // No regions found, clear selection
+    clearSelection();
+}
+
+// ============================================================================
+// Track Management Operations (Context Menu)
+// ============================================================================
+
+void TimelineView::addAudioTrack()
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    int trackNum = timelinePtr->getNumTracks() + 1;
+    auto* newTrack = new AudioTrack("Audio " + juce::String(trackNum));
+    newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+    timelinePtr->addTrack(newTrack);
+
+    updateTrackHeaders();
+    resized();
+    repaint();
+}
+
+void TimelineView::addMidiTrack()
+{
+    if (timelinePtr == nullptr || midiEnginePtr == nullptr)
+        return;
+
+    int trackNum = timelinePtr->getNumTracks() + 1;
+    auto* newTrack = new MidiTrack("MIDI " + juce::String(trackNum), midiEnginePtr);
+    newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
+    timelinePtr->addTrack(newTrack);
+
+    updateTrackHeaders();
+    resized();
+    repaint();
+}
+
+void TimelineView::deleteTrack(int trackIndex)
+{
+    if (timelinePtr == nullptr || trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return;
+
+    // Clear selection if we're deleting the selected track
+    if (selectedTrackIndex == trackIndex)
+    {
+        selectedRegion = nullptr;
+        selectedTrackIndex = -1;
+    }
+    // Adjust selected track index if deleting a track before it
+    else if (selectedTrackIndex > trackIndex)
+    {
+        selectedTrackIndex--;
+    }
+
+    timelinePtr->removeTrack(trackIndex);
+
+    updateTrackHeaders();
+    resized();
+    repaint();
+}
+
+void TimelineView::duplicateTrack(int trackIndex)
+{
+    if (timelinePtr == nullptr || trackIndex < 0 || trackIndex >= timelinePtr->getNumTracks())
+        return;
+
+    Track* sourceTrack = timelinePtr->getTrack(trackIndex);
+    if (sourceTrack == nullptr)
+        return;
+
+    // Duplicate based on track type
+    if (auto* audioSource = dynamic_cast<AudioTrack*>(sourceTrack))
+    {
+        auto* newTrack = new AudioTrack(audioSource->getName() + " (copy)");
+        newTrack->setColour(audioSource->getColour());
+        newTrack->setVolume(audioSource->getVolume());
+        newTrack->setPan(audioSource->getPan());
+        newTrack->setMute(audioSource->isMuted());
+        newTrack->setSolo(audioSource->isSoloed());
+
+        // Copy all regions
+        for (int i = 0; i < audioSource->getNumRegions(); ++i)
+        {
+            Region* region = audioSource->getRegion(i);
+            if (auto* audioRegion = dynamic_cast<AudioRegion*>(region))
+            {
+                auto newRegion = std::make_unique<AudioRegion>(
+                    audioRegion->getStartPosition(),
+                    audioRegion->getLength());
+                newRegion->setName(audioRegion->getName());
+                newRegion->setOffset(audioRegion->getOffset());
+                newRegion->setAudioBuffer(audioRegion->getAudioBuffer());
+                newRegion->setFilePath(audioRegion->getFilePath());
+                newRegion->setFadeInLength(audioRegion->getFadeInLength());
+                newRegion->setFadeOutLength(audioRegion->getFadeOutLength());
+                newTrack->addRegion(std::move(newRegion));
+            }
+        }
+
+        timelinePtr->addTrack(newTrack);
+    }
+    else if (auto* midiSource = dynamic_cast<MidiTrack*>(sourceTrack))
+    {
+        if (midiEnginePtr == nullptr)
+            return;
+
+        auto* newTrack = new MidiTrack(midiSource->getName() + " (copy)", midiEnginePtr);
+        newTrack->setColour(midiSource->getColour());
+        newTrack->setVolume(midiSource->getVolume());
+        newTrack->setPan(midiSource->getPan());
+        newTrack->setMute(midiSource->isMuted());
+        newTrack->setSolo(midiSource->isSoloed());
+
+        // Copy all regions
+        for (int i = 0; i < midiSource->getNumRegions(); ++i)
+        {
+            Region* region = midiSource->getRegion(i);
+            if (auto* midiRegion = dynamic_cast<MidiRegion*>(region))
+            {
+                auto newRegion = std::make_unique<MidiRegion>(
+                    midiRegion->getStartPosition(),
+                    midiRegion->getLength());
+                newRegion->setName(midiRegion->getName());
+                newRegion->setOffset(midiRegion->getOffset());
+                newRegion->setMidiSequence(midiRegion->getMidiSequence());
+                newTrack->addRegion(std::move(newRegion));
+            }
+        }
+
+        timelinePtr->addTrack(newTrack);
+    }
+
+    updateTrackHeaders();
+    resized();
+    repaint();
+}
+
+void TimelineView::showImportAudioDialog()
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Import Audio",
+        juce::File::getSpecialLocation(juce::File::userMusicDirectory),
+        "*.wav;*.mp3;*.aif;*.aiff;*.flac;*.ogg");
+
+    auto chooserFlags = juce::FileBrowserComponent::openMode |
+                        juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file != juce::File() && audioImporter.isSupported(file))
+        {
+            // Create a new audio track for the imported file
+            addAudioTrack();
+
+            // Import to the newly created track at position 0
+            int newTrackIndex = timelinePtr->getNumTracks() - 1;
+            importAudioFileToTrack(file, newTrackIndex, HEADER_WIDTH);
+        }
+    });
+}
+
+void TimelineView::showImportMidiDialog()
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Import MIDI",
+        juce::File::getSpecialLocation(juce::File::userMusicDirectory),
+        "*.mid;*.midi");
+
+    auto chooserFlags = juce::FileBrowserComponent::openMode |
+                        juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file != juce::File() && midiImporter.isSupported(file))
+        {
+            // Create a new MIDI track for the imported file
+            addMidiTrack();
+
+            // Import to the newly created track at position 0
+            int newTrackIndex = timelinePtr->getNumTracks() - 1;
+            importMidiFileToTrack(file, newTrackIndex, HEADER_WIDTH);
+        }
+    });
+}
+
+// ============================================================================
 // Automation Lane UI Implementation
 // ============================================================================
 
@@ -1997,6 +2581,18 @@ void TimelineView::setAutomationMode(AutomationMode mode)
         if (onAutomationModeChanged)
             onAutomationModeChanged(mode);
 
+        repaint();
+    }
+}
+
+void TimelineView::setToolMode(ToolMode mode)
+{
+    if (currentToolMode != mode)
+    {
+        currentToolMode = mode;
+
+        // Update cursor to reflect new tool mode
+        setMouseCursor(Cursors::getCursorForTool(mode));
         repaint();
     }
 }
