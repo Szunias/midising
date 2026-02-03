@@ -1124,11 +1124,14 @@ void MainComponent::setupCollapsiblePanels()
 
             // Import audio to the new track at position 0
             AudioImporter importer;
-            auto* region = importer.importAudioFile(file, audioEngine.getTransport().getSampleRate());
-            if (region != nullptr)
+            auto buffer = importer.loadFile(file, 44100.0);
+            if (buffer != nullptr && buffer->getNumSamples() > 0)
             {
-                region->setPosition(0);
-                newTrack->addRegion(region);
+                auto region = std::make_unique<AudioRegion>(0, buffer->getNumSamples());
+                region->setAudioBuffer(*buffer);
+                region->setName(file.getFileNameWithoutExtension());
+                region->setFilePath(file.getFullPathName());
+                newTrack->addRegion(std::move(region));
             }
 
             timelineView.resized();
@@ -1144,13 +1147,19 @@ void MainComponent::setupCollapsiblePanels()
             newTrack->setColour(juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.6f, 0.8f, 1.0f));
             timeline.addTrack(newTrack);
 
-            // Import MIDI to the new track
+            // Import MIDI to the new track (track 0 from MIDI file)
             MidiImporter midiImporter;
-            auto* region = midiImporter.importMidiFile(file, audioEngine.getTimeline().getBpm());
-            if (region != nullptr)
+            auto midiSequence = midiImporter.importTrack(file, 0, 44100.0);
+            if (midiSequence.getNumEvents() > 0)
             {
-                region->setPosition(0);
-                newTrack->addRegion(region);
+                // Calculate length from last event timestamp
+                double lastTime = midiSequence.getEndTime();
+                int64_t lengthSamples = static_cast<int64_t>(lastTime * 44100.0) + 44100; // +1 second buffer
+                
+                auto region = std::make_unique<MidiRegion>(0, lengthSamples);
+                region->setMidiSequence(midiSequence);
+                region->setName(file.getFileNameWithoutExtension());
+                newTrack->addRegion(std::move(region));
             }
 
             timelineView.resized();

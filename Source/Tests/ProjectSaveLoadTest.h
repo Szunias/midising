@@ -426,10 +426,9 @@ private:
         gainEffect->setGain(0.5f);
         audioTrack->addInsert(std::move(gainEffect));
 
-        // Add an EQ effect
+        // Add an EQ effect (note: setLowFrequency/setHighFrequency not implemented yet)
         auto eqEffect = std::make_unique<SimpleEQEffect>();
-        eqEffect->setLowFrequency(100.0f);
-        eqEffect->setHighFrequency(8000.0f);
+        // TODO: Add frequency configuration when API is implemented
         audioTrack->addInsert(std::move(eqEffect));
 
         saveTimeline.addTrack(audioTrack);
