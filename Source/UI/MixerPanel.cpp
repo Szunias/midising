@@ -6,6 +6,16 @@ MixerPanel::MixerPanel()
     masterStrip = std::make_unique<ChannelStrip>();
     addAndMakeVisible(masterStrip.get());
 
+    // Stereo correlation meter for master channel
+    addAndMakeVisible(correlationMeter);
+
+    // Correlation label
+    correlationLabel.setText("CORR", juce::dontSendNotification);
+    correlationLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textDimColour);
+    correlationLabel.setJustificationType(juce::Justification::centred);
+    correlationLabel.setFont(juce::Font(9.0f));
+    addAndMakeVisible(correlationLabel);
+
     startTimer(50); // 20 FPS for meter updates
 }
 
@@ -31,9 +41,16 @@ void MixerPanel::resized()
 
     auto bounds = getLocalBounds();
 
-    // Master strip on right
+    // Master section on right
     auto masterBounds = bounds.removeFromRight(MASTER_WIDTH);
-    masterBounds.removeFromTop(20); // Space for label
+    masterBounds.removeFromTop(20); // Space for "MASTER" label
+
+    // Stereo correlation meter at bottom of master section
+    auto correlationBounds = masterBounds.removeFromBottom(40);
+    correlationLabel.setBounds(correlationBounds.removeFromTop(12));
+    correlationMeter.setBounds(correlationBounds.reduced(4, 2));
+
+    // Master strip fills the rest
     masterStrip->setBounds(masterBounds);
 
     // Channel strips fill the rest
@@ -52,6 +69,9 @@ void MixerPanel::timerCallback()
     {
         // Update master meters
         masterStrip->setLevel(mixerPtr->getPeakLevel(0), mixerPtr->getPeakLevel(1));
+
+        // Update stereo correlation meter
+        correlationMeter.setCorrelation(mixerPtr->getStereoCorrelation());
     }
 
     // Note: Individual track meters would need per-track peak tracking

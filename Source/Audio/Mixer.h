@@ -569,4 +569,76 @@ private:
     std::atomic<float> truePeakRight { 0.0f };
     std::atomic<bool> clippingLeft { false };
     std::atomic<bool> clippingRight { false };
+
+    // Stereo correlation metering
+    std::atomic<float> stereoCorrelation { 1.0f };  // -1.0 to +1.0
+
+public:
+    /**
+     * Get the stereo correlation value.
+     * @return Correlation coefficient: +1 = mono, 0 = uncorrelated, -1 = out of phase
+     */
+    float getStereoCorrelation() const { return stereoCorrelation.load(); }
+
+    /**
+     * Update stereo correlation from the audio buffer.
+     * Called after processing to measure L/R correlation.
+     * Uses the Pearson correlation coefficient formula.
+     */
+    void updateStereoCorrelation(const juce::AudioBuffer<float>& buffer)
+    {
+        if (buffer.getNumChannels() < 2 || buffer.getNumSamples() == 0)
+        {
+            stereoCorrelation.store(1.0f);  // Mono or empty = perfect correlation
+            return;
+        }
+
+        const float* leftChannel = buffer.getReadPointer(0);
+        const float* rightChannel = buffer.getReadPointer(1);
+        int numSamples = buffer.getNumSamples();
+
+        // Calculate means
+        float sumLeft = 0.0f;
+        float sumRight = 0.0f;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            sumLeft += leftChannel[i];
+            sumRight += rightChannel[i];
+        }
+        float meanLeft = sumLeft / static_cast<float>(numSamples);
+        float meanRight = sumRight / static_cast<float>(numSamples);
+
+        // Calculate correlation using Pearson coefficient
+        float sumLR = 0.0f;
+        float sumLL = 0.0f;
+        float sumRR = 0.0f;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            float dL = leftChannel[i] - meanLeft;
+            float dR = rightChannel[i] - meanRight;
+            sumLR += dL * dR;
+            sumLL += dL * dL;
+            sumRR += dR * dR;
+        }
+
+        // Calculate correlation coefficient
+        float denominator = std::sqrt(sumLL * sumRR);
+        float correlation;
+        if (denominator < 1e-10f)
+        {
+            // Very quiet or silent - assume perfect correlation
+            correlation = 1.0f;
+        }
+        else
+        {
+            correlation = sumLR / denominator;
+        }
+
+        // Smooth the correlation value (low-pass filter for visual stability)
+        float currentCorr = stereoCorrelation.load();
+        float smoothingFactor = 0.1f;  // Adjust for faster/slower response
+        correlation = currentCorr + smoothingFactor * (correlation - currentCorr);
+
+        stereoCorrelation.store(juce::jlimit(-1.0f, 1.0f, correlation));
+    }
 };
