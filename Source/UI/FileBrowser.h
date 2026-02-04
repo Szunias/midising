@@ -6,8 +6,136 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <juce_data_structures/juce_data_structures.h>
 #include <memory>
 #include <vector>
+
+/**
+ * FavoritesManager manages the list of bookmarked/favorite folders.
+ * Uses PropertiesFile for persistent storage.
+ */
+class FavoritesManager
+{
+public:
+    FavoritesManager();
+    ~FavoritesManager();
+
+    /**
+     * Adds a folder to favorites.
+     * The folder will be added if not already present.
+     */
+    void addFavorite(const juce::File& folder);
+
+    /**
+     * Removes a folder from favorites.
+     */
+    void removeFavorite(const juce::File& folder);
+
+    /**
+     * Checks if a folder is in favorites.
+     */
+    bool isFavorite(const juce::File& folder) const;
+
+    /**
+     * Returns the list of favorite folders.
+     */
+    juce::Array<juce::File> getFavorites() const;
+
+    /**
+     * Clears all favorites.
+     */
+    void clear();
+
+    /**
+     * Returns the maximum number of favorites to track.
+     */
+    int getMaxNumberOfFavorites() const { return maxNumberOfFavorites; }
+
+    /**
+     * Listener interface for favorites changes.
+     */
+    class Listener
+    {
+    public:
+        virtual ~Listener() = default;
+        virtual void favoritesChanged() = 0;
+    };
+
+    void addListener(Listener* listener);
+    void removeListener(Listener* listener);
+
+private:
+    void loadFromProperties();
+    void saveToProperties();
+    void notifyListeners();
+
+    std::unique_ptr<juce::PropertiesFile> propertiesFile;
+    juce::Array<juce::File> favorites;
+    juce::ListenerList<Listener> listeners;
+
+    static constexpr int maxNumberOfFavorites = 20;
+    static constexpr const char* favoritesKey = "fileBrowserFavorites";
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FavoritesManager)
+};
+
+/**
+ * FavoriteButton represents a single favorite folder in the favorites panel.
+ */
+class FavoriteButton : public juce::Component
+{
+public:
+    FavoriteButton(const juce::File& folder, FavoritesManager& manager);
+    ~FavoriteButton() override = default;
+
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+    void mouseDown(const juce::MouseEvent& e) override;
+    void mouseEnter(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
+
+    const juce::File& getFolder() const { return folder; }
+
+    std::function<void(const juce::File&)> onFolderClicked;
+
+private:
+    juce::File folder;
+    FavoritesManager& favoritesManager;
+    juce::TextButton removeButton;
+    bool isHovered = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FavoriteButton)
+};
+
+/**
+ * FavoritesPanel displays and manages the list of favorite folders.
+ */
+class FavoritesPanel : public juce::Component,
+                       public FavoritesManager::Listener
+{
+public:
+    FavoritesPanel(FavoritesManager& manager);
+    ~FavoritesPanel() override;
+
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+
+    // FavoritesManager::Listener
+    void favoritesChanged() override;
+
+    std::function<void(const juce::File&)> onFavoriteSelected;
+
+private:
+    void rebuildFavoriteButtons();
+
+    FavoritesManager& favoritesManager;
+    juce::Label titleLabel;
+    std::vector<std::unique_ptr<FavoriteButton>> favoriteButtons;
+    juce::Viewport viewport;
+    juce::Component buttonsContainer;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FavoritesPanel)
+};
 
 /**
  * FileBrowserItem represents a single file/folder item in the file list.
@@ -160,10 +288,12 @@ private:
  * - File filtering for audio/MIDI files
  * - Audio preview on click
  * - Drag-and-drop to timeline for creating tracks
+ * - Favorites/bookmarks for frequently accessed folders
  */
 class FileBrowser : public juce::Component,
                     public juce::FileBrowserListener,
-                    public juce::DragAndDropContainer
+                    public juce::DragAndDropContainer,
+                    public FavoritesManager::Listener
 {
 public:
     FileBrowser();
@@ -177,6 +307,9 @@ public:
     void fileClicked(const juce::File& file, const juce::MouseEvent& e) override;
     void fileDoubleClicked(const juce::File& file) override;
     void browserRootChanged(const juce::File& newRoot) override;
+
+    // FavoritesManager::Listener implementation
+    void favoritesChanged() override;
 
     // Set the audio device manager for preview
     void setDeviceManager(juce::AudioDeviceManager* dm);
@@ -192,6 +325,12 @@ public:
     void addToFavorites(const juce::File& file);
     void removeFromFavorites(const juce::File& file);
     bool isFavorite(const juce::File& file) const;
+    void toggleCurrentDirectoryFavorite();
+    juce::Array<juce::File> getFavorites() const;
+
+    // Show/hide favorites panel
+    void setFavoritesPanelVisible(bool shouldBeVisible);
+    bool isFavoritesPanelVisible() const { return favoritesPanelVisible; }
 
     // Callbacks
     std::function<void(const juce::File&)> onFileSelected;
@@ -204,9 +343,9 @@ public:
 private:
     void setupLocationButtons();
     void setupFileBrowser();
+    void setupFavoritesPanel();
     void updateNavigationButtons();
-    void loadFavorites();
-    void saveFavorites();
+    void updateFavoriteButton();
     juce::String getFileTypeIcon(const juce::File& file) const;
     bool isAudioFile(const juce::File& file) const;
     bool isMidiFile(const juce::File& file) const;
@@ -217,12 +356,13 @@ private:
     std::unique_ptr<juce::WildcardFileFilter> fileFilter;
     std::unique_ptr<AudioPreviewComponent> previewComponent;
 
-    // Navigation
+    // Navigation buttons
     juce::TextButton backButton;
     juce::TextButton forwardButton;
     juce::TextButton upButton;
     juce::TextButton refreshButton;
     juce::TextButton homeButton;
+    juce::TextButton favoriteButton;  // Star button to toggle favorites
 
     // Location buttons
     std::vector<std::unique_ptr<LocationButton>> locationButtons;
@@ -232,8 +372,10 @@ private:
     std::vector<juce::File> historyForward;
     juce::File currentDirectory;
 
-    // Favorites
-    std::vector<juce::File> favoriteLocations;
+    // Favorites management
+    std::unique_ptr<FavoritesManager> favoritesManager;
+    std::unique_ptr<FavoritesPanel> favoritesPanel;
+    bool favoritesPanelVisible = true;
 
     // Search
     juce::TextEditor searchBox;
@@ -250,6 +392,7 @@ private:
     static constexpr int LOCATION_BAR_HEIGHT = 28;
     static constexpr int PREVIEW_HEIGHT = 100;  // Increased for waveform + info + controls
     static constexpr int SEARCH_HEIGHT = 26;
+    static constexpr int FAVORITES_PANEL_WIDTH = 140;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FileBrowser)
 };

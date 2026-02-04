@@ -1,6 +1,330 @@
 #include "FileBrowser.h"
 
 //==============================================================================
+// FavoritesManager Implementation
+//==============================================================================
+
+FavoritesManager::FavoritesManager()
+{
+    // Set up properties file options
+    juce::PropertiesFile::Options options;
+    options.applicationName = "MidiSing";
+    options.filenameSuffix = ".settings";
+    options.osxLibrarySubFolder = "Application Support";
+    options.folderName = "MidiSing";
+    options.storageFormat = juce::PropertiesFile::storeAsXML;
+
+    // Create the properties file
+    propertiesFile = std::make_unique<juce::PropertiesFile>(options);
+
+    // Load favorites from properties
+    loadFromProperties();
+}
+
+FavoritesManager::~FavoritesManager()
+{
+    // Save favorites before destroying
+    if (propertiesFile != nullptr)
+    {
+        saveToProperties();
+        propertiesFile->saveIfNeeded();
+    }
+}
+
+void FavoritesManager::addFavorite(const juce::File& folder)
+{
+    if (!folder.exists())
+        return;
+
+    // Check if already in favorites
+    if (isFavorite(folder))
+        return;
+
+    // Check max limit
+    if (favorites.size() >= maxNumberOfFavorites)
+    {
+        // Remove the oldest favorite to make room
+        favorites.remove(0);
+    }
+
+    favorites.add(folder);
+    saveToProperties();
+    notifyListeners();
+}
+
+void FavoritesManager::removeFavorite(const juce::File& folder)
+{
+    int index = favorites.indexOf(folder);
+    if (index >= 0)
+    {
+        favorites.remove(index);
+        saveToProperties();
+        notifyListeners();
+    }
+}
+
+bool FavoritesManager::isFavorite(const juce::File& folder) const
+{
+    return favorites.contains(folder);
+}
+
+juce::Array<juce::File> FavoritesManager::getFavorites() const
+{
+    return favorites;
+}
+
+void FavoritesManager::clear()
+{
+    favorites.clear();
+    saveToProperties();
+    notifyListeners();
+}
+
+void FavoritesManager::addListener(Listener* listener)
+{
+    listeners.add(listener);
+}
+
+void FavoritesManager::removeListener(Listener* listener)
+{
+    listeners.remove(listener);
+}
+
+void FavoritesManager::loadFromProperties()
+{
+    if (propertiesFile == nullptr)
+        return;
+
+    // Load favorites as a semicolon-separated string
+    juce::String favoritesString = propertiesFile->getValue(favoritesKey);
+
+    if (favoritesString.isNotEmpty())
+    {
+        juce::StringArray paths;
+        paths.addTokens(favoritesString, ";", "");
+
+        for (const auto& path : paths)
+        {
+            juce::File folder(path);
+            if (folder.exists() && favorites.size() < maxNumberOfFavorites)
+            {
+                favorites.add(folder);
+            }
+        }
+    }
+}
+
+void FavoritesManager::saveToProperties()
+{
+    if (propertiesFile == nullptr)
+        return;
+
+    // Save favorites as a semicolon-separated string
+    juce::StringArray paths;
+    for (const auto& folder : favorites)
+    {
+        paths.add(folder.getFullPathName());
+    }
+
+    propertiesFile->setValue(favoritesKey, paths.joinIntoString(";"));
+    propertiesFile->saveIfNeeded();
+}
+
+void FavoritesManager::notifyListeners()
+{
+    listeners.call([](Listener& l) { l.favoritesChanged(); });
+}
+
+//==============================================================================
+// FavoriteButton Implementation
+//==============================================================================
+
+FavoriteButton::FavoriteButton(const juce::File& f, FavoritesManager& manager)
+    : folder(f), favoritesManager(manager)
+{
+    // Remove button (X)
+    removeButton.setButtonText("x");
+    removeButton.setTooltip("Remove from favorites");
+    removeButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    removeButton.setColour(juce::TextButton::textColourOffId, MidiSingLookAndFeel::textDimColour);
+    removeButton.onClick = [this]() {
+        favoritesManager.removeFavorite(folder);
+    };
+    addAndMakeVisible(removeButton);
+}
+
+void FavoriteButton::paint(juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().toFloat();
+
+    // Background
+    if (isHovered)
+    {
+        g.setColour(MidiSingLookAndFeel::backgroundLight);
+        g.fillRoundedRectangle(bounds, 3.0f);
+    }
+
+    // Folder icon
+    auto iconBounds = bounds.removeFromLeft(20.0f).reduced(4.0f);
+    g.setColour(MidiSingLookAndFeel::accentColour);
+
+    // Draw star icon for favorite
+    juce::Path starPath;
+    auto ib = iconBounds.reduced(1.0f);
+    float cx = ib.getCentreX();
+    float cy = ib.getCentreY();
+    float r = ib.getWidth() * 0.5f;
+
+    for (int i = 0; i < 5; ++i)
+    {
+        float angle = juce::MathConstants<float>::twoPi * i / 5.0f - juce::MathConstants<float>::halfPi;
+        float x = cx + r * std::cos(angle);
+        float y = cy + r * std::sin(angle);
+
+        if (i == 0)
+            starPath.startNewSubPath(x, y);
+        else
+            starPath.lineTo(x, y);
+
+        // Inner point
+        float innerAngle = angle + juce::MathConstants<float>::twoPi / 10.0f;
+        float innerR = r * 0.4f;
+        starPath.lineTo(cx + innerR * std::cos(innerAngle),
+                        cy + innerR * std::sin(innerAngle));
+    }
+    starPath.closeSubPath();
+    g.fillPath(starPath);
+
+    // Folder name
+    bounds.removeFromLeft(2.0f);
+    bounds.removeFromRight(18.0f); // Space for remove button
+    g.setColour(MidiSingLookAndFeel::textColour);
+    g.setFont(12.0f);
+    g.drawText(folder.getFileName(), bounds.toNearestInt(), juce::Justification::centredLeft, true);
+}
+
+void FavoriteButton::resized()
+{
+    auto bounds = getLocalBounds();
+    removeButton.setBounds(bounds.removeFromRight(18).reduced(2));
+}
+
+void FavoriteButton::mouseDown(const juce::MouseEvent& e)
+{
+    juce::ignoreUnused(e);
+    if (onFolderClicked)
+        onFolderClicked(folder);
+}
+
+void FavoriteButton::mouseEnter(const juce::MouseEvent& e)
+{
+    juce::ignoreUnused(e);
+    isHovered = true;
+    repaint();
+}
+
+void FavoriteButton::mouseExit(const juce::MouseEvent& e)
+{
+    juce::ignoreUnused(e);
+    isHovered = false;
+    repaint();
+}
+
+//==============================================================================
+// FavoritesPanel Implementation
+//==============================================================================
+
+FavoritesPanel::FavoritesPanel(FavoritesManager& manager)
+    : favoritesManager(manager)
+{
+    favoritesManager.addListener(this);
+
+    // Title label
+    titleLabel.setText("Favorites", juce::dontSendNotification);
+    titleLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
+    titleLabel.setFont(juce::Font(13.0f, juce::Font::bold));
+    titleLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(titleLabel);
+
+    // Viewport for scrollable favorites
+    viewport.setViewedComponent(&buttonsContainer, false);
+    viewport.setScrollBarsShown(true, false);
+    addAndMakeVisible(viewport);
+
+    rebuildFavoriteButtons();
+}
+
+FavoritesPanel::~FavoritesPanel()
+{
+    favoritesManager.removeListener(this);
+}
+
+void FavoritesPanel::paint(juce::Graphics& g)
+{
+    auto bounds = getLocalBounds();
+
+    // Background
+    g.setColour(MidiSingLookAndFeel::backgroundMid);
+    g.fillRoundedRectangle(bounds.toFloat(), 4.0f);
+
+    // Border
+    g.setColour(MidiSingLookAndFeel::borderColour);
+    g.drawRoundedRectangle(bounds.toFloat().reduced(0.5f), 4.0f, 1.0f);
+}
+
+void FavoritesPanel::resized()
+{
+    auto bounds = getLocalBounds().reduced(4);
+
+    // Title at top
+    titleLabel.setBounds(bounds.removeFromTop(20));
+
+    // Viewport for favorites list
+    viewport.setBounds(bounds);
+
+    // Update buttons container size
+    int buttonHeight = 24;
+    int totalHeight = static_cast<int>(favoriteButtons.size()) * buttonHeight;
+    buttonsContainer.setSize(bounds.getWidth() - 10, juce::jmax(totalHeight, bounds.getHeight()));
+
+    // Position buttons
+    int y = 0;
+    for (auto& btn : favoriteButtons)
+    {
+        btn->setBounds(0, y, buttonsContainer.getWidth(), buttonHeight);
+        y += buttonHeight;
+    }
+}
+
+void FavoritesPanel::favoritesChanged()
+{
+    rebuildFavoriteButtons();
+}
+
+void FavoritesPanel::rebuildFavoriteButtons()
+{
+    // Clear existing buttons
+    favoriteButtons.clear();
+    buttonsContainer.removeAllChildren();
+
+    // Create buttons for each favorite
+    auto favorites = favoritesManager.getFavorites();
+    for (const auto& folder : favorites)
+    {
+        auto btn = std::make_unique<FavoriteButton>(folder, favoritesManager);
+        btn->onFolderClicked = [this](const juce::File& f) {
+            if (onFavoriteSelected)
+                onFavoriteSelected(f);
+        };
+        buttonsContainer.addAndMakeVisible(btn.get());
+        favoriteButtons.push_back(std::move(btn));
+    }
+
+    resized();
+    repaint();
+}
+
+//==============================================================================
 // FileBrowserItem Implementation
 //==============================================================================
 
@@ -668,6 +992,10 @@ LocationButton::LocationButton(const juce::String& name, const juce::File& locat
 
 FileBrowser::FileBrowser()
 {
+    // Setup favorites manager first (needs to be available for listener registration)
+    favoritesManager = std::make_unique<FavoritesManager>();
+    favoritesManager->addListener(this);
+
     // Setup navigation buttons
     backButton.setButtonText("<");
     backButton.setTooltip("Back");
@@ -696,6 +1024,17 @@ FileBrowser::FileBrowser()
     };
     addAndMakeVisible(homeButton);
 
+    // Setup favorite toggle button (star)
+    favoriteButton.setButtonText("*");
+    favoriteButton.setTooltip("Add to favorites");
+    favoriteButton.setClickingTogglesState(true);
+    favoriteButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::backgroundMid);
+    favoriteButton.setColour(juce::TextButton::buttonOnColourId, MidiSingLookAndFeel::accentColour);
+    favoriteButton.onClick = [this]() {
+        toggleCurrentDirectoryFavorite();
+    };
+    addAndMakeVisible(favoriteButton);
+
     // Setup search box
     searchBox.setTextToShowWhenEmpty("Search...", MidiSingLookAndFeel::textDimColour);
     searchBox.onTextChange = [this]() {
@@ -715,20 +1054,22 @@ FileBrowser::FileBrowser()
     // Setup file browser
     setupFileBrowser();
 
+    // Setup favorites panel
+    setupFavoritesPanel();
+
     // Setup preview component
     previewComponent = std::make_unique<AudioPreviewComponent>();
     addAndMakeVisible(previewComponent.get());
 
-    // Load favorites
-    loadFavorites();
-
     // Update navigation state
     updateNavigationButtons();
+    updateFavoriteButton();
 }
 
 FileBrowser::~FileBrowser()
 {
-    saveFavorites();
+    if (favoritesManager != nullptr)
+        favoritesManager->removeListener(this);
 
     if (fileBrowser != nullptr)
         fileBrowser->removeListener(this);
@@ -792,6 +1133,15 @@ void FileBrowser::setupFileBrowser()
     currentDirectory = fileBrowser->getRoot();
 }
 
+void FileBrowser::setupFavoritesPanel()
+{
+    favoritesPanel = std::make_unique<FavoritesPanel>(*favoritesManager);
+    favoritesPanel->onFavoriteSelected = [this](const juce::File& folder) {
+        navigateTo(folder);
+    };
+    addAndMakeVisible(favoritesPanel.get());
+}
+
 void FileBrowser::paint(juce::Graphics& g)
 {
     g.fillAll(MidiSingLookAndFeel::backgroundDark);
@@ -811,6 +1161,7 @@ void FileBrowser::resized()
     upButton.setBounds(toolbar.removeFromLeft(btnWidth).reduced(btnMargin));
     refreshButton.setBounds(toolbar.removeFromLeft(btnWidth).reduced(btnMargin));
     homeButton.setBounds(toolbar.removeFromLeft(btnWidth).reduced(btnMargin));
+    favoriteButton.setBounds(toolbar.removeFromLeft(btnWidth).reduced(btnMargin));
 
     toolbar.removeFromLeft(8);
     searchBox.setBounds(toolbar.reduced(btnMargin));
@@ -831,6 +1182,17 @@ void FileBrowser::resized()
 
     // Status bar
     statusLabel.setBounds(bounds.removeFromBottom(20).reduced(4, 0));
+
+    // Favorites panel on the left (if visible and there are favorites)
+    if (favoritesPanel != nullptr && favoritesPanelVisible && favoritesManager->getFavorites().size() > 0)
+    {
+        favoritesPanel->setVisible(true);
+        favoritesPanel->setBounds(bounds.removeFromLeft(FAVORITES_PANEL_WIDTH).reduced(2));
+    }
+    else if (favoritesPanel != nullptr)
+    {
+        favoritesPanel->setVisible(false);
+    }
 
     // File browser fills the rest
     if (fileBrowser != nullptr)
@@ -916,6 +1278,7 @@ void FileBrowser::browserRootChanged(const juce::File& newRoot)
 
     currentDirectory = newRoot;
     updateNavigationButtons();
+    updateFavoriteButton();
 
     // Update status
     int numItems = newRoot.getNumberOfChildFiles(
@@ -993,64 +1356,77 @@ void FileBrowser::updateNavigationButtons()
 
 void FileBrowser::addToFavorites(const juce::File& file)
 {
-    if (!isFavorite(file))
+    if (favoritesManager != nullptr)
     {
-        favoriteLocations.push_back(file);
-        saveFavorites();
+        favoritesManager->addFavorite(file);
     }
 }
 
 void FileBrowser::removeFromFavorites(const juce::File& file)
 {
-    favoriteLocations.erase(
-        std::remove(favoriteLocations.begin(), favoriteLocations.end(), file),
-        favoriteLocations.end());
-    saveFavorites();
+    if (favoritesManager != nullptr)
+    {
+        favoritesManager->removeFavorite(file);
+    }
 }
 
 bool FileBrowser::isFavorite(const juce::File& file) const
 {
-    return std::find(favoriteLocations.begin(), favoriteLocations.end(), file)
-           != favoriteLocations.end();
+    if (favoritesManager != nullptr)
+    {
+        return favoritesManager->isFavorite(file);
+    }
+    return false;
 }
 
-void FileBrowser::loadFavorites()
+void FileBrowser::toggleCurrentDirectoryFavorite()
 {
-    auto favFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                       .getChildFile("MidiSing")
-                       .getChildFile("favorites.txt");
+    if (!currentDirectory.exists())
+        return;
 
-    if (favFile.existsAsFile())
+    if (isFavorite(currentDirectory))
     {
-        juce::StringArray lines;
-        favFile.readLines(lines);
+        removeFromFavorites(currentDirectory);
+    }
+    else
+    {
+        addToFavorites(currentDirectory);
+    }
+    updateFavoriteButton();
+}
 
-        for (const auto& line : lines)
-        {
-            juce::File f(line);
-            if (f.exists())
-            {
-                favoriteLocations.push_back(f);
-            }
-        }
+juce::Array<juce::File> FileBrowser::getFavorites() const
+{
+    if (favoritesManager != nullptr)
+    {
+        return favoritesManager->getFavorites();
+    }
+    return {};
+}
+
+void FileBrowser::setFavoritesPanelVisible(bool shouldBeVisible)
+{
+    if (favoritesPanelVisible != shouldBeVisible)
+    {
+        favoritesPanelVisible = shouldBeVisible;
+        resized();
     }
 }
 
-void FileBrowser::saveFavorites()
+void FileBrowser::updateFavoriteButton()
 {
-    auto favFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                       .getChildFile("MidiSing")
-                       .getChildFile("favorites.txt");
+    bool isFav = isFavorite(currentDirectory);
+    favoriteButton.setToggleState(isFav, juce::dontSendNotification);
+    favoriteButton.setTooltip(isFav ? "Remove from favorites" : "Add to favorites");
+}
 
-    favFile.getParentDirectory().createDirectory();
+void FileBrowser::favoritesChanged()
+{
+    // Update the favorite button state
+    updateFavoriteButton();
 
-    juce::String content;
-    for (const auto& f : favoriteLocations)
-    {
-        content += f.getFullPathName() + "\n";
-    }
-
-    favFile.replaceWithText(content);
+    // Trigger layout update in case favorites panel needs to show/hide
+    resized();
 }
 
 juce::File FileBrowser::getSelectedFile() const
