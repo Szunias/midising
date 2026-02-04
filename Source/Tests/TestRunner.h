@@ -10,6 +10,7 @@
 #include "AutomationTests.h"
 #include "MidiTests.h"
 #include "TimeStretchTests.h"
+#include "AutomationE2ETest.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -115,6 +116,15 @@ public:
             passedTests += 9;
         }
         totalTests += 9;
+        juce::Logger::writeToLog("");
+
+        // Automation E2E tests
+        juce::Logger::writeToLog("--- Automation E2E Tests ---");
+        if (AutomationE2ETest::runAllTests())
+        {
+            passedTests += 8;
+        }
+        totalTests += 8;
         juce::Logger::writeToLog("");
 
         // Summary
