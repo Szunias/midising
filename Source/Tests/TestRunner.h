@@ -11,6 +11,7 @@
 #include "MidiTests.h"
 #include "TimeStretchTests.h"
 #include "AutomationE2ETest.h"
+#include "MidiCCE2ETest.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -125,6 +126,15 @@ public:
             passedTests += 8;
         }
         totalTests += 8;
+        juce::Logger::writeToLog("");
+
+        // MIDI CC E2E tests
+        juce::Logger::writeToLog("--- MIDI CC E2E Tests ---");
+        if (MidiCCE2ETest::runAllTests())
+        {
+            passedTests += 10;
+        }
+        totalTests += 10;
         juce::Logger::writeToLog("");
 
         // Summary
