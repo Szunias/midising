@@ -21,6 +21,19 @@ enum class TrackType
 };
 
 /**
+ * Automation recording/playback modes for tracks.
+ * These modes control how automation data is read and written during playback.
+ */
+enum class AutomationMode
+{
+    Off,    ///< Automation is disabled - parameters use manual values only
+    Read,   ///< Plays back automation data but doesn't record new automation
+    Write,  ///< Records automation continuously, overwriting existing data
+    Touch,  ///< Records only while parameter is being adjusted, then returns to playback
+    Latch   ///< Like Touch, but continues recording last value after release until stop
+};
+
+/**
  * Base class for all track types in the DAW.
  * Contains common properties like name, color, volume, pan, mute, solo, and arm.
  */
@@ -68,6 +81,34 @@ public:
     // Get automated parameter values at a position
     float getAutomatedVolume(int64_t position) const;
     float getAutomatedPan(int64_t position) const;
+
+    //==========================================================================
+    // Automation mode control
+    //==========================================================================
+
+    /**
+     * Get the current automation mode for this track.
+     * @return The current automation mode (Off/Read/Write/Touch/Latch)
+     */
+    AutomationMode getAutomationMode() const { return automationMode.load(); }
+
+    /**
+     * Set the automation mode for this track.
+     * @param mode The automation mode to set (Off/Read/Write/Touch/Latch)
+     */
+    void setAutomationMode(AutomationMode mode) { automationMode.store(mode); }
+
+    /**
+     * Check if automation is being read (played back) on this track.
+     * @return True if mode is Read, Touch, or Latch (modes that read automation)
+     */
+    bool isAutomationReading() const;
+
+    /**
+     * Check if automation is being written (recorded) on this track.
+     * @return True if mode is Write, Touch, or Latch (modes that can write automation)
+     */
+    bool isAutomationWriting() const;
 
     //==========================================================================
     // Send routing to aux tracks
@@ -125,6 +166,9 @@ private:
 
     // Automation lanes for this track
     std::vector<std::unique_ptr<AutomationLane>> automationLanes;
+
+    // Automation mode (Off/Read/Write/Touch/Latch)
+    std::atomic<AutomationMode> automationMode { AutomationMode::Read };
 
     // Send routing to aux tracks
     std::unique_ptr<SendManager> sendManager;

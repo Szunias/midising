@@ -109,6 +109,26 @@ float Track::getAutomatedPan(int64_t position) const
 }
 
 //==============================================================================
+// Automation mode
+//==============================================================================
+
+bool Track::isAutomationReading() const
+{
+    AutomationMode mode = automationMode.load();
+    return mode == AutomationMode::Read ||
+           mode == AutomationMode::Touch ||
+           mode == AutomationMode::Latch;
+}
+
+bool Track::isAutomationWriting() const
+{
+    AutomationMode mode = automationMode.load();
+    return mode == AutomationMode::Write ||
+           mode == AutomationMode::Touch ||
+           mode == AutomationMode::Latch;
+}
+
+//==============================================================================
 // Send routing
 //==============================================================================
 
