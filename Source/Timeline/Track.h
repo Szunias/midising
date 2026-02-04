@@ -53,6 +53,8 @@ public:
     bool isSoloed() const { return soloed.load(); }
     bool isArmed() const { return armed.load(); }
     int getHeight() const { return height; }
+    bool isPhaseInverted() const { return phaseInverted.load(); }
+    float getStereoWidth() const { return stereoWidth.load(); }
 
     // Setters
     void setName(const juce::String& newName) { name = newName; }
@@ -63,6 +65,8 @@ public:
     void setSoloed(bool shouldSolo) { soloed.store(shouldSolo); }
     void setArmed(bool shouldArm) { armed.store(shouldArm); }
     void setHeight(int newHeight) { height = juce::jmax(50, newHeight); }
+    void setPhaseInverted(bool shouldInvert) { phaseInverted.store(shouldInvert); }
+    void setStereoWidth(float newWidth) { stereoWidth.store(juce::jlimit(0.0f, 2.0f, newWidth)); }
 
     // Processing (to be implemented by subclasses)
     virtual void prepareToPlay(double sampleRate, int samplesPerBlock) = 0;
@@ -163,6 +167,8 @@ private:
     std::atomic<bool> muted { false };
     std::atomic<bool> soloed { false };
     std::atomic<bool> armed { false };
+    std::atomic<bool> phaseInverted { false };   // Invert phase (multiply by -1)
+    std::atomic<float> stereoWidth { 1.0f };     // 0.0 (mono) to 2.0 (widened), 1.0 = normal
 
     // Automation lanes for this track
     std::vector<std::unique_ptr<AutomationLane>> automationLanes;

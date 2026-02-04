@@ -466,6 +466,38 @@ ChannelStrip::ChannelStrip()
     };
     addAndMakeVisible(fxButton);
 
+    // Phase invert button
+    phaseInvertButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    phaseInvertButton.setTooltip("Phase Invert");
+    phaseInvertButton.onClick = [this]()
+    {
+        if (trackPtr != nullptr)
+        {
+            trackPtr->setPhaseInverted(!trackPtr->isPhaseInverted());
+            updateFromTrack();
+            if (onPhaseInvertChanged)
+                onPhaseInvertChanged(trackPtr);
+        }
+    };
+    addAndMakeVisible(phaseInvertButton);
+
+    // Stereo width slider
+    stereoWidthSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    stereoWidthSlider.setRange(0.0, 2.0, 0.01);
+    stereoWidthSlider.setValue(1.0);
+    stereoWidthSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    stereoWidthSlider.setTooltip("Stereo Width (0=Mono, 1=Normal, 2=Wide)");
+    stereoWidthSlider.onValueChange = [this]()
+    {
+        if (trackPtr != nullptr && onStereoWidthChanged)
+        {
+            float width = static_cast<float>(stereoWidthSlider.getValue());
+            trackPtr->setStereoWidth(width);
+            onStereoWidthChanged(trackPtr, width);
+        }
+    };
+    addAndMakeVisible(stereoWidthSlider);
+
     // Inserts label
     insertsLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textDimColour);
     insertsLabel.setJustificationType(juce::Justification::centred);
@@ -554,7 +586,7 @@ void ChannelStrip::resized()
     bounds.removeFromTop(2);
 
     // Mute/Solo/FX buttons grid
-    auto buttonRow = bounds.removeFromTop(44); // 2 rows of buttons
+    auto buttonRow = bounds.removeFromTop(66); // 3 rows of buttons
 
     // Row 1: Mute/Solo
     auto row1 = buttonRow.removeFromTop(20);
@@ -563,8 +595,15 @@ void ChannelStrip::resized()
 
     buttonRow.removeFromTop(2);
 
-    // Row 2: FX
-    fxButton.setBounds(buttonRow.removeFromTop(20).reduced(2, 0));
+    // Row 2: FX / Phase Invert
+    auto row2 = buttonRow.removeFromTop(20);
+    fxButton.setBounds(row2.removeFromLeft(row2.getWidth() / 2).reduced(2, 0));
+    phaseInvertButton.setBounds(row2.reduced(2, 0));
+
+    buttonRow.removeFromTop(2);
+
+    // Row 3: Stereo Width
+    stereoWidthSlider.setBounds(buttonRow.removeFromTop(20).reduced(2, 0));
 
     bounds.removeFromTop(4);
 
@@ -669,6 +708,7 @@ void ChannelStrip::updateFromTrack()
     nameLabel.setText(trackPtr->getName(), juce::dontSendNotification);
     volumeSlider.setValue(juce::Decibels::gainToDecibels(trackPtr->getVolume()), juce::dontSendNotification);
     panSlider.setValue(trackPtr->getPan(), juce::dontSendNotification);
+    stereoWidthSlider.setValue(trackPtr->getStereoWidth(), juce::dontSendNotification);
 
     muteButton.setColour(juce::TextButton::buttonColourId,
                          trackPtr->isMuted() ? juce::Colour(0xffd4a85a)
@@ -677,6 +717,11 @@ void ChannelStrip::updateFromTrack()
     soloButton.setColour(juce::TextButton::buttonColourId,
                          trackPtr->isSoloed() ? juce::Colour(0xff5ad4cf)
                                               : MidiSingLookAndFeel::buttonBackground);
+
+    // Phase invert button - yellow when active
+    phaseInvertButton.setColour(juce::TextButton::buttonColourId,
+                                trackPtr->isPhaseInverted() ? juce::Colour(0xffd4a85a)
+                                                            : MidiSingLookAndFeel::buttonBackground);
 
     // Enable FX only for AudioTracks
     fxButton.setEnabled(dynamic_cast<AudioTrack*>(trackPtr) != nullptr);

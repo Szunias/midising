@@ -239,6 +239,8 @@ public:
     std::function<void(Track*, float)> onPanChanged;
     std::function<void(Track*)> onMuteChanged;
     std::function<void(Track*)> onSoloChanged;
+    std::function<void(Track*)> onPhaseInvertChanged;
+    std::function<void(Track*, float)> onStereoWidthChanged;
     /** Callback when user wants to add/edit an insert effect */
     std::function<void(Track*, int slotIndex)> onInsertSlotClicked;
     /** Callback when user changes a send level */
@@ -261,6 +263,8 @@ private:
     juce::TextButton muteButton { "M" };
     juce::TextButton soloButton { "S" };
     juce::TextButton fxButton { "FX" };
+    juce::TextButton phaseInvertButton { juce::CharPointer_UTF8("\xc3\x98") };  // Ø symbol for phase
+    juce::Slider stereoWidthSlider;
 
     // Insert effect slots
     std::array<std::unique_ptr<InsertSlotButton>, NUM_INSERT_SLOTS> insertSlots;
