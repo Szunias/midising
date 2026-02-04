@@ -120,6 +120,7 @@ protected:
 
 /**
  * Audio region containing an audio buffer.
+ * Supports time stretching and pitch shifting properties.
  */
 class AudioRegion : public Region
 {
@@ -142,10 +143,108 @@ public:
     void setFilePath(const juce::String& path) { filePath = path; }
     juce::String getFilePath() const { return filePath; }
 
+    //==============================================================================
+    // Time Stretch Properties
+
+    /**
+     * Get the time stretch ratio (1.0 = original speed).
+     * Range: 0.25 (4x slower) to 4.0 (4x faster)
+     */
+    float getStretchRatio() const { return stretchRatio; }
+
+    /**
+     * Set the time stretch ratio.
+     * @param ratio Stretch ratio clamped to 0.25-4.0 range
+     */
+    void setStretchRatio(float ratio)
+    {
+        stretchRatio = juce::jlimit(0.25f, 4.0f, ratio);
+    }
+
+    /**
+     * Check if time stretching is applied to this region.
+     */
+    bool isTimeStretched() const { return stretchRatio != 1.0f; }
+
+    //==============================================================================
+    // Pitch Shift Properties
+
+    /**
+     * Get the pitch shift in semitones.
+     * Range: -24 to +24 semitones (2 octaves)
+     */
+    int getPitchSemitones() const { return pitchSemitones; }
+
+    /**
+     * Set the pitch shift in semitones.
+     * @param semitones Pitch shift clamped to -24 to +24 range
+     */
+    void setPitchSemitones(int semitones)
+    {
+        pitchSemitones = juce::jlimit(-24, 24, semitones);
+    }
+
+    /**
+     * Get the fine pitch adjustment in cents.
+     * Range: -100 to +100 cents (1 semitone)
+     */
+    int getPitchCents() const { return pitchCents; }
+
+    /**
+     * Set the fine pitch adjustment in cents.
+     * @param cents Fine pitch adjustment clamped to -100 to +100 range
+     */
+    void setPitchCents(int cents)
+    {
+        pitchCents = juce::jlimit(-100, 100, cents);
+    }
+
+    /**
+     * Get the total pitch shift in semitones (including cents as fractional part).
+     */
+    float getTotalPitchShift() const
+    {
+        return static_cast<float>(pitchSemitones) + static_cast<float>(pitchCents) / 100.0f;
+    }
+
+    /**
+     * Check if pitch shifting is applied to this region.
+     */
+    bool isPitchShifted() const { return pitchSemitones != 0 || pitchCents != 0; }
+
+    //==============================================================================
+    // Formant Preservation
+
+    /**
+     * Get whether formant preservation is enabled for pitch shifting.
+     * Formant preservation helps maintain natural vocal/instrument character.
+     */
+    bool getFormantPreserve() const { return formantPreserve; }
+
+    /**
+     * Set whether to preserve formants during pitch shifting.
+     * @param preserve True to preserve formants, false for standard pitch shifting
+     */
+    void setFormantPreserve(bool preserve) { formantPreserve = preserve; }
+
+    //==============================================================================
+    // Combined Processing Check
+
+    /**
+     * Check if any time/pitch processing is needed for this region.
+     */
+    bool needsProcessing() const { return isTimeStretched() || isPitchShifted(); }
+
 private:
     juce::AudioBuffer<float> audioBuffer;
     int64_t thumbnailHash = 0;
     juce::String filePath;
+
+    // Time stretch / pitch shift properties
+    float stretchRatio = 1.0f;      // Time stretch ratio (0.25 to 4.0, 1.0 = no stretch)
+    int pitchSemitones = 0;         // Pitch shift in semitones (-24 to +24)
+    int pitchCents = 0;             // Fine pitch adjustment in cents (-100 to +100)
+    bool formantPreserve = false;   // Preserve formants during pitch shift
 };
 
 /**
