@@ -18,6 +18,24 @@ void AudioTrack::prepareToPlay(double sampleRate, int samplesPerBlock)
     monitoringBuffer.clear();
     monitoringBufferValid.store(false);
     monitoringBufferSamples = 0;
+
+    // Prepare time stretch and pitch shift processors
+    timeStretchProcessor.prepare(sampleRate, samplesPerBlock);
+    pitchShiftProcessor.prepare(sampleRate, samplesPerBlock);
+
+    // Pre-allocate processing buffers for time stretch/pitch shift
+    // Use larger buffer to accommodate extreme stretch ratios (up to 4x)
+    int maxProcessingSize = samplesPerBlock * 8;
+    processingBuffer.setSize(2, maxProcessingSize);
+    stretchInputBuffer.setSize(2, maxProcessingSize);
+    stretchOutputBuffer.setSize(2, maxProcessingSize);
+    processingBuffer.clear();
+    stretchInputBuffer.clear();
+    stretchOutputBuffer.clear();
+
+    // Reset processing state
+    lastProcessedRegionId = -1;
+    lastProcessedPosition = -1;
 }
 
 void AudioTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
@@ -64,17 +82,104 @@ void AudioTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample,
 
         // Calculate buffer positions
         int bufferWritePos = static_cast<int>(copyStart - startPos);
-        int regionReadPos = static_cast<int>(copyStart - regionStart + region->getOffset());
 
-        // Copy from region's audio buffer to TRACK buffer
+        // Get source buffer
         const juce::AudioBuffer<float>& regionBuffer = region->getAudioBuffer();
-
         int numChannels = juce::jmin(trackBuffer.getNumChannels(), regionBuffer.getNumChannels());
-        for (int ch = 0; ch < numChannels; ++ch)
+
+        // Check if this region needs time stretch or pitch shift processing
+        bool needsTimeStretch = region->isTimeStretched();
+        bool needsPitchShift = region->isPitchShifted();
+
+        if (needsTimeStretch || needsPitchShift)
         {
-            if (regionReadPos >= 0 && regionReadPos + numToCopy <= regionBuffer.getNumSamples())
+            // Process with time stretch and/or pitch shift
+            float stretchRatio = region->getStretchRatio();
+
+            // Calculate source position accounting for stretch ratio
+            // Position in region (timeline) maps to source position via stretch ratio
+            int64_t posInRegion = copyStart - regionStart;
+
+            // For time stretching: source position = timeline position * stretchRatio
+            // If stretchRatio < 1.0 (slower playback), we read fewer source samples
+            // If stretchRatio > 1.0 (faster playback), we read more source samples
+            double sourceStartPos = static_cast<double>(posInRegion) * stretchRatio + region->getOffset();
+            double sourceEndPos = static_cast<double>(posInRegion + numToCopy) * stretchRatio + region->getOffset();
+            int numSourceSamples = static_cast<int>(std::ceil(sourceEndPos - sourceStartPos));
+
+            // Clamp to available source samples
+            int sourceReadPos = static_cast<int>(sourceStartPos);
+            numSourceSamples = juce::jmin(numSourceSamples, regionBuffer.getNumSamples() - sourceReadPos);
+
+            if (numSourceSamples > 0 && sourceReadPos >= 0 && sourceReadPos < regionBuffer.getNumSamples())
             {
-                trackBuffer.addFrom(ch, bufferWritePos, regionBuffer, ch, regionReadPos, numToCopy);
+                // Prepare input buffer for processors
+                stretchInputBuffer.setSize(numChannels, numSourceSamples, false, false, true);
+                stretchInputBuffer.clear();
+
+                // Copy source samples to input buffer
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    int safeSamples = juce::jmin(numSourceSamples, regionBuffer.getNumSamples() - sourceReadPos);
+                    if (safeSamples > 0)
+                    {
+                        stretchInputBuffer.copyFrom(ch, 0, regionBuffer, ch, sourceReadPos, safeSamples);
+                    }
+                }
+
+                // Process through time stretch if needed
+                if (needsTimeStretch)
+                {
+                    timeStretchProcessor.setStretchRatio(stretchRatio);
+                    stretchOutputBuffer.setSize(numChannels, numToCopy, false, false, true);
+                    stretchOutputBuffer.clear();
+                    timeStretchProcessor.process(stretchInputBuffer, stretchOutputBuffer);
+
+                    // Use stretched output for further processing
+                    stretchInputBuffer.makeCopyOf(stretchOutputBuffer);
+                }
+
+                // Process through pitch shift if needed
+                if (needsPitchShift)
+                {
+                    pitchShiftProcessor.setPitchShiftSemitones(region->getTotalPitchShift());
+                    pitchShiftProcessor.setFormantPreservation(region->getFormantPreserve() ? 1.0f : 0.0f);
+
+                    // Pitch shift preserves duration, so input and output have same size
+                    int inputSamples = stretchInputBuffer.getNumSamples();
+                    stretchOutputBuffer.setSize(numChannels, inputSamples, false, false, true);
+                    stretchOutputBuffer.clear();
+                    pitchShiftProcessor.process(stretchInputBuffer, stretchOutputBuffer);
+
+                    // Copy to track buffer
+                    int samplesToCopy = juce::jmin(inputSamples, numToCopy);
+                    for (int ch = 0; ch < numChannels; ++ch)
+                    {
+                        trackBuffer.addFrom(ch, bufferWritePos, stretchOutputBuffer, ch, 0, samplesToCopy);
+                    }
+                }
+                else
+                {
+                    // Copy time-stretched output directly to track buffer
+                    int samplesToCopy = juce::jmin(stretchInputBuffer.getNumSamples(), numToCopy);
+                    for (int ch = 0; ch < numChannels; ++ch)
+                    {
+                        trackBuffer.addFrom(ch, bufferWritePos, stretchInputBuffer, ch, 0, samplesToCopy);
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Standard processing without time stretch or pitch shift
+            int regionReadPos = static_cast<int>(copyStart - regionStart + region->getOffset());
+
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                if (regionReadPos >= 0 && regionReadPos + numToCopy <= regionBuffer.getNumSamples())
+                {
+                    trackBuffer.addFrom(ch, bufferWritePos, regionBuffer, ch, regionReadPos, numToCopy);
+                }
             }
         }
 
@@ -174,6 +279,9 @@ void AudioTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample,
         }
     }
 
+    // Update last processed position for discontinuity detection
+    lastProcessedPosition = endPos;
+
     // Apply effects chain if we have input or if effects might generate tail (for now optimize clean tracks)
     if (hasInput || effectChain.getNumEffects() > 0)
     {
@@ -193,6 +301,19 @@ void AudioTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample,
 void AudioTrack::releaseResources()
 {
     effectChain.releaseResources();
+
+    // Reset time stretch and pitch shift processors
+    timeStretchProcessor.reset();
+    pitchShiftProcessor.reset();
+
+    // Clear processing buffers
+    processingBuffer.clear();
+    stretchInputBuffer.clear();
+    stretchOutputBuffer.clear();
+
+    // Reset processing state
+    lastProcessedRegionId = -1;
+    lastProcessedPosition = -1;
 }
 
 void AudioTrack::addRegion(std::unique_ptr<AudioRegion> region)

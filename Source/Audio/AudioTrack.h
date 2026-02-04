@@ -6,6 +6,8 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <memory>
 #include "../Effects/EffectChain.h"
+#include "TimeStretch.h"
+#include "PitchShift.h"
 
 /**
  * Input channel configuration for audio tracks.
@@ -133,6 +135,19 @@ private:
     // Insert FX chain - processes up to MAX_INSERT_SLOTS effects in series
     // Effects are applied after reading from regions, before output to mixer
     EffectChain effectChain;
+
+    // Time stretch and pitch shift processors for real-time processing
+    TimeStretch timeStretchProcessor;
+    PitchShift pitchShiftProcessor;
+
+    // Processing state tracking
+    int64_t lastProcessedRegionId = -1;     // Track which region was last processed
+    int64_t lastProcessedPosition = -1;     // Track last playhead position for discontinuity detection
+
+    // Temporary buffer for time stretch/pitch shift processing
+    juce::AudioBuffer<float> processingBuffer;
+    juce::AudioBuffer<float> stretchInputBuffer;
+    juce::AudioBuffer<float> stretchOutputBuffer;
 
     // Input routing configuration
     InputChannelConfig inputConfig;
