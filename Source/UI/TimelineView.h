@@ -274,6 +274,7 @@ private:
     void drawResizeGhost(juce::Graphics& g);
     void drawFadeGhost(juce::Graphics& g);
     void drawDrawGhost(juce::Graphics& g);
+    void drawStretchGhost(juce::Graphics& g);
     RegionEdge getRegionEdgeAtPosition(int x, int y, Region*& outRegion, int& outTrackIndex) const;
     SmartToolZone getSmartToolZone(int x, int y, Region*& outRegion, int& outTrackIndex) const;
     void updateCursorForPosition(int x, int y);
@@ -287,6 +288,14 @@ private:
     int64_t fadeOriginalLength = 0;
     int64_t fadeCurrentLength = 0;
     int fadeStartMouseX = 0;
+
+    // Time stretching state (Alt+drag edge)
+    bool isStretchingRegion = false;
+    float stretchOriginalRatio = 1.0f;
+    int64_t stretchOriginalLength = 0;
+    float stretchCurrentRatio = 1.0f;
+    int64_t stretchCurrentLength = 0;
+    int stretchStartMouseX = 0;
 
     // Draw tool state (for creating regions via Draw tool)
     bool isDrawingRegion = false;

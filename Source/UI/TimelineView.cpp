@@ -64,6 +64,9 @@ void TimelineView::paint(juce::Graphics& g)
     // Draw draw ghost for visual feedback during Draw tool region creation
     drawDrawGhost(g);
 
+    // Draw stretch ghost for visual feedback during Alt+drag edge stretching
+    drawStretchGhost(g);
+
     // Draw playhead on top of everything
     drawPlayhead(g);
 }
@@ -197,6 +200,24 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
         switch (zone)
         {
         case SmartToolZone::TrimLeft:
+            // Alt+drag = time stretch, normal drag = trim
+            if (e.mods.isAltDown())
+            {
+                // Start time stretch from left edge (only for AudioRegions)
+                auto* audioRegion = dynamic_cast<AudioRegion*>(clickedRegion);
+                if (audioRegion != nullptr)
+                {
+                    isStretchingRegion = true;
+                    resizeEdge = RegionEdge::Left;
+                    stretchOriginalRatio = audioRegion->getStretchRatio();
+                    stretchOriginalLength = audioRegion->getLength();
+                    stretchCurrentRatio = stretchOriginalRatio;
+                    stretchCurrentLength = stretchOriginalLength;
+                    stretchStartMouseX = e.x;
+                    repaint();
+                    return;
+                }
+            }
             // Start left edge trim operation
             isResizingRegion = true;
             resizeEdge = RegionEdge::Left;
@@ -209,6 +230,24 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
             return;
 
         case SmartToolZone::TrimRight:
+            // Alt+drag = time stretch, normal drag = trim
+            if (e.mods.isAltDown())
+            {
+                // Start time stretch from right edge (only for AudioRegions)
+                auto* audioRegion = dynamic_cast<AudioRegion*>(clickedRegion);
+                if (audioRegion != nullptr)
+                {
+                    isStretchingRegion = true;
+                    resizeEdge = RegionEdge::Right;
+                    stretchOriginalRatio = audioRegion->getStretchRatio();
+                    stretchOriginalLength = audioRegion->getLength();
+                    stretchCurrentRatio = stretchOriginalRatio;
+                    stretchCurrentLength = stretchOriginalLength;
+                    stretchStartMouseX = e.x;
+                    repaint();
+                    return;
+                }
+            }
             // Start right edge trim operation
             isResizingRegion = true;
             resizeEdge = RegionEdge::Right;
@@ -340,6 +379,55 @@ void TimelineView::mouseDrag(const juce::MouseEvent& e)
         fadeCurrentLength = juce::jlimit(int64_t(0), maxFadeLength, fadeCurrentLength);
         repaint();
         return;
+    }
+
+    // Handle time stretching (Alt+drag edge)
+    if (isStretchingRegion && selectedRegion != nullptr)
+    {
+        auto* audioRegion = dynamic_cast<AudioRegion*>(selectedRegion);
+        if (audioRegion != nullptr)
+        {
+            // Calculate the delta in pixels
+            int deltaX = e.x - stretchStartMouseX;
+
+            // Convert to samples for calculating new length
+            int64_t deltaSamples = pixelToSample(HEADER_WIDTH + static_cast<int>(horizontalScrollOffset) + std::abs(deltaX)) -
+                                   pixelToSample(HEADER_WIDTH + static_cast<int>(horizontalScrollOffset));
+
+            // Calculate new length based on edge being dragged
+            int64_t newLength = stretchOriginalLength;
+            if (resizeEdge == RegionEdge::Right)
+            {
+                // Dragging right edge: positive deltaX increases length
+                newLength = stretchOriginalLength + deltaSamples * (deltaX > 0 ? 1 : -1);
+            }
+            else if (resizeEdge == RegionEdge::Left)
+            {
+                // Dragging left edge: negative deltaX increases length
+                newLength = stretchOriginalLength + deltaSamples * (deltaX < 0 ? 1 : -1);
+            }
+
+            // Enforce minimum length (at least 1/4 of original at max stretch)
+            int64_t minLength = static_cast<int64_t>(stretchOriginalLength * 0.25f / stretchOriginalRatio);
+            minLength = juce::jmax(int64_t(1000), minLength);  // At least 1000 samples
+            newLength = juce::jmax(minLength, newLength);
+
+            // Calculate new stretch ratio
+            // Original audio length = stretchOriginalLength / stretchOriginalRatio
+            // New ratio = newLength / originalAudioLength
+            float originalAudioLength = static_cast<float>(stretchOriginalLength) / stretchOriginalRatio;
+            float newRatio = static_cast<float>(newLength) / originalAudioLength;
+
+            // Clamp to valid stretch range (0.25x to 4.0x)
+            newRatio = juce::jlimit(0.25f, 4.0f, newRatio);
+
+            // Recalculate length based on clamped ratio
+            stretchCurrentLength = static_cast<int64_t>(originalAudioLength * newRatio);
+            stretchCurrentRatio = newRatio;
+
+            repaint();
+            return;
+        }
     }
 
     // Handle region edge resizing
@@ -513,6 +601,39 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
         isEditingFade = false;
         fadeOriginalLength = 0;
         fadeCurrentLength = 0;
+        repaint();
+        return;
+    }
+
+    // Finalize time stretching
+    if (isStretchingRegion && selectedRegion != nullptr)
+    {
+        auto* audioRegion = dynamic_cast<AudioRegion*>(selectedRegion);
+
+        // Check if anything actually changed
+        bool hasChanges = (stretchCurrentRatio != stretchOriginalRatio);
+
+        if (hasChanges && audioRegion != nullptr)
+        {
+            if (undoManagerPtr != nullptr)
+            {
+                undoManagerPtr->perform(new StretchRegionAction(audioRegion, stretchCurrentRatio, stretchCurrentLength),
+                                       "Time Stretch Region");
+            }
+            else
+            {
+                // Fallback: direct modification
+                audioRegion->setStretchRatio(stretchCurrentRatio);
+                audioRegion->setLength(stretchCurrentLength);
+            }
+        }
+
+        isStretchingRegion = false;
+        stretchOriginalRatio = 1.0f;
+        stretchOriginalLength = 0;
+        stretchCurrentRatio = 1.0f;
+        stretchCurrentLength = 0;
+        resizeEdge = RegionEdge::None;
         repaint();
         return;
     }
@@ -691,6 +812,7 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
     isResizingRegion = false;
     isEditingFade = false;
     isDrawingRegion = false;
+    isStretchingRegion = false;
 }
 
 void TimelineView::mouseMove(const juce::MouseEvent& e)
@@ -1908,6 +2030,67 @@ void TimelineView::drawDrawGhost(juce::Graphics& g)
                static_cast<float>(ghostBounds.getX()), static_cast<float>(getHeight()), 1.0f);
 }
 
+void TimelineView::drawStretchGhost(juce::Graphics& g)
+{
+    if (!isStretchingRegion || selectedRegion == nullptr || selectedTrackIndex < 0)
+        return;
+
+    // Calculate ghost region bounds using the stretch current values
+    int64_t regionStart = selectedRegion->getStartPosition();
+    int64_t regionEnd = regionStart + stretchCurrentLength;
+
+    // For left edge stretch, the start position may need adjustment
+    if (resizeEdge == RegionEdge::Left)
+    {
+        // When stretching from left, the region end stays fixed
+        int64_t originalEnd = selectedRegion->getStartPosition() + selectedRegion->getLength();
+        regionEnd = originalEnd;
+        regionStart = originalEnd - stretchCurrentLength;
+    }
+
+    int x1 = HEADER_WIDTH + sampleToPixel(regionStart) - static_cast<int>(horizontalScrollOffset);
+    int x2 = HEADER_WIDTH + sampleToPixel(regionEnd) - static_cast<int>(horizontalScrollOffset);
+    int w = x2 - x1;
+
+    // Calculate track Y position accounting for automation lanes
+    int trackY = RULER_HEIGHT;
+    for (int i = 0; i < selectedTrackIndex; ++i)
+    {
+        trackY += getTotalTrackHeight(i);
+    }
+
+    juce::Rectangle<int> ghostBounds(x1, trackY + 2, w, trackHeight - 4);
+
+    // Draw semi-transparent ghost with a distinct color for stretching (orange tint)
+    juce::Colour stretchColour = juce::Colour(255, 165, 0);  // Orange for stretch
+    g.setColour(stretchColour.withAlpha(0.3f));
+    g.fillRect(ghostBounds);
+
+    // Draw ghost border
+    g.setColour(stretchColour.withAlpha(0.8f));
+    g.drawRect(ghostBounds, 2);
+
+    // Draw indicator line at the edge being stretched
+    g.setColour(stretchColour);
+    if (resizeEdge == RegionEdge::Left)
+    {
+        g.drawLine(static_cast<float>(x1), static_cast<float>(RULER_HEIGHT),
+                   static_cast<float>(x1), static_cast<float>(getHeight()), 2.0f);
+    }
+    else if (resizeEdge == RegionEdge::Right)
+    {
+        g.drawLine(static_cast<float>(x2), static_cast<float>(RULER_HEIGHT),
+                   static_cast<float>(x2), static_cast<float>(getHeight()), 2.0f);
+    }
+
+    // Draw stretch ratio indicator text
+    juce::String ratioText = juce::String(stretchCurrentRatio, 2) + "x";
+    g.setColour(juce::Colours::white);
+    g.setFont(14.0f);
+    int textX = (resizeEdge == RegionEdge::Right) ? x2 + 5 : x1 - 50;
+    g.drawText(ratioText, textX, trackY + trackHeight / 2 - 10, 45, 20, juce::Justification::centred);
+}
+
 void TimelineView::handleDoubleClickOnRegion(Region* region, int trackIndex)
 {
     if (region == nullptr || timelinePtr == nullptr)
@@ -2194,8 +2377,26 @@ void TimelineView::updateCursorForPosition(int x, int y)
         {
         case SmartToolZone::TrimLeft:
         case SmartToolZone::TrimRight:
-            // Horizontal resize cursor for trim operations
-            setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+            // Check if Alt is held - show different cursor for stretch mode
+            if (juce::ModifierKeys::getCurrentModifiers().isAltDown())
+            {
+                // Use crosshair cursor for stretch operations (indicates Alt modifier active)
+                // Only show stretch cursor for audio regions
+                if (region != nullptr && dynamic_cast<AudioRegion*>(region) != nullptr)
+                {
+                    setMouseCursor(juce::MouseCursor::CrosshairCursor);
+                }
+                else
+                {
+                    // MIDI regions don't support stretching
+                    setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+                }
+            }
+            else
+            {
+                // Horizontal resize cursor for trim operations
+                setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+            }
             break;
 
         case SmartToolZone::Move:

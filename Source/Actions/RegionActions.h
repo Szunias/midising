@@ -422,3 +422,54 @@ private:
     int64_t newFadeOutLength = 0;
     bool wasPerformed = false;
 };
+
+/**
+ * StretchRegionAction - undoable action for time stretching a region
+ * Changes the stretch ratio and region length while keeping audio content intact
+ */
+class StretchRegionAction : public juce::UndoableAction
+{
+public:
+    StretchRegionAction(AudioRegion* region, float newStretchRatio, int64_t newLength)
+        : regionRef(region), newRatio(newStretchRatio), newRegionLength(newLength)
+    {
+        if (region != nullptr)
+        {
+            oldRatio = region->getStretchRatio();
+            oldRegionLength = region->getLength();
+        }
+    }
+
+    bool perform() override
+    {
+        if (regionRef != nullptr)
+        {
+            regionRef->setStretchRatio(newRatio);
+            regionRef->setLength(newRegionLength);
+            wasPerformed = true;
+        }
+        return true;
+    }
+
+    bool undo() override
+    {
+        if (wasPerformed && regionRef != nullptr)
+        {
+            regionRef->setStretchRatio(oldRatio);
+            regionRef->setLength(oldRegionLength);
+            wasPerformed = false;
+            return true;
+        }
+        return false;
+    }
+
+    int getSizeInUnits() override { return 5; }
+
+private:
+    AudioRegion* regionRef;
+    float oldRatio = 1.0f;
+    float newRatio = 1.0f;
+    int64_t oldRegionLength = 0;
+    int64_t newRegionLength = 0;
+    bool wasPerformed = false;
+};
