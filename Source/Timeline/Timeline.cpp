@@ -335,3 +335,62 @@ void Timeline::applyLinkedSolo(int trackIndex, bool shouldSolo)
 
     mixGroup->setSoloAll(trackPtrs.data(), static_cast<int>(trackPtrs.size()), shouldSolo);
 }
+
+//==============================================================================
+// Tempo Ramp Processing for Audio Buffers
+//==============================================================================
+
+void Timeline::getTempoRampForBuffer(int64_t startPosition, int numSamples,
+                                     double& startBpm, double& endBpm) const
+{
+    startBpm = getBpmAtPosition(startPosition);
+    endBpm = getBpmAtPosition(startPosition + numSamples);
+}
+
+double Timeline::getAverageTempoForRange(int64_t startPosition, int numSamples) const
+{
+    if (!hasTempoRamps() || numSamples <= 0)
+    {
+        return bpm;
+    }
+
+    // For accurate averaging with tempo ramps, we sample at multiple points
+    // This is more accurate than just averaging start and end for gradual ramps
+    const int numSamplePoints = 8;  // Sample 8 points within the range
+    double totalBpm = 0.0;
+
+    for (int i = 0; i <= numSamplePoints; ++i)
+    {
+        int64_t pos = startPosition + (numSamples * i) / numSamplePoints;
+        totalBpm += getBpmAtPosition(pos);
+    }
+
+    return totalBpm / (numSamplePoints + 1);
+}
+
+double Timeline::getBeatsInRange(int64_t startPosition, int numSamples) const
+{
+    if (numSamples <= 0)
+        return 0.0;
+
+    if (!hasTempoRamps())
+    {
+        // Simple calculation with constant tempo
+        double samplesPerBeat = (60.0 / bpm) * sampleRate;
+        return static_cast<double>(numSamples) / samplesPerBeat;
+    }
+
+    // For variable tempo, we need to integrate through the tempo map
+    // Calculate beats at end position minus beats at start position
+    double startBeats = samplesToBeatsWithTempoTrack(startPosition);
+    double endBeats = samplesToBeatsWithTempoTrack(startPosition + numSamples);
+    return endBeats - startBeats;
+}
+
+double Timeline::getSamplesPerBeatAtPosition(int64_t position) const
+{
+    double effectiveBpm = getBpmAtPosition(position);
+    if (effectiveBpm <= 0.0 || sampleRate <= 0.0)
+        return sampleRate * 0.5; // Default to 120 BPM
+    return (60.0 / effectiveBpm) * sampleRate;
+}

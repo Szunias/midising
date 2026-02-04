@@ -2,6 +2,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cmath>
+
+// Forward declaration
+class TempoTrack;
 
 /**
  * Transport states for playback control.
@@ -263,6 +267,136 @@ public:
     void setBPM(double newBpm) { bpm.store(newBpm); }
     double getBPM() const { return bpm.load(); }
 
+    //==========================================================================
+    // Tempo Ramp Integration
+    //==========================================================================
+
+    /**
+     * Set the tempo track for tempo ramp support.
+     * When set, the transport will query tempo at specific positions from the track.
+     * @param track Pointer to the tempo track (can be nullptr to disable)
+     */
+    void setTempoTrack(const TempoTrack* track) { tempoTrack = track; }
+
+    /**
+     * Get the currently set tempo track.
+     * @return Pointer to the tempo track, or nullptr if not set
+     */
+    const TempoTrack* getTempoTrack() const { return tempoTrack; }
+
+    /**
+     * Set the sample rate for time conversions.
+     * @param rate Sample rate in Hz
+     */
+    void setSampleRate(double rate) { sampleRate.store(rate); }
+
+    /**
+     * Get the current sample rate.
+     * @return Sample rate in Hz
+     */
+    double getSampleRate() const { return sampleRate.load(); }
+
+    /**
+     * Get the effective BPM at the current playhead position.
+     * If a tempo track is set with tempo changes, returns interpolated tempo.
+     * Otherwise returns the base BPM.
+     * @return BPM at the current position
+     */
+    double getEffectiveBPM() const
+    {
+        return getEffectiveBPMAtPosition(playheadPosition.load());
+    }
+
+    /**
+     * Get the effective BPM at a specific sample position.
+     * If a tempo track is set with tempo changes, returns interpolated tempo.
+     * Otherwise returns the base BPM.
+     * @param position Position in samples
+     * @return BPM at the position
+     */
+    double getEffectiveBPMAtPosition(int64_t position) const;
+
+    /**
+     * Get the number of samples per beat at the current playhead position.
+     * Accounts for tempo ramps if a tempo track is set.
+     * @return Samples per beat at the current position
+     */
+    double getSamplesPerBeat() const
+    {
+        return getSamplesPerBeatAtPosition(playheadPosition.load());
+    }
+
+    /**
+     * Get the number of samples per beat at a specific sample position.
+     * Accounts for tempo ramps if a tempo track is set.
+     * @param position Position in samples
+     * @return Samples per beat at the position
+     */
+    double getSamplesPerBeatAtPosition(int64_t position) const
+    {
+        double effectiveBpm = getEffectiveBPMAtPosition(position);
+        double rate = sampleRate.load();
+        if (effectiveBpm <= 0.0 || rate <= 0.0)
+            return rate * 0.5; // Default to 120 BPM
+        return (60.0 / effectiveBpm) * rate;
+    }
+
+    /**
+     * Calculate the effective tempo for an audio buffer, considering tempo ramps.
+     * Returns the average BPM across the buffer for smooth parameter changes.
+     * @param numSamples Size of the buffer in samples
+     * @return Average BPM over the buffer
+     */
+    double getAverageBPMForBuffer(int numSamples) const
+    {
+        int64_t startPos = playheadPosition.load();
+        int64_t endPos = startPos + numSamples;
+
+        double startBpm = getEffectiveBPMAtPosition(startPos);
+        double endBpm = getEffectiveBPMAtPosition(endPos);
+
+        // Return average (simple linear assumption within buffer)
+        return (startBpm + endBpm) * 0.5;
+    }
+
+    /**
+     * Get tempo values at the start and end of a buffer for ramping.
+     * Useful for smooth tempo-dependent parameter transitions.
+     * @param numSamples Size of the buffer in samples
+     * @param startBpm Output: BPM at buffer start
+     * @param endBpm Output: BPM at buffer end
+     */
+    void getTempoRampForBuffer(int numSamples, double& startBpm, double& endBpm) const
+    {
+        int64_t startPos = playheadPosition.load();
+        int64_t endPos = startPos + numSamples;
+
+        startBpm = getEffectiveBPMAtPosition(startPos);
+        endBpm = getEffectiveBPMAtPosition(endPos);
+    }
+
+    /**
+     * Check if there are tempo changes (ramps) in effect.
+     * @return true if tempo track is set and has tempo changes
+     */
+    bool hasTempoRamps() const;
+
+    /**
+     * Convert a beat position to samples using the current tempo state.
+     * Accounts for tempo ramps if a tempo track is set.
+     * @param beats Beat position
+     * @return Sample position
+     */
+    int64_t beatsToSamples(double beats) const;
+
+    /**
+     * Convert a sample position to beats using the current tempo state.
+     * Accounts for tempo ramps if a tempo track is set.
+     * @param samples Sample position
+     * @return Beat position
+     */
+    double samplesToBeats(int64_t samples) const;
+
 private:
     std::atomic<TransportState> state { TransportState::Stopped };
     std::atomic<int64_t> playheadPosition { 0 };
@@ -270,4 +404,57 @@ private:
     std::atomic<int64_t> loopStart { 0 };
     std::atomic<int64_t> loopEnd { 0 };
     std::atomic<double> bpm { 120.0 };
+    std::atomic<double> sampleRate { 44100.0 };
+    const TempoTrack* tempoTrack { nullptr };
 };
+
+//==============================================================================
+// Inline implementations that depend on TempoTrack
+// These are defined outside the class to allow deferred resolution
+//==============================================================================
+
+#include "../Timeline/TempoTrack.h"
+
+inline double Transport::getEffectiveBPMAtPosition(int64_t position) const
+{
+    if (tempoTrack != nullptr && tempoTrack->isEnabled() && tempoTrack->hasTempoChanges())
+    {
+        return tempoTrack->getBpmAtPosition(position);
+    }
+    return bpm.load();
+}
+
+inline bool Transport::hasTempoRamps() const
+{
+    return tempoTrack != nullptr && tempoTrack->isEnabled() && tempoTrack->hasTempoChanges();
+}
+
+inline int64_t Transport::beatsToSamples(double beats) const
+{
+    if (tempoTrack != nullptr && tempoTrack->isEnabled() && tempoTrack->hasTempoChanges())
+    {
+        return tempoTrack->beatsToSamples(beats);
+    }
+    // Simple conversion with constant tempo
+    double effectiveBpm = bpm.load();
+    double rate = sampleRate.load();
+    if (effectiveBpm <= 0.0 || rate <= 0.0)
+        return static_cast<int64_t>(beats * rate * 0.5); // Default 120 BPM
+    double samplesPerBeat = (60.0 / effectiveBpm) * rate;
+    return static_cast<int64_t>(beats * samplesPerBeat);
+}
+
+inline double Transport::samplesToBeats(int64_t samples) const
+{
+    if (tempoTrack != nullptr && tempoTrack->isEnabled() && tempoTrack->hasTempoChanges())
+    {
+        return tempoTrack->samplesToBeats(samples);
+    }
+    // Simple conversion with constant tempo
+    double effectiveBpm = bpm.load();
+    double rate = sampleRate.load();
+    if (effectiveBpm <= 0.0 || rate <= 0.0)
+        return static_cast<double>(samples) / (rate * 0.5); // Default 120 BPM
+    double samplesPerBeat = (60.0 / effectiveBpm) * rate;
+    return static_cast<double>(samples) / samplesPerBeat;
+}

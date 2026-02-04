@@ -347,6 +347,61 @@ public:
         return samplesToBeats(samples);
     }
 
+    //==========================================================================
+    // Tempo Ramp Processing for Audio Buffers
+    //==========================================================================
+
+    /**
+     * Get tempo values at the start and end of an audio buffer for smooth ramping.
+     * Useful for tempo-dependent parameter transitions during audio processing.
+     * @param startPosition Start position in samples
+     * @param numSamples Size of the buffer in samples
+     * @param startBpm Output: BPM at buffer start
+     * @param endBpm Output: BPM at buffer end
+     */
+    void getTempoRampForBuffer(int64_t startPosition, int numSamples,
+                               double& startBpm, double& endBpm) const;
+
+    /**
+     * Calculate the average tempo over a sample range.
+     * Useful for operations that need a single tempo value over a buffer.
+     * @param startPosition Start position in samples
+     * @param numSamples Size of the range in samples
+     * @return Average BPM over the range
+     */
+    double getAverageTempoForRange(int64_t startPosition, int numSamples) const;
+
+    /**
+     * Calculate the beat increment for a sample range with variable tempo.
+     * This integrates tempo changes over the range for accurate beat tracking.
+     * @param startPosition Start position in samples
+     * @param numSamples Number of samples in the range
+     * @return Number of beats elapsed over the range
+     */
+    double getBeatsInRange(int64_t startPosition, int numSamples) const;
+
+    /**
+     * Calculate samples per beat at a specific position, accounting for tempo ramps.
+     * @param position Position in samples
+     * @return Samples per beat at the position
+     */
+    double getSamplesPerBeatAtPosition(int64_t position) const;
+
+    /**
+     * Check if there are active tempo ramps in the project.
+     * @return true if tempo track is enabled and has tempo changes
+     */
+    bool hasTempoRamps() const
+    {
+        return tempoTrack.isEnabled() && tempoTrack.hasTempoChanges();
+    }
+
+    /**
+     * Get a pointer to the tempo track for use by Transport.
+     * @return Pointer to the tempo track
+     */
+    const TempoTrack* getTempoTrackPtr() const { return &tempoTrack; }
+
 private:
     juce::OwnedArray<Track> tracks;
     juce::OwnedArray<AuxTrack> auxTracks;    // Aux/return tracks for send routing
