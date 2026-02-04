@@ -41,12 +41,14 @@ void TimelineView::paint(juce::Graphics& g)
 
         drawTrackLane(g, laneBounds, i);
 
-        // Draw automation lanes for this track
+        // Reserve space for automation lanes (actual drawing is handled by AutomationLaneView components)
         int numAutoLanes = getNumVisibleAutomationLanes(i);
         if (numAutoLanes > 0)
         {
+            // Just remove the space from bounds - AutomationLaneView components handle the drawing
             auto automationBounds = bounds.removeFromTop(numAutoLanes * AUTOMATION_LANE_HEIGHT);
-            drawAutomationLanes(g, automationBounds, i);
+            juce::ignoreUnused(automationBounds);
+            // Note: drawAutomationLanes() is now handled by AutomationLaneView child components
         }
     }
 
@@ -69,6 +71,7 @@ void TimelineView::paint(juce::Graphics& g)
 void TimelineView::resized()
 {
     updateTrackHeaders();
+    updateAutomationLaneViews();
 }
 
 void TimelineView::timerCallback()
@@ -1255,6 +1258,116 @@ void TimelineView::updateTrackHeaders()
 
         // Account for automation lanes height
         y += getTotalTrackHeight(trackIdx);
+    }
+}
+
+void TimelineView::updateAutomationLaneViews()
+{
+    if (timelinePtr == nullptr)
+        return;
+
+    // Count total visible automation lanes across all tracks
+    int totalVisibleLanes = 0;
+    for (int i = 0; i < timelinePtr->getNumTracks(); ++i)
+    {
+        totalVisibleLanes += getNumVisibleAutomationLanes(i);
+    }
+
+    // Resize the vector if needed - create new views
+    while (static_cast<int>(automationLaneViews.size()) < totalVisibleLanes)
+    {
+        auto view = std::make_unique<AutomationLaneView>();
+        addAndMakeVisible(view.get());
+
+        // Wire up the automation changed callback
+        view->onAutomationChanged = [this]()
+        {
+            repaint();  // Trigger redraw when automation is modified
+        };
+
+        automationLaneViews.push_back(std::move(view));
+    }
+
+    // Remove excess views
+    while (static_cast<int>(automationLaneViews.size()) > totalVisibleLanes)
+    {
+        automationLaneViews.pop_back();
+    }
+
+    // Position and configure each automation lane view
+    int viewIndex = 0;
+    int y = RULER_HEIGHT;
+
+    for (int trackIdx = 0; trackIdx < timelinePtr->getNumTracks(); ++trackIdx)
+    {
+        Track* track = timelinePtr->getTrack(trackIdx);
+        if (track == nullptr)
+        {
+            y += getTotalTrackHeight(trackIdx);
+            continue;
+        }
+
+        // Skip past the track lane area
+        y += trackHeight;
+
+        // Position automation lane views for this track
+        for (size_t laneIdx = 0; laneIdx < track->getNumAutomationLanes(); ++laneIdx)
+        {
+            AutomationLane* lane = track->getAutomationLane(laneIdx);
+            if (lane != nullptr && lane->isVisible())
+            {
+                if (viewIndex < static_cast<int>(automationLaneViews.size()))
+                {
+                    auto& view = automationLaneViews[static_cast<size_t>(viewIndex)];
+
+                    // Set the automation lane
+                    view->setAutomationLane(lane);
+
+                    // Position the view (after header area, at the correct Y position)
+                    view->setBounds(HEADER_WIDTH, y, getWidth() - HEADER_WIDTH, AUTOMATION_LANE_HEIGHT);
+
+                    // Sync view settings
+                    view->setPixelsPerBeat(pixelsPerBeat);
+                    view->setHorizontalScrollOffset(horizontalScrollOffset);
+                    view->setSampleRate(sampleRate);
+
+                    // Set tempo from timeline if available
+                    if (timelinePtr != nullptr)
+                    {
+                        view->setTempo(timelinePtr->getTempo());
+                    }
+
+                    // Configure display options
+                    view->setShowHeader(true);
+                    view->setShowValueReadout(true);
+                    view->setSnapEnabled(snapToGrid);
+
+                    ++viewIndex;
+                }
+                y += AUTOMATION_LANE_HEIGHT;
+            }
+        }
+    }
+}
+
+void TimelineView::syncAutomationLaneViewSettings()
+{
+    // Sync settings to all automation lane views without recreating them
+    for (auto& view : automationLaneViews)
+    {
+        if (view != nullptr)
+        {
+            view->setPixelsPerBeat(pixelsPerBeat);
+            view->setHorizontalScrollOffset(horizontalScrollOffset);
+            view->setSampleRate(sampleRate);
+
+            if (timelinePtr != nullptr)
+            {
+                view->setTempo(timelinePtr->getTempo());
+            }
+
+            view->setSnapEnabled(snapToGrid);
+        }
     }
 }
 

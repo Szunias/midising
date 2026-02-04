@@ -11,6 +11,7 @@
 #include "LookAndFeel.h"
 #include "TrackHeader.h"
 #include "ToolBar.h"
+#include "AutomationLaneView.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <vector>
 #include <memory>
@@ -68,17 +69,17 @@ public:
     void setTimeline(Timeline* timeline) { timelinePtr = timeline; }
     void setTransport(Transport* transport) { transportPtr = transport; }
     void setMidiEngine(MidiEngine* engine) { midiEnginePtr = engine; }
-    void setSampleRate(double rate) { sampleRate = rate; waveformCache.setSampleRate(rate); }
+    void setSampleRate(double rate) { sampleRate = rate; waveformCache.setSampleRate(rate); syncAutomationLaneViewSettings(); }
     void setUndoManager(DAWUndoManager* manager) { undoManagerPtr = manager; }
 
     // View settings
-    void setPixelsPerBeat(double ppb) { pixelsPerBeat = juce::jlimit(5.0, 100.0, ppb); repaint(); }
+    void setPixelsPerBeat(double ppb) { pixelsPerBeat = juce::jlimit(5.0, 100.0, ppb); syncAutomationLaneViewSettings(); repaint(); }
     double getPixelsPerBeat() const { return pixelsPerBeat; }
     void setTrackHeight(int height) { trackHeight = juce::jmax(50, height); resized(); }
     int getTrackHeight() const { return trackHeight; }
 
     // Scrolling
-    void setHorizontalScrollOffset(double offset) { horizontalScrollOffset = juce::jmax(0.0, offset); repaint(); }
+    void setHorizontalScrollOffset(double offset) { horizontalScrollOffset = juce::jmax(0.0, offset); syncAutomationLaneViewSettings(); repaint(); }
     double getHorizontalScrollOffset() const { return horizontalScrollOffset; }
 
     // Zoom
@@ -128,6 +129,8 @@ private:
     void drawPlayhead(juce::Graphics& g);
     void drawBeatGrid(juce::Graphics& g, juce::Rectangle<int> bounds);
     void updateTrackHeaders();
+    void updateAutomationLaneViews();
+    void syncAutomationLaneViewSettings();
 
     // Automation lane drawing
     void drawAutomationLanes(juce::Graphics& g, juce::Rectangle<int> bounds, int trackIndex);
@@ -172,6 +175,7 @@ private:
     DAWUndoManager* undoManagerPtr = nullptr;
 
     std::vector<std::unique_ptr<TrackHeader>> trackHeaders;
+    std::vector<std::unique_ptr<AutomationLaneView>> automationLaneViews;
 
     double pixelsPerBeat = 20.0;
     int trackHeight = 80;
