@@ -20,6 +20,15 @@
 class DAWUndoManager;
 
 /**
+ * Waveform display mode for audio regions.
+ */
+enum class WaveformDisplayMode
+{
+    Peak,           // Traditional peak-only display (default)
+    RmsPlusPeak     // RMS (inner solid) + Peak (outer outline) display
+};
+
+/**
  * Automation mode for Read/Write control.
  */
 enum class AutomationMode
@@ -111,6 +120,10 @@ public:
     void setToolMode(ToolMode mode);
     ToolMode getToolMode() const { return currentToolMode; }
 
+    // Waveform display mode
+    void setWaveformDisplayMode(WaveformDisplayMode mode) { waveformDisplayMode = mode; repaint(); }
+    WaveformDisplayMode getWaveformDisplayMode() const { return waveformDisplayMode; }
+
     // Callbacks for track header
     std::function<void(AutomationMode)> onAutomationModeChanged;
 
@@ -128,6 +141,8 @@ private:
     void drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds, int trackIndex);
     void drawPlayhead(juce::Graphics& g);
     void drawBeatGrid(juce::Graphics& g, juce::Rectangle<int> bounds);
+    void drawWaveformRmsPlusPeak(juce::Graphics& g, juce::Rectangle<int> bounds,
+                                  int64_t cacheHash, int64_t regionOffset, int64_t regionLength);
     void updateTrackHeaders();
     void updateAutomationLaneViews();
     void syncAutomationLaneViewSettings();
@@ -311,6 +326,9 @@ private:
 
     // Tool mode state (from ToolBar)
     ToolMode currentToolMode = ToolMode::Select;
+
+    // Waveform display mode
+    WaveformDisplayMode waveformDisplayMode = WaveformDisplayMode::RmsPlusPeak;
 
     // Automation mode and editing state
     AutomationMode automationMode = AutomationMode::Read;

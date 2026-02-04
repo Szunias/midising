@@ -918,21 +918,29 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
             g.drawRect(regionBounds, isSelected ? 2 : 1);
 
             // Draw waveform
-            g.setColour(juce::Colours::white.withAlpha(0.8f));
-            
             int64_t hash = region->getThumbnailHash();
             if (hash == 0)
             {
                 hash = waveformCache.addAudioBuffer(region->getAudioBuffer());
                 region->setThumbnailHash(hash);
             }
-            
-            auto& thumb = waveformCache.getThumbnail(hash);
-            
-            double thumbStart = static_cast<double>(region->getOffset()) / sampleRate;
-            double thumbEnd = thumbStart + static_cast<double>(region->getLength()) / sampleRate;
-            
-            thumb.drawChannel(g, regionBounds.reduced(1), thumbStart, thumbEnd, 0, 1.0f);
+
+            // Use RMS + Peak display mode if enabled, otherwise use legacy thumbnail
+            if (waveformDisplayMode == WaveformDisplayMode::RmsPlusPeak && waveformCache.hasMipmap(hash))
+            {
+                // Draw using mipmap data with RMS + Peak display
+                drawWaveformRmsPlusPeak(g, regionBounds.reduced(1), hash,
+                                         region->getOffset(), region->getLength());
+            }
+            else
+            {
+                // Legacy peak-only mode using AudioThumbnail
+                g.setColour(juce::Colours::white.withAlpha(0.8f));
+                auto& thumb = waveformCache.getThumbnail(hash);
+                double thumbStart = static_cast<double>(region->getOffset()) / sampleRate;
+                double thumbEnd = thumbStart + static_cast<double>(region->getLength()) / sampleRate;
+                thumb.drawChannel(g, regionBounds.reduced(1), thumbStart, thumbEnd, 0, 1.0f);
+            }
 
             // Draw fade in/out overlays
             int64_t fadeInLen = region->getFadeInLength();
@@ -3452,4 +3460,176 @@ void TimelineView::recordAutomationAtPlayhead()
     }
 
     lastAutomationRecordPosition = playheadPos;
+}
+
+void TimelineView::drawWaveformRmsPlusPeak(juce::Graphics& g, juce::Rectangle<int> bounds,
+                                            int64_t cacheHash, int64_t regionOffset, int64_t regionLength)
+{
+    // Get mipmap data from cache
+    const WaveformMipmapData* mipmap = waveformCache.getMipmap(cacheHash);
+    if (mipmap == nullptr || mipmap->getNumChannels() == 0)
+        return;
+
+    int numChannels = mipmap->getNumChannels();
+    int width = bounds.getWidth();
+    int height = bounds.getHeight();
+
+    if (width <= 0 || height <= 0)
+        return;
+
+    // Calculate samples per pixel for this zoom level
+    double samplesPerPixel = static_cast<double>(regionLength) / static_cast<double>(width);
+
+    // Calculate channel heights
+    int channelHeight = height / numChannels;
+    if (channelHeight < 4)
+        channelHeight = height;  // Combine channels if too small
+
+    // Draw each channel
+    for (int ch = 0; ch < (channelHeight == height ? 1 : numChannels); ++ch)
+    {
+        int channelY = bounds.getY() + ch * channelHeight;
+        int centerY = channelY + channelHeight / 2;
+        float halfHeight = channelHeight * 0.5f * 0.85f;  // Leave some margin
+
+        // Create paths for peak and RMS
+        juce::Path peakPath;
+        juce::Path rmsPath;
+
+        bool peakPathStarted = false;
+        bool rmsPathStarted = false;
+
+        // First pass: top half of waveform (positive values)
+        for (int x = 0; x < width; ++x)
+        {
+            // Calculate sample range for this pixel
+            int64_t startSample = regionOffset + static_cast<int64_t>(x * samplesPerPixel);
+            int64_t endSample = regionOffset + static_cast<int64_t>((x + 1) * samplesPerPixel);
+
+            // Clamp to valid range
+            startSample = juce::jmax((int64_t)0, startSample);
+            endSample = juce::jmin(regionOffset + regionLength, endSample);
+
+            if (startSample >= endSample)
+                continue;
+
+            float peakMin, peakMax, rms;
+            if (!waveformCache.getPeaksForRange(cacheHash, startSample, endSample,
+                                                 (channelHeight == height && numChannels > 1) ? 0 : ch,
+                                                 peakMin, peakMax, rms))
+            {
+                continue;
+            }
+
+            // If stereo and combining channels, get max of both
+            if (channelHeight == height && numChannels > 1)
+            {
+                float peakMin2, peakMax2, rms2;
+                if (waveformCache.getPeaksForRange(cacheHash, startSample, endSample, 1,
+                                                    peakMin2, peakMax2, rms2))
+                {
+                    peakMin = juce::jmin(peakMin, peakMin2);
+                    peakMax = juce::jmax(peakMax, peakMax2);
+                    rms = juce::jmax(rms, rms2);
+                }
+            }
+
+            // Calculate Y positions
+            float peakTopY = centerY - peakMax * halfHeight;
+            float rmsTopY = centerY - rms * halfHeight;
+
+            float pixelX = static_cast<float>(bounds.getX() + x);
+
+            // Build peak path (top half)
+            if (!peakPathStarted)
+            {
+                peakPath.startNewSubPath(pixelX, peakTopY);
+                peakPathStarted = true;
+            }
+            else
+            {
+                peakPath.lineTo(pixelX, peakTopY);
+            }
+
+            // Build RMS path (top half)
+            if (!rmsPathStarted)
+            {
+                rmsPath.startNewSubPath(pixelX, rmsTopY);
+                rmsPathStarted = true;
+            }
+            else
+            {
+                rmsPath.lineTo(pixelX, rmsTopY);
+            }
+        }
+
+        // Second pass: bottom half of waveform (negative values) - reverse direction
+        for (int x = width - 1; x >= 0; --x)
+        {
+            int64_t startSample = regionOffset + static_cast<int64_t>(x * samplesPerPixel);
+            int64_t endSample = regionOffset + static_cast<int64_t>((x + 1) * samplesPerPixel);
+
+            startSample = juce::jmax((int64_t)0, startSample);
+            endSample = juce::jmin(regionOffset + regionLength, endSample);
+
+            if (startSample >= endSample)
+                continue;
+
+            float peakMin, peakMax, rms;
+            if (!waveformCache.getPeaksForRange(cacheHash, startSample, endSample,
+                                                 (channelHeight == height && numChannels > 1) ? 0 : ch,
+                                                 peakMin, peakMax, rms))
+            {
+                continue;
+            }
+
+            if (channelHeight == height && numChannels > 1)
+            {
+                float peakMin2, peakMax2, rms2;
+                if (waveformCache.getPeaksForRange(cacheHash, startSample, endSample, 1,
+                                                    peakMin2, peakMax2, rms2))
+                {
+                    peakMin = juce::jmin(peakMin, peakMin2);
+                    peakMax = juce::jmax(peakMax, peakMax2);
+                    rms = juce::jmax(rms, rms2);
+                }
+            }
+
+            // Calculate Y positions for bottom half
+            float peakBottomY = centerY - peakMin * halfHeight;  // peakMin is negative
+            float rmsBottomY = centerY + rms * halfHeight;
+
+            float pixelX = static_cast<float>(bounds.getX() + x);
+
+            // Continue peak path (bottom half)
+            if (peakPathStarted)
+            {
+                peakPath.lineTo(pixelX, peakBottomY);
+            }
+
+            // Continue RMS path (bottom half)
+            if (rmsPathStarted)
+            {
+                rmsPath.lineTo(pixelX, rmsBottomY);
+            }
+        }
+
+        // Close the paths
+        if (peakPathStarted)
+            peakPath.closeSubPath();
+        if (rmsPathStarted)
+            rmsPath.closeSubPath();
+
+        // Draw peak envelope as outer outline (semi-transparent)
+        g.setColour(juce::Colours::white.withAlpha(0.4f));
+        g.fillPath(peakPath);
+
+        // Draw RMS as solid inner fill
+        g.setColour(juce::Colours::white.withAlpha(0.85f));
+        g.fillPath(rmsPath);
+
+        // Draw peak outline for better definition
+        g.setColour(juce::Colours::white.withAlpha(0.6f));
+        g.strokePath(peakPath, juce::PathStrokeType(0.5f));
+    }
 }
