@@ -13,6 +13,8 @@
 #include "AutomationE2ETest.h"
 #include "MidiCCE2ETest.h"
 #include "UndoRedoE2ETest.h"
+#include "TimeStretchE2ETest.h"
+#include "PerformanceVerificationTest.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -141,6 +143,24 @@ public:
         // Undo/Redo E2E tests
         juce::Logger::writeToLog("--- Undo/Redo E2E Tests ---");
         if (UndoRedoE2ETest::runAllTests())
+        {
+            passedTests += 8;
+        }
+        totalTests += 8;
+        juce::Logger::writeToLog("");
+
+        // TimeStretch E2E tests
+        juce::Logger::writeToLog("--- TimeStretch E2E Tests ---");
+        if (TimeStretchE2ETest::runAllTests())
+        {
+            passedTests += 8;
+        }
+        totalTests += 8;
+        juce::Logger::writeToLog("");
+
+        // Performance Verification tests
+        juce::Logger::writeToLog("--- Performance Verification Tests ---");
+        if (PerformanceVerificationTest::runAllTests())
         {
             passedTests += 8;
         }
