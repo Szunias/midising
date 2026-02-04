@@ -6,11 +6,16 @@
 #include "../MIDI/MidiTrack.h"
 
 Timeline::Timeline()
-    : tempoTrack(120.0)  // Initialize tempo track with default BPM
+    : tempoTrack(120.0)           // Initialize tempo track with default BPM
+    , timeSignatureTrack(4, 4)    // Initialize time signature track with 4/4
 {
     // Sync tempo track settings with timeline defaults
     tempoTrack.setInitialBpm(bpm);
     tempoTrack.setSampleRate(sampleRate);
+
+    // Sync time signature track settings with timeline defaults
+    timeSignatureTrack.setInitialTimeSignature(beatsPerBar, beatNoteValue);
+    timeSignatureTrack.setSampleRate(sampleRate);
 }
 
 //==============================================================================

@@ -2,6 +2,7 @@
 
 #include "Track.h"
 #include "TempoTrack.h"
+#include "TimeSignatureTrack.h"
 #include "../Utils/TimeConversion.h"
 #include <juce_core/juce_core.h>
 #include <memory>
@@ -32,7 +33,11 @@ public:
 
     // Time signature
     int getBeatsPerBar() const { return beatsPerBar; }
-    void setBeatsPerBar(int beats) { beatsPerBar = juce::jmax(1, beats); }
+    void setBeatsPerBar(int beats)
+    {
+        beatsPerBar = juce::jmax(1, beats);
+        timeSignatureTrack.setInitialTimeSignature(beatsPerBar, beatNoteValue);
+    }
 
     // Sample rate (set by audio engine)
     double getSampleRate() const { return sampleRate; }
@@ -40,6 +45,15 @@ public:
     {
         sampleRate = rate;
         tempoTrack.setSampleRate(rate);
+        timeSignatureTrack.setSampleRate(rate);
+    }
+
+    // Note value for one beat (denominator of time signature)
+    int getBeatNoteValue() const { return beatNoteValue; }
+    void setBeatNoteValue(int value)
+    {
+        beatNoteValue = juce::jlimit(1, 64, value);
+        timeSignatureTrack.setInitialTimeSignature(beatsPerBar, beatNoteValue);
     }
 
     // Track management
@@ -402,14 +416,129 @@ public:
      */
     const TempoTrack* getTempoTrackPtr() const { return &tempoTrack; }
 
+    //==========================================================================
+    // Time Signature Track Management
+    //==========================================================================
+
+    /**
+     * Get the time signature track (const).
+     * @return Reference to the time signature track
+     */
+    const TimeSignatureTrack& getTimeSignatureTrack() const { return timeSignatureTrack; }
+
+    /**
+     * Get the time signature track (mutable).
+     * @return Reference to the time signature track
+     */
+    TimeSignatureTrack& getTimeSignatureTrack() { return timeSignatureTrack; }
+
+    /**
+     * Get the time signature at a specific sample position.
+     * Uses the time signature track if it has changes, otherwise returns the base time signature.
+     * @param position Position in samples
+     * @param outNumerator Output: Beats per bar at the position
+     * @param outDenominator Output: Note value at the position
+     */
+    void getTimeSignatureAtPosition(int64_t position, int& outNumerator, int& outDenominator) const
+    {
+        if (timeSignatureTrack.isEnabled() && timeSignatureTrack.hasTimeSignatureChanges())
+        {
+            timeSignatureTrack.getTimeSignatureAtPosition(position, outNumerator, outDenominator);
+        }
+        else
+        {
+            outNumerator = beatsPerBar;
+            outDenominator = beatNoteValue;
+        }
+    }
+
+    /**
+     * Get the beats per bar (numerator) at a specific sample position.
+     * @param position Position in samples
+     * @return Beats per bar at the position
+     */
+    int getBeatsPerBarAtPosition(int64_t position) const
+    {
+        if (timeSignatureTrack.isEnabled() && timeSignatureTrack.hasTimeSignatureChanges())
+            return timeSignatureTrack.getNumeratorAtPosition(position);
+        return beatsPerBar;
+    }
+
+    /**
+     * Get the note value (denominator) at a specific sample position.
+     * @param position Position in samples
+     * @return Note value at the position
+     */
+    int getBeatNoteValueAtPosition(int64_t position) const
+    {
+        if (timeSignatureTrack.isEnabled() && timeSignatureTrack.hasTimeSignatureChanges())
+            return timeSignatureTrack.getDenominatorAtPosition(position);
+        return beatNoteValue;
+    }
+
+    /**
+     * Get the number of quarter notes per bar at a position.
+     * @param position Position in samples
+     * @return Quarter notes per bar
+     */
+    double getQuarterNotesPerBarAtPosition(int64_t position) const
+    {
+        int num, denom;
+        getTimeSignatureAtPosition(position, num, denom);
+        return TimeSignatureUtils::quarterNotesPerBar(num, denom);
+    }
+
+    /**
+     * Calculate the bar and beat position for a given sample position.
+     * Accounts for both tempo and time signature changes.
+     * @param samplePosition Position in samples
+     * @param outBar Output: Bar number (1-based)
+     * @param outBeat Output: Beat within the bar (1-based)
+     * @param outTick Output: Sub-beat position (0.0 to 1.0)
+     */
+    void getBarBeatPosition(int64_t samplePosition, int& outBar, int& outBeat, double& outTick) const
+    {
+        double effectiveBpm = getBpmAtPosition(samplePosition);
+        timeSignatureTrack.getBarBeatPosition(samplePosition, effectiveBpm, outBar, outBeat, outTick);
+    }
+
+    /**
+     * Check if the time signature at a position is compound meter.
+     * @param position Position in samples
+     * @return true if compound meter (e.g., 6/8, 9/8, 12/8)
+     */
+    bool isCompoundMeterAtPosition(int64_t position) const
+    {
+        if (timeSignatureTrack.isEnabled() && timeSignatureTrack.hasTimeSignatureChanges())
+            return timeSignatureTrack.isCompoundMeterAtPosition(position);
+        return TimeSignatureUtils::isCompoundMeter(beatsPerBar, beatNoteValue);
+    }
+
+    /**
+     * Check if there are active time signature changes in the project.
+     * @return true if time signature track is enabled and has changes
+     */
+    bool hasTimeSignatureChanges() const
+    {
+        return timeSignatureTrack.isEnabled() && timeSignatureTrack.hasTimeSignatureChanges();
+    }
+
+    /**
+     * Get a pointer to the time signature track.
+     * @return Pointer to the time signature track
+     */
+    const TimeSignatureTrack* getTimeSignatureTrackPtr() const { return &timeSignatureTrack; }
+
 private:
     juce::OwnedArray<Track> tracks;
     juce::OwnedArray<AuxTrack> auxTracks;    // Aux/return tracks for send routing
     juce::OwnedArray<GroupBus> groupBusses;  // Group busses for submixing
     juce::OwnedArray<MixGroup> mixGroups;    // Mix groups for linked faders
     TempoTrack tempoTrack;                   // Tempo track for tempo changes
+    TimeSignatureTrack timeSignatureTrack;   // Time signature track for meter changes
     double bpm = 120.0;
     int beatsPerBar = 4;
+    int beatNoteValue = 4;                   // Note value that gets one beat (denominator)
     double sampleRate = 44100.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Timeline)
