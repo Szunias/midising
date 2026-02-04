@@ -1,6 +1,7 @@
 #include "PianoRoll.h"
 #include <algorithm>
 #include <vector>
+#include <map>
 #include <cmath>
 #include <random>
 
@@ -883,6 +884,13 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key)
         if (key.getTextCharacter() == 'h' || key.getTextCharacter() == 'H')
         {
             humanizeSelectedNotes(0.3f, 0.3f);
+            return true;
+        }
+
+        // L = Legato - extend notes to reach the next note on the same pitch
+        if (key.getTextCharacter() == 'l' || key.getTextCharacter() == 'L')
+        {
+            applyLegatoToSelectedNotes();
             return true;
         }
     }
@@ -1770,6 +1778,91 @@ void PianoRoll::humanizeSelectedNotes(float timingAmount, float velocityAmount)
             // Clamp to valid range (minimum 0.01 to avoid silent notes)
             newVelocity = juce::jlimit(0.01f, 1.0f, newVelocity);
             event->message.setVelocity(newVelocity);
+        }
+    }
+
+    // Re-sort and update matched pairs after modifying timestamps
+    seq.sort();
+    seq.updateMatchedPairs();
+
+    repaint();
+}
+
+void PianoRoll::applyLegatoToSelectedNotes()
+{
+    if (midiRegion == nullptr || selectedNoteIndices.empty())
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+
+    // Build a structure to find notes by pitch
+    // Map: noteNumber -> vector of (startBeat, eventIndex) sorted by startBeat
+    std::map<int, std::vector<std::pair<double, int>>> notesByPitch;
+
+    // First, collect all note-on events
+    for (int i = 0; i < seq.getNumEvents(); ++i)
+    {
+        auto* event = seq.getEventPointer(i);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        int noteNumber = event->message.getNoteNumber();
+        double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+        notesByPitch[noteNumber].push_back({ startBeat, i });
+    }
+
+    // Sort each pitch's notes by start beat
+    for (auto& pair : notesByPitch)
+    {
+        std::sort(pair.second.begin(), pair.second.end(),
+            [](const std::pair<double, int>& a, const std::pair<double, int>& b) {
+                return a.first < b.first;
+            });
+    }
+
+    // Process each selected note
+    for (int eventIndex : selectedNoteIndices)
+    {
+        if (eventIndex < 0 || eventIndex >= seq.getNumEvents())
+            continue;
+
+        auto* event = seq.getEventPointer(eventIndex);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        // Skip if no note-off object
+        if (event->noteOffObject == nullptr)
+            continue;
+
+        int noteNumber = event->message.getNoteNumber();
+        double startBeat = event->message.getTimeStamp() / ticksPerBeat;
+        double endBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+
+        // Find the next note on the same pitch
+        auto& notesOnPitch = notesByPitch[noteNumber];
+        double nextNoteStartBeat = -1.0;
+
+        for (const auto& noteInfo : notesOnPitch)
+        {
+            // Find the first note that starts after this note's current end
+            // (or at least after this note's start, to handle overlapping notes)
+            if (noteInfo.first > startBeat && noteInfo.second != eventIndex)
+            {
+                nextNoteStartBeat = noteInfo.first;
+                break;
+            }
+        }
+
+        // If we found a next note, extend this note to reach it
+        if (nextNoteStartBeat > 0.0 && nextNoteStartBeat > endBeat)
+        {
+            // Extend the note-off time to the start of the next note
+            // Subtract a tiny amount to prevent overlapping (1 tick)
+            double newEndBeat = nextNoteStartBeat - (1.0 / ticksPerBeat);
+            double newEndTicks = newEndBeat * ticksPerBeat;
+
+            event->noteOffObject->message.setTimeStamp(newEndTicks);
         }
     }
 

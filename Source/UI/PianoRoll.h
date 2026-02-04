@@ -150,6 +150,10 @@ public:
     // velocityAmount: 0.0 = no velocity variation, 1.0 = max velocity variation (+/- 20%)
     void humanizeSelectedNotes(float timingAmount, float velocityAmount);
 
+    // Apply legato to selected notes - extends each note to reach the next note on the same pitch
+    // Creates seamless, connected transitions between consecutive notes of the same pitch
+    void applyLegatoToSelectedNotes();
+
     // Convenience methods for common transforms
     void transposeSelectedNotesUp() { transposeSelectedNotes(1); }
     void transposeSelectedNotesDown() { transposeSelectedNotes(-1); }
