@@ -48,6 +48,7 @@ private:
     juce::Label inputLabel;
     juce::Label deviceInfoLabel;
     juce::Label dropoutLabel;
+    juce::Label memoryLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StatusBar)
 };

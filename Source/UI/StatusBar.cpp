@@ -24,6 +24,12 @@ StatusBar::StatusBar(juce::AudioDeviceManager& deviceManager)
     dropoutLabel.setJustificationType(juce::Justification::centred);
     dropoutLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
 
+    // Memory usage label
+    addAndMakeVisible(memoryLabel);
+    memoryLabel.setText("Mem: -- MB", juce::dontSendNotification);
+    memoryLabel.setJustificationType(juce::Justification::centred);
+    memoryLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
+
     // Update immediately
     timerCallback();
 
@@ -102,6 +108,9 @@ void StatusBar::resized()
 
     cpuLabel.setBounds(area.removeFromLeft(200));
 
+    // Memory usage indicator after CPU
+    memoryLabel.setBounds(area.removeFromLeft(90));
+
     // Dropout indicator on the right side, before device info
     dropoutLabel.setBounds(area.removeFromRight(100));
     deviceInfoLabel.setBounds(area.removeFromRight(300));
@@ -116,6 +125,26 @@ void StatusBar::timerCallback()
     currentCpuUsage = audioDeviceManager.getCpuUsage();
 
     juce::String cpuText = juce::String::formatted("CPU: %.1f%%", currentCpuUsage * 100.0);
+
+    // Update memory usage statistics
+    auto memoryUsageMB = juce::SystemStats::getMemoryUsageInMegabytes();
+    juce::String memoryText = juce::String::formatted("Mem: %d MB", memoryUsageMB);
+    memoryLabel.setText(memoryText, juce::dontSendNotification);
+
+    // Set memory label color based on usage (warning at 1GB, critical at 2GB)
+    if (memoryUsageMB > 2000)
+    {
+        memoryLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::recordColour);  // Red/critical
+    }
+    else if (memoryUsageMB > 1000)
+    {
+        memoryLabel.setColour(juce::Label::textColourId, juce::Colours::yellow);  // Warning
+    }
+    else
+    {
+        memoryLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);  // Normal
+    }
+
     if (auto* device = audioDeviceManager.getCurrentAudioDevice())
     {
         double sampleRate = device->getCurrentSampleRate();
