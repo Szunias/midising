@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <vector>
 #include <cmath>
+#include <random>
 
 PianoRoll::PianoRoll()
 {
@@ -845,6 +846,47 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key)
         }
     }
 
+    // Arrow keys for transpose (when notes are selected)
+    if (!selectedNoteIndices.empty())
+    {
+        // Up arrow = transpose up 1 semitone
+        if (key == juce::KeyPress::upKey)
+        {
+            if (key.getModifiers().isShiftDown())
+            {
+                // Shift+Up = transpose up 1 octave
+                transposeSelectedNotesOctaveUp();
+            }
+            else
+            {
+                transposeSelectedNotesUp();
+            }
+            return true;
+        }
+
+        // Down arrow = transpose down 1 semitone
+        if (key == juce::KeyPress::downKey)
+        {
+            if (key.getModifiers().isShiftDown())
+            {
+                // Shift+Down = transpose down 1 octave
+                transposeSelectedNotesOctaveDown();
+            }
+            else
+            {
+                transposeSelectedNotesDown();
+            }
+            return true;
+        }
+
+        // H = Humanize selected notes (moderate amount)
+        if (key.getTextCharacter() == 'h' || key.getTextCharacter() == 'H')
+        {
+            humanizeSelectedNotes(0.3f, 0.3f);
+            return true;
+        }
+    }
+
     return false;
 }
 
@@ -1570,6 +1612,164 @@ void PianoRoll::applySwingToSelectedNotes()
                 double newNoteOffBeat = newBeat + noteLength;
                 event->noteOffObject->message.setTimeStamp(newNoteOffBeat * ticksPerBeat);
             }
+        }
+    }
+
+    // Re-sort and update matched pairs after modifying timestamps
+    seq.sort();
+    seq.updateMatchedPairs();
+
+    repaint();
+}
+
+// ============================================================================
+// MIDI Transform Operations
+// ============================================================================
+
+void PianoRoll::transposeSelectedNotes(int semitones)
+{
+    if (midiRegion == nullptr || selectedNoteIndices.empty() || semitones == 0)
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+
+    // Process each selected note
+    for (int eventIndex : selectedNoteIndices)
+    {
+        if (eventIndex < 0 || eventIndex >= seq.getNumEvents())
+            continue;
+
+        auto* event = seq.getEventPointer(eventIndex);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        // Get current note number
+        int currentNote = event->message.getNoteNumber();
+        int newNote = currentNote + semitones;
+
+        // Clamp to valid MIDI note range (0-127)
+        newNote = juce::jlimit(0, 127, newNote);
+
+        // Update the note number for note-on
+        event->message.setNoteNumber(newNote);
+
+        // Update the note number for matching note-off
+        if (event->noteOffObject != nullptr)
+        {
+            event->noteOffObject->message.setNoteNumber(newNote);
+        }
+    }
+
+    // Notes don't need re-sorting since timestamps didn't change
+    repaint();
+}
+
+void PianoRoll::scaleVelocitySelectedNotes(float scaleFactor)
+{
+    if (midiRegion == nullptr || selectedNoteIndices.empty())
+        return;
+
+    // Clamp scale factor to reasonable range
+    scaleFactor = juce::jlimit(0.0f, 2.0f, scaleFactor);
+
+    auto& seq = midiRegion->getMidiSequence();
+
+    // Process each selected note
+    for (int eventIndex : selectedNoteIndices)
+    {
+        if (eventIndex < 0 || eventIndex >= seq.getNumEvents())
+            continue;
+
+        auto* event = seq.getEventPointer(eventIndex);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        // Get current velocity and scale it
+        float currentVelocity = event->message.getFloatVelocity();
+        float newVelocity = currentVelocity * scaleFactor;
+
+        // Clamp to valid velocity range (minimum 0.01 to avoid silent notes)
+        newVelocity = juce::jlimit(0.01f, 1.0f, newVelocity);
+
+        // Update the velocity
+        event->message.setVelocity(newVelocity);
+    }
+
+    repaint();
+}
+
+void PianoRoll::humanizeSelectedNotes(float timingAmount, float velocityAmount)
+{
+    if (midiRegion == nullptr || selectedNoteIndices.empty())
+        return;
+
+    // Clamp amounts to valid range
+    timingAmount = juce::jlimit(0.0f, 1.0f, timingAmount);
+    velocityAmount = juce::jlimit(0.0f, 1.0f, velocityAmount);
+
+    // Skip if no humanization requested
+    if (timingAmount <= 0.0f && velocityAmount <= 0.0f)
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+
+    // Random number generator for humanization
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    // Timing variation: up to ~30ms at 120 BPM (which is about 0.06 beats)
+    // At max timingAmount, vary by +/- 0.06 beats
+    double maxTimingOffset = 0.06 * static_cast<double>(timingAmount);
+    std::uniform_real_distribution<double> timingDist(-maxTimingOffset, maxTimingOffset);
+
+    // Velocity variation: +/- 20% at max velocityAmount
+    float maxVelocityOffset = 0.2f * velocityAmount;
+    std::uniform_real_distribution<float> velocityDist(-maxVelocityOffset, maxVelocityOffset);
+
+    // Process each selected note
+    for (int eventIndex : selectedNoteIndices)
+    {
+        if (eventIndex < 0 || eventIndex >= seq.getNumEvents())
+            continue;
+
+        auto* event = seq.getEventPointer(eventIndex);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        // Apply timing variation if enabled
+        if (timingAmount > 0.0f)
+        {
+            double currentBeat = event->message.getTimeStamp() / ticksPerBeat;
+            double timingOffset = timingDist(gen);
+            double newBeat = currentBeat + timingOffset;
+
+            // Ensure we don't go negative
+            newBeat = juce::jmax(0.0, newBeat);
+
+            // Update note-on timestamp
+            event->message.setTimeStamp(newBeat * ticksPerBeat);
+
+            // Update note-off timestamp to maintain note length
+            if (event->noteOffObject != nullptr)
+            {
+                double noteOffBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+                double noteLength = noteOffBeat - currentBeat;
+                double newNoteOffBeat = newBeat + noteLength;
+                event->noteOffObject->message.setTimeStamp(newNoteOffBeat * ticksPerBeat);
+            }
+        }
+
+        // Apply velocity variation if enabled
+        if (velocityAmount > 0.0f)
+        {
+            float currentVelocity = event->message.getFloatVelocity();
+            float velocityOffset = velocityDist(gen);
+            float newVelocity = currentVelocity + velocityOffset;
+
+            // Clamp to valid range (minimum 0.01 to avoid silent notes)
+            newVelocity = juce::jlimit(0.01f, 1.0f, newVelocity);
+            event->message.setVelocity(newVelocity);
         }
     }
 

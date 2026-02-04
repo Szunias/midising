@@ -138,6 +138,24 @@ public:
     // Apply swing quantization to selected notes
     void applySwingToSelectedNotes();
 
+    // MIDI Transform operations
+    // Transpose selected notes up or down by semitones
+    void transposeSelectedNotes(int semitones);
+
+    // Scale velocity of selected notes by a factor (0.0 to 2.0)
+    void scaleVelocitySelectedNotes(float scaleFactor);
+
+    // Add human feel variations to selected notes
+    // timingAmount: 0.0 = no timing variation, 1.0 = max timing variation (up to ~30ms)
+    // velocityAmount: 0.0 = no velocity variation, 1.0 = max velocity variation (+/- 20%)
+    void humanizeSelectedNotes(float timingAmount, float velocityAmount);
+
+    // Convenience methods for common transforms
+    void transposeSelectedNotesUp() { transposeSelectedNotes(1); }
+    void transposeSelectedNotesDown() { transposeSelectedNotes(-1); }
+    void transposeSelectedNotesOctaveUp() { transposeSelectedNotes(12); }
+    void transposeSelectedNotesOctaveDown() { transposeSelectedNotes(-12); }
+
     // CC Lane management
     void setCCLaneVisible(CCLaneType laneType, bool visible);
     bool isCCLaneVisible(CCLaneType laneType) const;
