@@ -64,6 +64,22 @@ public:
                           float leftGain, float rightGain, int numSamples);
 
     /**
+     * Add audio to the input accumulation buffer with gain ramping.
+     * Provides smooth automation playback by interpolating between start and end gains.
+     *
+     * @param sourceBuffer The track's audio after fader/pan
+     * @param leftGainStart Left channel gain at start of buffer
+     * @param rightGainStart Right channel gain at start of buffer
+     * @param leftGainEnd Left channel gain at end of buffer
+     * @param rightGainEnd Right channel gain at end of buffer
+     * @param numSamples Number of samples to add
+     */
+    void addToInputBufferWithRamp(const juce::AudioBuffer<float>& sourceBuffer,
+                                   float leftGainStart, float rightGainStart,
+                                   float leftGainEnd, float rightGainEnd,
+                                   int numSamples);
+
+    /**
      * Process the accumulated input through the effect chain.
      * Call after all track outputs have been accumulated.
      * The result is written to the output buffer.

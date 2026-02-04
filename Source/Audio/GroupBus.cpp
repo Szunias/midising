@@ -69,6 +69,49 @@ void GroupBus::addToInputBuffer(const juce::AudioBuffer<float>& sourceBuffer,
     }
 }
 
+void GroupBus::addToInputBufferWithRamp(const juce::AudioBuffer<float>& sourceBuffer,
+                                         float leftGainStart, float rightGainStart,
+                                         float leftGainEnd, float rightGainEnd,
+                                         int numSamples)
+{
+    // Accumulate audio from track outputs with gain ramping for smooth automation
+    int samplesToProcess = juce::jmin(numSamples, inputBuffer.getNumSamples(), sourceBuffer.getNumSamples());
+
+    // Check if gains are the same (no need for ramping)
+    bool needsRamp = (std::abs(leftGainStart - leftGainEnd) > 0.0001f) ||
+                     (std::abs(rightGainStart - rightGainEnd) > 0.0001f);
+
+    if (!needsRamp)
+    {
+        // Use the simpler constant gain method
+        addToInputBuffer(sourceBuffer, leftGainStart, rightGainStart, samplesToProcess);
+        return;
+    }
+
+    // Add left channel with ramping
+    if (inputBuffer.getNumChannels() >= 1 && sourceBuffer.getNumChannels() >= 1)
+    {
+        inputBuffer.addFromWithRamp(0, 0, sourceBuffer.getReadPointer(0),
+                                    samplesToProcess, leftGainStart, leftGainEnd);
+    }
+
+    // Add right channel with ramping
+    if (inputBuffer.getNumChannels() >= 2)
+    {
+        if (sourceBuffer.getNumChannels() >= 2)
+        {
+            inputBuffer.addFromWithRamp(1, 0, sourceBuffer.getReadPointer(1),
+                                        samplesToProcess, rightGainStart, rightGainEnd);
+        }
+        else if (sourceBuffer.getNumChannels() >= 1)
+        {
+            // Mono source: use right gain ramp on the mono channel for right output
+            inputBuffer.addFromWithRamp(1, 0, sourceBuffer.getReadPointer(0),
+                                        samplesToProcess, rightGainStart, rightGainEnd);
+        }
+    }
+}
+
 void GroupBus::processAccumulatedInput(juce::AudioBuffer<float>& outputBuffer, int numSamples)
 {
     // Copy input buffer to output for processing

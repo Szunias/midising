@@ -2,6 +2,7 @@
 
 #include "../Timeline/Track.h"
 #include "../Timeline/Timeline.h"
+#include "../Timeline/AutomationLane.h"
 #include "AudioTrack.h"
 #include "SendReturn.h"
 #include "GroupBus.h"
@@ -116,40 +117,71 @@ public:
             track->processBlock(workBuffer, static_cast<int>(startSample), numSamples);
 
             // Get volume and pan for fader calculations
-            float volume = track->getVolume();
-            float pan = track->getPan();
+            // Check if automation should be read for this track
+            float volumeStart, volumeEnd;
+            float panStart, panEnd;
+
+            if (track->isAutomationReading())
+            {
+                // Get automated values at start and end of block for smooth ramping
+                volumeStart = track->getAutomatedVolume(startSample);
+                volumeEnd = track->getAutomatedVolume(startSample + numSamples);
+                panStart = track->getAutomatedPan(startSample);
+                panEnd = track->getAutomatedPan(startSample + numSamples);
+            }
+            else
+            {
+                // Use static track values (no automation)
+                volumeStart = volumeEnd = track->getVolume();
+                panStart = panEnd = track->getPan();
+            }
 
             // Route pre-fader sends (before volume is applied)
-            routeSends(timeline, *track, workBuffer, numSamples, volume, true);
+            // Use average volume for send routing
+            float avgVolume = (volumeStart + volumeEnd) * 0.5f;
+            routeSends(timeline, *track, workBuffer, numSamples, avgVolume, true);
 
-            // Calculate stereo pan gains (constant power panning)
-            float angle = (pan + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
-            float leftGain = volume * std::cos(angle);
-            float rightGain = volume * std::sin(angle);
+            // Calculate stereo pan gains (constant power panning) for start of block
+            float angleStart = (panStart + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
+            float leftGainStart = volumeStart * std::cos(angleStart);
+            float rightGainStart = volumeStart * std::sin(angleStart);
+
+            // Calculate stereo pan gains for end of block
+            float angleEnd = (panEnd + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
+            float leftGainEnd = volumeEnd * std::cos(angleEnd);
+            float rightGainEnd = volumeEnd * std::sin(angleEnd);
 
             // Route post-fader sends (with volume applied)
-            routeSends(timeline, *track, workBuffer, numSamples, volume, false);
+            routeSends(timeline, *track, workBuffer, numSamples, avgVolume, false);
 
             // Route to output: either group bus or master
+            // Use ramped gains for smooth automation playback
             int groupBusIndex = track->getOutputGroupBus();
             if (groupBusIndex >= 0)
             {
-                // Route to group bus
+                // Route to group bus with automation ramping
                 GroupBus* groupBus = timeline.getGroupBus(groupBusIndex);
                 if (groupBus != nullptr)
                 {
-                    groupBus->addToInputBuffer(workBuffer, leftGain, rightGain, numSamples);
+                    groupBus->addToInputBufferWithRamp(workBuffer,
+                                                        leftGainStart, rightGainStart,
+                                                        leftGainEnd, rightGainEnd,
+                                                        numSamples);
                 }
                 else
                 {
                     // Invalid group index - fall back to master
-                    routeToMaster(outputBuffer, numSamples, leftGain, rightGain);
+                    routeToMasterWithRamp(outputBuffer, numSamples,
+                                          leftGainStart, rightGainStart,
+                                          leftGainEnd, rightGainEnd);
                 }
             }
             else
             {
-                // Route direct to master
-                routeToMaster(outputBuffer, numSamples, leftGain, rightGain);
+                // Route direct to master with automation ramping
+                routeToMasterWithRamp(outputBuffer, numSamples,
+                                      leftGainStart, rightGainStart,
+                                      leftGainEnd, rightGainEnd);
             }
         }
 
@@ -294,6 +326,43 @@ private:
             outputBuffer.addFrom(1, 0, workBuffer,
                                  workBuffer.getNumChannels() > 1 ? 1 : 0,
                                  0, numSamples, rightGain);
+        }
+    }
+
+    /**
+     * Route track output to master bus with gain ramping.
+     * Provides smooth automation playback by interpolating between start and end gains.
+     */
+    void routeToMasterWithRamp(juce::AudioBuffer<float>& outputBuffer, int numSamples,
+                               float leftGainStart, float rightGainStart,
+                               float leftGainEnd, float rightGainEnd)
+    {
+        int numChannels = juce::jmin(outputBuffer.getNumChannels(), 2);
+
+        // Check if gains are the same (no need for ramping)
+        bool needsRamp = (std::abs(leftGainStart - leftGainEnd) > 0.0001f) ||
+                         (std::abs(rightGainStart - rightGainEnd) > 0.0001f);
+
+        if (!needsRamp)
+        {
+            // Use the simpler constant gain method
+            routeToMaster(outputBuffer, numSamples, leftGainStart, rightGainStart);
+            return;
+        }
+
+        // Apply left channel with ramping
+        if (numChannels >= 1)
+        {
+            outputBuffer.addFromWithRamp(0, 0, workBuffer.getReadPointer(0),
+                                         numSamples, leftGainStart, leftGainEnd);
+        }
+
+        // Apply right channel with ramping
+        if (numChannels >= 2)
+        {
+            int sourceChannel = workBuffer.getNumChannels() > 1 ? 1 : 0;
+            outputBuffer.addFromWithRamp(1, 0, workBuffer.getReadPointer(sourceChannel),
+                                         numSamples, rightGainStart, rightGainEnd);
         }
     }
 
