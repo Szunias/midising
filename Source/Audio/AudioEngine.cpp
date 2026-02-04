@@ -16,6 +16,12 @@ void AudioEngine::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlockExpected;
 
+    // Calculate buffer duration in milliseconds for dropout detection
+    if (sampleRate > 0)
+    {
+        bufferDurationMs = (static_cast<double>(samplesPerBlockExpected) / sampleRate) * 1000.0;
+    }
+
     timeline.setSampleRate(sampleRate);
     mixer.prepareToPlay(sampleRate, samplesPerBlockExpected);
     midiEngine.prepareToPlay(sampleRate, samplesPerBlockExpected);
@@ -30,12 +36,15 @@ void AudioEngine::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
 
 void AudioEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
 {
+    // Start performance timing
+    auto startTime = Clock::now();
+
     // Clear buffer first
     bufferToFill.clearActiveBufferRegion();
 
     // Check if recording state changed
     bool isCurrentlyRecording = transport.isRecording();
-    
+
     if (isCurrentlyRecording && !wasRecordingLastBlock)
     {
         // Just started recording
@@ -57,9 +66,14 @@ void AudioEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferTo
     // Route input to armed tracks for metering (always, even when stopped)
     routeInputToArmedTracks(*bufferToFill.buffer);
 
-    // If not playing or recording, just output silence
+    // If not playing or recording, just output silence (but still update metrics)
     if (transport.isStopped())
+    {
+        auto endTime = Clock::now();
+        double processingTimeMs = std::chrono::duration<double, std::milli>(endTime - startTime).count();
+        updatePerformanceMetrics(processingTimeMs);
         return;
+    }
 
     // Get current playhead position
     int64_t playheadPos = transport.getPlayheadPosition();
@@ -83,7 +97,7 @@ void AudioEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferTo
         float sample = leftChannel[i];
         if (rightChannel != nullptr)
             sample = (sample + rightChannel[i]) * 0.5f;
-            
+
         spectrumAnalyzer.pushNextSampleIntoFifo(sample);
     }
 
@@ -92,6 +106,11 @@ void AudioEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferTo
 
     // Handle loop wrapping
     transport.handleLoopWrap();
+
+    // End performance timing and update metrics
+    auto endTime = Clock::now();
+    double processingTimeMs = std::chrono::duration<double, std::milli>(endTime - startTime).count();
+    updatePerformanceMetrics(processingTimeMs);
 }
 
 void AudioEngine::releaseResources()
@@ -318,4 +337,60 @@ int AudioEngine::getNumAvailableInputChannels() const
         }
     }
     return 2; // Default stereo
+}
+
+void AudioEngine::updatePerformanceMetrics(double processingTimeMs)
+{
+    // Increment total blocks processed
+    totalBlocksProcessed.fetch_add(1);
+
+    // Update max processing time
+    double currentMax = maxProcessingTimeMs.load();
+    while (processingTimeMs > currentMax)
+    {
+        if (maxProcessingTimeMs.compare_exchange_weak(currentMax, processingTimeMs))
+            break;
+    }
+
+    // Update exponential moving average for processing time
+    double currentAvg = averageProcessingTimeMs.load();
+    double newAvg = currentAvg * kCpuLoadSmoothing + processingTimeMs * (1.0 - kCpuLoadSmoothing);
+    averageProcessingTimeMs.store(newAvg);
+
+    // Calculate CPU load as ratio of processing time to buffer duration
+    if (bufferDurationMs > 0.0)
+    {
+        double newCpuLoad = cpuLoad.load() * kCpuLoadSmoothing +
+                           (processingTimeMs / bufferDurationMs) * (1.0 - kCpuLoadSmoothing);
+        cpuLoad.store(newCpuLoad);
+
+        // Detect dropout: processing time exceeds available buffer time
+        if (processingTimeMs > bufferDurationMs)
+        {
+            dropoutCount.fetch_add(1);
+            recentDropout.store(true);
+        }
+    }
+}
+
+AudioPerformanceMetrics AudioEngine::getPerformanceMetrics() const
+{
+    AudioPerformanceMetrics metrics;
+    metrics.cpuLoad = cpuLoad.load();
+    metrics.averageProcessingTimeMs = averageProcessingTimeMs.load();
+    metrics.maxProcessingTimeMs = maxProcessingTimeMs.load();
+    metrics.bufferTimeMs = bufferDurationMs;
+    metrics.dropoutCount = dropoutCount.load();
+    metrics.totalBlocksProcessed = totalBlocksProcessed.load();
+    return metrics;
+}
+
+void AudioEngine::resetPerformanceMetrics()
+{
+    cpuLoad.store(0.0);
+    averageProcessingTimeMs.store(0.0);
+    maxProcessingTimeMs.store(0.0);
+    dropoutCount.store(0);
+    totalBlocksProcessed.store(0);
+    recentDropout.store(false);
 }
