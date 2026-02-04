@@ -14,7 +14,8 @@ enum class AutomationCurveType
     Linear,      // Straight line interpolation
     Exponential, // Exponential curve (good for volume)
     Logarithmic, // Logarithmic curve
-    Step         // Instant change at next point
+    Step,        // Instant change at next point
+    SCurve       // Smooth S-curve (ease-in-ease-out)
 };
 
 /**
@@ -97,6 +98,14 @@ namespace AutomationCurveUtils
             case AutomationCurveType::Step:
                 // Step: return start value until we reach the end
                 return (t < 1.0f) ? startValue : endValue;
+
+            case AutomationCurveType::SCurve:
+            {
+                // S-Curve (smoothstep): smooth ease-in-ease-out
+                // Formula: 3t² - 2t³
+                float curved = t * t * (3.0f - 2.0f * t);
+                return startValue + (endValue - startValue) * curved;
+            }
 
             default:
                 return startValue + (endValue - startValue) * t;
