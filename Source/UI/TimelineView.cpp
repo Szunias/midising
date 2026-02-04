@@ -925,8 +925,24 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
                 region->setThumbnailHash(hash);
             }
 
-            // Use RMS + Peak display mode if enabled, otherwise use legacy thumbnail
-            if (waveformDisplayMode == WaveformDisplayMode::RmsPlusPeak && waveformCache.hasMipmap(hash))
+            // Draw waveform based on display mode
+            if (waveformDisplayMode == WaveformDisplayMode::SpectrogramOverlay || spectrogramOverlayEnabled)
+            {
+                // Draw spectrogram overlay first (behind waveform)
+                drawSpectrogramOverlay(g, regionBounds.reduced(1), region,
+                                        region->getOffset(), region->getLength());
+
+                // Draw waveform on top with reduced opacity
+                if (waveformCache.hasMipmap(hash))
+                {
+                    // Use a slightly dimmed waveform over spectrogram
+                    float savedAlpha = spectrogramAlpha;
+                    drawWaveformRmsPlusPeak(g, regionBounds.reduced(1), hash,
+                                             region->getOffset(), region->getLength());
+                    juce::ignoreUnused(savedAlpha);
+                }
+            }
+            else if (waveformDisplayMode == WaveformDisplayMode::RmsPlusPeak && waveformCache.hasMipmap(hash))
             {
                 // Draw using mipmap data with RMS + Peak display
                 drawWaveformRmsPlusPeak(g, regionBounds.reduced(1), hash,
@@ -3632,4 +3648,55 @@ void TimelineView::drawWaveformRmsPlusPeak(juce::Graphics& g, juce::Rectangle<in
         g.setColour(juce::Colours::white.withAlpha(0.6f));
         g.strokePath(peakPath, juce::PathStrokeType(0.5f));
     }
+}
+
+void TimelineView::drawSpectrogramOverlay(juce::Graphics& g, juce::Rectangle<int> bounds,
+                                           Region* region, int64_t regionOffset, int64_t regionLength)
+{
+    if (region == nullptr || bounds.isEmpty() || regionLength <= 0)
+        return;
+
+    // Cast to AudioRegion to get the audio buffer
+    auto* audioRegion = dynamic_cast<AudioRegion*>(region);
+    if (audioRegion == nullptr)
+        return;
+
+    // Get or generate spectrogram ID
+    int64_t thumbnailHash = region->getThumbnailHash();
+    int64_t spectrogramId = 0;
+
+    auto it = regionSpectrogramIds.find(thumbnailHash);
+    if (it != regionSpectrogramIds.end())
+    {
+        spectrogramId = it->second;
+    }
+    else
+    {
+        // Generate spectrogram for this region
+        const auto& buffer = audioRegion->getAudioBuffer();
+        spectrogramGenerator.setSampleRate(sampleRate);
+        spectrogramId = spectrogramGenerator.generateSpectrogram(buffer, 0, buffer.getNumSamples());
+
+        if (spectrogramId != 0)
+        {
+            regionSpectrogramIds[thumbnailHash] = spectrogramId;
+        }
+    }
+
+    if (spectrogramId == 0 || !spectrogramGenerator.hasSpectrogram(spectrogramId))
+        return;
+
+    // Draw the spectrogram with the configured alpha
+    spectrogramGenerator.drawSpectrogram(g, bounds, spectrogramId, regionOffset, regionLength, spectrogramAlpha);
+}
+
+void TimelineView::setSpectrogramColorMap(SpectrogramGenerator::ColorMap colorMap)
+{
+    spectrogramGenerator.setColorMap(colorMap);
+    repaint();
+}
+
+SpectrogramGenerator::ColorMap TimelineView::getSpectrogramColorMap() const
+{
+    return spectrogramGenerator.getColorMap();
 }

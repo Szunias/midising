@@ -8,6 +8,7 @@
 #include "../Audio/AudioTrack.h"
 #include "../MIDI/MidiTrack.h"
 #include "../Audio/WaveformCache.h"
+#include "../Audio/SpectrogramGenerator.h"
 #include "LookAndFeel.h"
 #include "TrackHeader.h"
 #include "ToolBar.h"
@@ -15,6 +16,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <vector>
 #include <memory>
+#include <map>
 
 // Forward declaration for undo manager
 class DAWUndoManager;
@@ -24,8 +26,9 @@ class DAWUndoManager;
  */
 enum class WaveformDisplayMode
 {
-    Peak,           // Traditional peak-only display (default)
-    RmsPlusPeak     // RMS (inner solid) + Peak (outer outline) display
+    Peak,               // Traditional peak-only display (default)
+    RmsPlusPeak,        // RMS (inner solid) + Peak (outer outline) display
+    SpectrogramOverlay  // Spectrogram overlaid on waveform
 };
 
 /**
@@ -124,6 +127,14 @@ public:
     void setWaveformDisplayMode(WaveformDisplayMode mode) { waveformDisplayMode = mode; repaint(); }
     WaveformDisplayMode getWaveformDisplayMode() const { return waveformDisplayMode; }
 
+    // Spectrogram overlay settings
+    void setSpectrogramOverlayEnabled(bool enabled) { spectrogramOverlayEnabled = enabled; repaint(); }
+    bool isSpectrogramOverlayEnabled() const { return spectrogramOverlayEnabled; }
+    void setSpectrogramAlpha(float alpha) { spectrogramAlpha = juce::jlimit(0.0f, 1.0f, alpha); repaint(); }
+    float getSpectrogramAlpha() const { return spectrogramAlpha; }
+    void setSpectrogramColorMap(SpectrogramGenerator::ColorMap colorMap);
+    SpectrogramGenerator::ColorMap getSpectrogramColorMap() const;
+
     // Callbacks for track header
     std::function<void(AutomationMode)> onAutomationModeChanged;
 
@@ -143,6 +154,8 @@ private:
     void drawBeatGrid(juce::Graphics& g, juce::Rectangle<int> bounds);
     void drawWaveformRmsPlusPeak(juce::Graphics& g, juce::Rectangle<int> bounds,
                                   int64_t cacheHash, int64_t regionOffset, int64_t regionLength);
+    void drawSpectrogramOverlay(juce::Graphics& g, juce::Rectangle<int> bounds,
+                                 Region* region, int64_t regionOffset, int64_t regionLength);
     void updateTrackHeaders();
     void updateAutomationLaneViews();
     void syncAutomationLaneViewSettings();
@@ -329,6 +342,12 @@ private:
 
     // Waveform display mode
     WaveformDisplayMode waveformDisplayMode = WaveformDisplayMode::RmsPlusPeak;
+
+    // Spectrogram overlay
+    SpectrogramGenerator spectrogramGenerator;
+    bool spectrogramOverlayEnabled = false;
+    float spectrogramAlpha = 0.7f;
+    std::map<int64_t, int64_t> regionSpectrogramIds;  // Maps region thumbnail hash to spectrogram ID
 
     // Automation mode and editing state
     AutomationMode automationMode = AutomationMode::Read;
