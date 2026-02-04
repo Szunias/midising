@@ -1,6 +1,8 @@
 #include "TimelineView.h"
 #include "Cursors.h"
 #include "../Utils/TimeConversion.h"
+#include "../Utils/UndoManager.h"
+#include "../Actions/RegionActions.h"
 #include <algorithm>
 #include <cmath>
 
@@ -479,13 +481,30 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
     // Finalize fade editing
     if (isEditingFade && selectedRegion != nullptr)
     {
-        if (isFadeIn)
+        // Only create undo action if fade length actually changed
+        if (fadeCurrentLength != fadeOriginalLength)
         {
-            selectedRegion->setFadeInLength(fadeCurrentLength);
-        }
-        else
-        {
-            selectedRegion->setFadeOutLength(fadeCurrentLength);
+            // Determine the new fade in/out values
+            int64_t newFadeIn = isFadeIn ? fadeCurrentLength : selectedRegion->getFadeInLength();
+            int64_t newFadeOut = isFadeIn ? selectedRegion->getFadeOutLength() : fadeCurrentLength;
+
+            if (undoManagerPtr != nullptr)
+            {
+                undoManagerPtr->perform(new SetRegionFadesAction(selectedRegion, newFadeIn, newFadeOut),
+                                       isFadeIn ? "Set Fade In" : "Set Fade Out");
+            }
+            else
+            {
+                // Fallback: direct modification
+                if (isFadeIn)
+                {
+                    selectedRegion->setFadeInLength(fadeCurrentLength);
+                }
+                else
+                {
+                    selectedRegion->setFadeOutLength(fadeCurrentLength);
+                }
+            }
         }
 
         isEditingFade = false;
@@ -498,21 +517,62 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
     // Finalize region edge resize
     if (isResizingRegion && selectedRegion != nullptr)
     {
-        // Apply the new start position and length
-        if (resizeEdge == RegionEdge::Left)
+        // Check if anything actually changed
+        bool hasChanges = (resizeCurrentLength != resizeOriginalLength) ||
+                          (resizeEdge == RegionEdge::Left && resizeCurrentStart != resizeOriginalStart);
+
+        if (hasChanges)
         {
-            // When resizing from left, we also need to adjust the offset
-            int64_t deltaStart = resizeCurrentStart - resizeOriginalStart;
-            int64_t newOffset = resizeOriginalOffset + deltaStart;
+            // Check if it's an audio region for undo support
+            auto* audioRegion = dynamic_cast<AudioRegion*>(selectedRegion);
 
-            // Clamp offset to non-negative
-            newOffset = juce::jmax(int64_t(0), newOffset);
+            if (resizeEdge == RegionEdge::Left)
+            {
+                // When resizing from left, we also need to adjust the offset
+                int64_t deltaStart = resizeCurrentStart - resizeOriginalStart;
+                int64_t newOffset = resizeOriginalOffset + deltaStart;
 
-            selectedRegion->setOffset(newOffset);
-            selectedRegion->setStartPosition(resizeCurrentStart);
+                // Clamp offset to non-negative
+                newOffset = juce::jmax(int64_t(0), newOffset);
+
+                if (audioRegion != nullptr && undoManagerPtr != nullptr)
+                {
+                    // Begin a transaction to group the move and resize together
+                    undoManagerPtr->beginNewTransaction("Trim Region Left Edge");
+
+                    // First, perform the resize (length and offset change)
+                    undoManagerPtr->perform(new ResizeRegionAction(audioRegion, resizeCurrentLength, newOffset),
+                                           "Resize Region");
+
+                    // Then perform the move (start position change)
+                    // Note: We need to manually handle start position since ResizeRegionAction doesn't track it
+                    // Store old start for undo by performing MoveRegionAction
+                    undoManagerPtr->perform(new MoveRegionAction(audioRegion, resizeCurrentStart),
+                                           "Move Region Start");
+                }
+                else
+                {
+                    // Fallback: direct modification
+                    selectedRegion->setOffset(newOffset);
+                    selectedRegion->setStartPosition(resizeCurrentStart);
+                    selectedRegion->setLength(resizeCurrentLength);
+                }
+            }
+            else if (resizeEdge == RegionEdge::Right)
+            {
+                // Right edge only changes length
+                if (audioRegion != nullptr && undoManagerPtr != nullptr)
+                {
+                    undoManagerPtr->perform(new ResizeRegionAction(audioRegion, resizeCurrentLength),
+                                           "Trim Region Right Edge");
+                }
+                else
+                {
+                    // Fallback: direct modification
+                    selectedRegion->setLength(resizeCurrentLength);
+                }
+            }
         }
-
-        selectedRegion->setLength(resizeCurrentLength);
 
         isResizingRegion = false;
         resizeEdge = RegionEdge::None;
@@ -523,8 +583,29 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
     // Finalize region drag
     if (isDraggingRegion && selectedRegion != nullptr)
     {
-        // Apply the new position to the region
-        selectedRegion->setStartPosition(dragCurrentPosition);
+        // Only create undo action if position actually changed
+        if (dragCurrentPosition != dragOriginalPosition)
+        {
+            // Check if it's an audio region and use undo manager if available
+            if (auto* audioRegion = dynamic_cast<AudioRegion*>(selectedRegion))
+            {
+                if (undoManagerPtr != nullptr)
+                {
+                    undoManagerPtr->perform(new MoveRegionAction(audioRegion, dragCurrentPosition),
+                                           "Move Region");
+                }
+                else
+                {
+                    // Fallback: direct modification
+                    audioRegion->setStartPosition(dragCurrentPosition);
+                }
+            }
+            else
+            {
+                // For non-audio regions, apply directly (MIDI regions don't have undo actions yet)
+                selectedRegion->setStartPosition(dragCurrentPosition);
+            }
+        }
         isDraggingRegion = false;
         repaint();
         return;
@@ -571,11 +652,20 @@ void TimelineView::mouseUp(const juce::MouseEvent& e)
                 emptyBuffer.clear();
                 newRegion->setAudioBuffer(emptyBuffer);
 
-                audioTrack->addRegion(std::move(newRegion));
+                if (undoManagerPtr != nullptr)
+                {
+                    undoManagerPtr->perform(new AddRegionAction(*audioTrack, std::move(newRegion)),
+                                           "Create Audio Region");
+                }
+                else
+                {
+                    audioTrack->addRegion(std::move(newRegion));
+                }
             }
             else if (track->getType() == TrackType::MIDI)
             {
                 // Create empty MidiRegion on MIDI track
+                // Note: MIDI regions don't have undo actions yet, so add directly
                 auto* midiTrack = static_cast<MidiTrack*>(track);
                 auto newRegion = std::make_unique<MidiRegion>(startSample, regionLength);
                 newRegion->setName("New MIDI Region");
@@ -2161,11 +2251,19 @@ void TimelineView::pasteRegion(int64_t pastePosition)
         if (clipboard.filePath.isNotEmpty())
             newRegion->setFilePath(clipboard.filePath);
 
-        audioTrack->addRegion(std::move(newRegion));
+        if (undoManagerPtr != nullptr)
+        {
+            undoManagerPtr->perform(new AddRegionAction(*audioTrack, std::move(newRegion)),
+                                   "Paste Region");
+        }
+        else
+        {
+            audioTrack->addRegion(std::move(newRegion));
+        }
     }
     else
     {
-        // Paste MIDI region
+        // Paste MIDI region - no undo actions for MIDI regions yet
         auto* midiTrack = dynamic_cast<MidiTrack*>(track);
         if (midiTrack == nullptr)
             return;
@@ -2197,13 +2295,22 @@ void TimelineView::deleteSelectedRegion()
         {
             if (audioTrack->getRegion(i) == selectedRegion)
             {
-                audioTrack->removeRegion(i);
+                if (undoManagerPtr != nullptr)
+                {
+                    undoManagerPtr->perform(new DeleteRegionAction(*audioTrack, i),
+                                           "Delete Region");
+                }
+                else
+                {
+                    audioTrack->removeRegion(i);
+                }
                 break;
             }
         }
     }
     else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
     {
+        // MIDI regions don't have undo actions yet, delete directly
         for (int i = 0; i < midiTrack->getNumRegions(); ++i)
         {
             if (midiTrack->getRegion(i) == selectedRegion)
@@ -2256,19 +2363,29 @@ void TimelineView::splitSelectedRegion(int64_t splitPosition)
         if (audioRegion == nullptr)
             return;
 
-        // Create second part (new region after split point)
-        auto secondRegion = std::make_unique<AudioRegion>(splitPosition, secondPartLength);
-        secondRegion->setAudioBuffer(audioRegion->getAudioBuffer());
-        secondRegion->setName(audioRegion->getName() + " (split)");
-        secondRegion->setOffset(originalOffset + firstPartLength);
-        if (audioRegion->getFilePath().isNotEmpty())
-            secondRegion->setFilePath(audioRegion->getFilePath());
+        if (undoManagerPtr != nullptr)
+        {
+            // Use SplitRegionAction for undoable split
+            undoManagerPtr->perform(new SplitRegionAction(*audioTrack, audioRegion, splitPosition),
+                                   "Split Region");
+        }
+        else
+        {
+            // Fallback: direct modification
+            // Create second part (new region after split point)
+            auto secondRegion = std::make_unique<AudioRegion>(splitPosition, secondPartLength);
+            secondRegion->setAudioBuffer(audioRegion->getAudioBuffer());
+            secondRegion->setName(audioRegion->getName() + " (split)");
+            secondRegion->setOffset(originalOffset + firstPartLength);
+            if (audioRegion->getFilePath().isNotEmpty())
+                secondRegion->setFilePath(audioRegion->getFilePath());
 
-        // Modify the original region (first part)
-        audioRegion->setLength(firstPartLength);
+            // Modify the original region (first part)
+            audioRegion->setLength(firstPartLength);
 
-        // Add the second region
-        audioTrack->addRegion(std::move(secondRegion));
+            // Add the second region
+            audioTrack->addRegion(std::move(secondRegion));
+        }
     }
     else if (auto* midiTrack = dynamic_cast<MidiTrack*>(track))
     {
@@ -2276,6 +2393,7 @@ void TimelineView::splitSelectedRegion(int64_t splitPosition)
         if (midiRegion == nullptr)
             return;
 
+        // MIDI regions don't have undo actions yet, split directly
         // For MIDI, we need to split the sequence
         const auto& originalSequence = midiRegion->getMidiSequence();
         juce::MidiMessageSequence firstPartSequence;

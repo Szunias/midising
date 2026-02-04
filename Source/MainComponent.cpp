@@ -53,6 +53,7 @@ MainComponent::MainComponent()
     timelineView.setTimeline(&audioEngine.getTimeline());
     timelineView.setTransport(&audioEngine.getTransport());
     timelineView.setMidiEngine(&audioEngine.getMidiEngine());
+    timelineView.setUndoManager(&undoManager);
     addAndMakeVisible(timelineView);
 
     // Setup collapsible panels (Browser, Mixer, PianoRoll)

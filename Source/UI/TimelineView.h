@@ -15,6 +15,9 @@
 #include <vector>
 #include <memory>
 
+// Forward declaration for undo manager
+class DAWUndoManager;
+
 /**
  * Automation mode for Read/Write control.
  */
@@ -66,6 +69,7 @@ public:
     void setTransport(Transport* transport) { transportPtr = transport; }
     void setMidiEngine(MidiEngine* engine) { midiEnginePtr = engine; }
     void setSampleRate(double rate) { sampleRate = rate; waveformCache.setSampleRate(rate); }
+    void setUndoManager(DAWUndoManager* manager) { undoManagerPtr = manager; }
 
     // View settings
     void setPixelsPerBeat(double ppb) { pixelsPerBeat = juce::jlimit(5.0, 100.0, ppb); repaint(); }
@@ -165,6 +169,7 @@ private:
 
     Timeline* timelinePtr = nullptr;
     Transport* transportPtr = nullptr;
+    DAWUndoManager* undoManagerPtr = nullptr;
 
     std::vector<std::unique_ptr<TrackHeader>> trackHeaders;
 
