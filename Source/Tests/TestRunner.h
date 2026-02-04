@@ -6,6 +6,7 @@
 #include "MixerRoutingTest.h"
 #include "ProjectSaveLoadTest.h"
 #include "AudioEngineTest.h"
+#include "UndoTests.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -75,6 +76,15 @@ public:
             passedTests += 7;
         }
         totalTests += 7;
+        juce::Logger::writeToLog("");
+
+        // Undo System tests
+        juce::Logger::writeToLog("--- Undo System Tests ---");
+        if (UndoTests::runAllTests())
+        {
+            passedTests += 15;
+        }
+        totalTests += 15;
         juce::Logger::writeToLog("");
 
         // Summary
