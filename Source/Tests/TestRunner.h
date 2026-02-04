@@ -5,6 +5,7 @@
 #include "VST3WorkflowTest.h"
 #include "MixerRoutingTest.h"
 #include "ProjectSaveLoadTest.h"
+#include "AudioEngineTest.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -65,6 +66,15 @@ public:
             passedTests += 10;
         }
         totalTests += 10;
+        juce::Logger::writeToLog("");
+
+        // Audio Engine tests
+        juce::Logger::writeToLog("--- Audio Engine Tests ---");
+        if (AudioEngineTest::runAllTests())
+        {
+            passedTests += 7;
+        }
+        totalTests += 7;
         juce::Logger::writeToLog("");
 
         // Summary
