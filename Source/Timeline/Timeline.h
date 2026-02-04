@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Track.h"
+#include "TempoTrack.h"
 #include "../Utils/TimeConversion.h"
 #include <juce_core/juce_core.h>
 #include <memory>
@@ -23,7 +24,11 @@ public:
 
     // BPM management
     double getBpm() const { return bpm; }
-    void setBpm(double newBpm) { bpm = juce::jlimit(20.0, 300.0, newBpm); }
+    void setBpm(double newBpm)
+    {
+        bpm = juce::jlimit(20.0, 300.0, newBpm);
+        tempoTrack.setInitialBpm(bpm);
+    }
 
     // Time signature
     int getBeatsPerBar() const { return beatsPerBar; }
@@ -31,7 +36,11 @@ public:
 
     // Sample rate (set by audio engine)
     double getSampleRate() const { return sampleRate; }
-    void setSampleRate(double rate) { sampleRate = rate; }
+    void setSampleRate(double rate)
+    {
+        sampleRate = rate;
+        tempoTrack.setSampleRate(rate);
+    }
 
     // Track management
     int getNumTracks() const { return tracks.size(); }
@@ -285,11 +294,65 @@ public:
      */
     void applyLinkedSolo(int trackIndex, bool shouldSolo);
 
+    //==========================================================================
+    // Tempo Track Management
+    //==========================================================================
+
+    /**
+     * Get the tempo track (const).
+     * @return Reference to the tempo track
+     */
+    const TempoTrack& getTempoTrack() const { return tempoTrack; }
+
+    /**
+     * Get the tempo track (mutable).
+     * @return Reference to the tempo track
+     */
+    TempoTrack& getTempoTrack() { return tempoTrack; }
+
+    /**
+     * Get the BPM at a specific sample position.
+     * Uses the tempo track if it has tempo changes, otherwise returns the base BPM.
+     * @param position Position in samples
+     * @return BPM at the position
+     */
+    double getBpmAtPosition(int64_t position) const
+    {
+        if (tempoTrack.isEnabled() && tempoTrack.hasTempoChanges())
+            return tempoTrack.getBpmAtPosition(position);
+        return bpm;
+    }
+
+    /**
+     * Convert beats to samples, accounting for tempo changes.
+     * @param beats Beat position
+     * @return Sample position
+     */
+    int64_t beatsToSamplesWithTempoTrack(double beats) const
+    {
+        if (tempoTrack.isEnabled() && tempoTrack.hasTempoChanges())
+            return tempoTrack.beatsToSamples(beats);
+        return beatsToSamples(beats);
+    }
+
+    /**
+     * Convert samples to beats, accounting for tempo changes.
+     * @param samples Sample position
+     * @return Beat position
+     */
+    double samplesToBeatsWithTempoTrack(int64_t samples) const
+    {
+        if (tempoTrack.isEnabled() && tempoTrack.hasTempoChanges())
+            return tempoTrack.samplesToBeats(samples);
+        return samplesToBeats(samples);
+    }
+
 private:
     juce::OwnedArray<Track> tracks;
     juce::OwnedArray<AuxTrack> auxTracks;    // Aux/return tracks for send routing
     juce::OwnedArray<GroupBus> groupBusses;  // Group busses for submixing
     juce::OwnedArray<MixGroup> mixGroups;    // Mix groups for linked faders
+    TempoTrack tempoTrack;                   // Tempo track for tempo changes
     double bpm = 120.0;
     int beatsPerBar = 4;
     double sampleRate = 44100.0;

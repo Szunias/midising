@@ -6,7 +6,11 @@
 #include "../MIDI/MidiTrack.h"
 
 Timeline::Timeline()
+    : tempoTrack(120.0)  // Initialize tempo track with default BPM
 {
+    // Sync tempo track settings with timeline defaults
+    tempoTrack.setInitialBpm(bpm);
+    tempoTrack.setSampleRate(sampleRate);
 }
 
 //==============================================================================
