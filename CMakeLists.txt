@@ -99,6 +99,8 @@ target_sources(MidiSing
         Source/Audio/SpectrumAnalyzer.cpp
         Source/Audio/TimeStretch.h
         Source/Audio/TimeStretch.cpp
+        Source/Audio/PitchShift.h
+        Source/Audio/PitchShift.cpp
         # Audio Recording
         Source/Audio/AudioRecorder.h
         Source/Audio/AudioRecorder.cpp
