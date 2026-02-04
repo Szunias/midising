@@ -110,6 +110,7 @@ target_sources(MidiSing
         # Undo/Redo
         Source/Utils/UndoManager.h
         Source/Actions/TrackActions.h
+        Source/Actions/MixerActions.h
         # Effects
         Source/Effects/Effect.h
         Source/Effects/EffectChain.h
