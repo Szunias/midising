@@ -97,6 +97,8 @@ target_sources(MidiSing
         Source/UI/AutomationLaneView.cpp
         Source/Audio/SpectrumAnalyzer.h
         Source/Audio/SpectrumAnalyzer.cpp
+        Source/Audio/TimeStretch.h
+        Source/Audio/TimeStretch.cpp
         # Audio Recording
         Source/Audio/AudioRecorder.h
         Source/Audio/AudioRecorder.cpp
