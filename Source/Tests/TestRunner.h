@@ -7,6 +7,7 @@
 #include "ProjectSaveLoadTest.h"
 #include "AudioEngineTest.h"
 #include "UndoTests.h"
+#include "AutomationTests.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -85,6 +86,15 @@ public:
             passedTests += 15;
         }
         totalTests += 15;
+        juce::Logger::writeToLog("");
+
+        // Automation tests
+        juce::Logger::writeToLog("--- Automation Tests ---");
+        if (AutomationTests::runAllTests())
+        {
+            passedTests += 12;
+        }
+        totalTests += 12;
         juce::Logger::writeToLog("");
 
         // Summary
