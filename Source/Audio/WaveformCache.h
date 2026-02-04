@@ -63,6 +63,47 @@ struct WaveformMipmapLevel
         maxValues[static_cast<size_t>(idx)] = maxVal;
         rmsValues[static_cast<size_t>(idx)] = rms;
     }
+
+    // Serialization support for disk caching
+    bool writeToBinaryStream(juce::OutputStream& stream) const
+    {
+        stream.writeInt(samplesPerPoint);
+        stream.writeInt(numChannels);
+        stream.writeInt(numPoints);
+
+        size_t dataSize = static_cast<size_t>(numChannels * numPoints);
+        if (dataSize > 0)
+        {
+            stream.write(minValues.data(), dataSize * sizeof(float));
+            stream.write(maxValues.data(), dataSize * sizeof(float));
+            stream.write(rmsValues.data(), dataSize * sizeof(float));
+        }
+        return !stream.getStatus().failed();
+    }
+
+    bool readFromBinaryStream(juce::InputStream& stream)
+    {
+        samplesPerPoint = stream.readInt();
+        numChannels = stream.readInt();
+        numPoints = stream.readInt();
+
+        if (numChannels <= 0 || numPoints <= 0)
+            return false;
+
+        size_t dataSize = static_cast<size_t>(numChannels * numPoints);
+        minValues.resize(dataSize);
+        maxValues.resize(dataSize);
+        rmsValues.resize(dataSize);
+
+        if (stream.read(minValues.data(), dataSize * sizeof(float)) != static_cast<int>(dataSize * sizeof(float)))
+            return false;
+        if (stream.read(maxValues.data(), dataSize * sizeof(float)) != static_cast<int>(dataSize * sizeof(float)))
+            return false;
+        if (stream.read(rmsValues.data(), dataSize * sizeof(float)) != static_cast<int>(dataSize * sizeof(float)))
+            return false;
+
+        return !stream.isExhausted() || (numChannels > 0 && numPoints > 0);
+    }
 };
 
 /**
@@ -199,6 +240,78 @@ public:
 
     int getNumChannels() const { return numChannels; }
     int64_t getTotalSamples() const { return totalSamples; }
+
+    /**
+     * Write mipmap data to a binary stream for disk caching.
+     */
+    bool writeToBinaryStream(juce::OutputStream& stream) const
+    {
+        // Write header/magic number for validation
+        stream.writeInt(kCacheMagicNumber);
+        stream.writeInt(kCacheVersion);
+
+        // Write metadata
+        stream.writeInt(numChannels);
+        stream.writeInt64(totalSamples);
+        stream.writeInt(kNumLevels);
+
+        // Write all levels
+        for (int i = 0; i < kNumLevels; ++i)
+        {
+            if (!levels[i].writeToBinaryStream(stream))
+                return false;
+        }
+
+        return !stream.getStatus().failed();
+    }
+
+    /**
+     * Read mipmap data from a binary stream.
+     */
+    bool readFromBinaryStream(juce::InputStream& stream)
+    {
+        // Validate header
+        int magic = stream.readInt();
+        if (magic != kCacheMagicNumber)
+        {
+            DBG("WaveformMipmapData: Invalid cache file magic number");
+            return false;
+        }
+
+        int version = stream.readInt();
+        if (version != kCacheVersion)
+        {
+            DBG("WaveformMipmapData: Cache file version mismatch");
+            return false;
+        }
+
+        // Read metadata
+        numChannels = stream.readInt();
+        totalSamples = stream.readInt64();
+        int numLevelsRead = stream.readInt();
+
+        if (numLevelsRead != kNumLevels || numChannels <= 0 || totalSamples <= 0)
+        {
+            DBG("WaveformMipmapData: Invalid cache metadata");
+            return false;
+        }
+
+        // Read all levels
+        for (int i = 0; i < kNumLevels; ++i)
+        {
+            if (!levels[i].readFromBinaryStream(stream))
+            {
+                DBG("WaveformMipmapData: Failed to read level " + juce::String(i));
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Cache file constants
+    static constexpr int kCacheMagicNumber = 0x4D53574D;  // 'MSWM' - MidiSing Waveform Mipmap
+    static constexpr int kCacheVersion = 1;
 
 private:
     void generateLevel0(const juce::AudioBuffer<float>& buffer)
@@ -344,6 +457,79 @@ public:
      */
     size_t getMemoryUsageBytes() const;
 
+    // ========== DISK CACHING API ==========
+
+    /**
+     * Set the directory for disk cache storage.
+     * Creates the directory if it doesn't exist.
+     */
+    bool setCacheDirectory(const juce::File& directory);
+
+    /**
+     * Get the current cache directory.
+     */
+    juce::File getCacheDirectory() const;
+
+    /**
+     * Check if disk caching is enabled.
+     */
+    bool isDiskCacheEnabled() const;
+
+    /**
+     * Save mipmap data to disk cache for a source audio file.
+     * @param id           Buffer identifier in memory cache
+     * @param sourceFile   Original audio file (used for cache key generation)
+     * @return             true if saved successfully
+     */
+    bool saveMipmapToDisk(int64_t id, const juce::File& sourceFile);
+
+    /**
+     * Load mipmap data from disk cache for a source audio file.
+     * @param sourceFile   Original audio file
+     * @return             ID of the loaded mipmap, or -1 if not found/invalid
+     */
+    int64_t loadMipmapFromDisk(const juce::File& sourceFile);
+
+    /**
+     * Check if a valid disk cache exists for a source file.
+     * @param sourceFile   Original audio file
+     * @return             true if valid cache exists
+     */
+    bool hasDiskCache(const juce::File& sourceFile) const;
+
+    /**
+     * Get the cache file path for a source audio file.
+     * @param sourceFile   Original audio file
+     * @return             Path to the cache file (may not exist)
+     */
+    juce::File getCacheFilePath(const juce::File& sourceFile) const;
+
+    /**
+     * Remove disk cache for a source file.
+     * @param sourceFile   Original audio file
+     * @return             true if removed successfully
+     */
+    bool removeDiskCache(const juce::File& sourceFile);
+
+    /**
+     * Clear all disk cache files.
+     * @return             Number of files removed
+     */
+    int clearDiskCache();
+
+    /**
+     * Get total disk cache size in bytes.
+     */
+    int64_t getDiskCacheSizeBytes() const;
+
+private:
+    // Disk cache helpers
+    juce::String generateCacheKey(const juce::File& sourceFile) const;
+    bool isCacheValid(const juce::File& cacheFile, const juce::File& sourceFile) const;
+
+    // Cache file extension
+    static constexpr const char* CACHE_EXTENSION = ".mswfcache";
+
 private:
     juce::AudioFormatManager formatManager;
     juce::AudioThumbnailCache thumbnailCache { 50 }; // Cache last 50 thumbnails
@@ -355,6 +541,10 @@ private:
     std::map<int64_t, std::unique_ptr<WaveformMipmapData>> mipmaps;
 
     double currentSampleRate = 44100.0;
+
+    // Disk cache settings
+    juce::File cacheDirectory;
+    bool diskCacheEnabled = false;
 
     // Thread safety for mipmap access
     mutable juce::CriticalSection mipmapLock;
