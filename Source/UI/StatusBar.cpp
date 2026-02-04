@@ -1,4 +1,5 @@
 #include "StatusBar.h"
+#include "../Audio/AudioEngine.h"
 
 StatusBar::StatusBar(juce::AudioDeviceManager& deviceManager)
     : audioDeviceManager(deviceManager)
@@ -16,6 +17,12 @@ StatusBar::StatusBar(juce::AudioDeviceManager& deviceManager)
     addAndMakeVisible(deviceInfoLabel);
     deviceInfoLabel.setJustificationType(juce::Justification::centredRight);
     deviceInfoLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
+
+    // Dropout indicator label
+    addAndMakeVisible(dropoutLabel);
+    dropoutLabel.setText("Dropouts: 0", juce::dontSendNotification);
+    dropoutLabel.setJustificationType(juce::Justification::centred);
+    dropoutLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
 
     // Update immediately
     timerCallback();
@@ -94,6 +101,9 @@ void StatusBar::resized()
     auto area = getLocalBounds().reduced(5, 0);
 
     cpuLabel.setBounds(area.removeFromLeft(200));
+
+    // Dropout indicator on the right side, before device info
+    dropoutLabel.setBounds(area.removeFromRight(100));
     deviceInfoLabel.setBounds(area.removeFromRight(300));
 
     // Input label in the center area
@@ -121,6 +131,55 @@ void StatusBar::timerCallback()
     }
 
     cpuLabel.setText(cpuText, juce::dontSendNotification);
+
+    // Update dropout indicator if audio engine is available
+    if (audioEngine != nullptr)
+    {
+        uint64_t currentDropoutCount = audioEngine->getDropoutCount();
+
+        // Check if new dropouts occurred since last poll
+        if (currentDropoutCount > lastDropoutCount)
+        {
+            // New dropouts detected - start flash animation
+            dropoutFlashState = true;
+            dropoutFlashCounter = 6;  // Flash for 6 timer cycles (3 seconds at 500ms interval)
+        }
+
+        lastDropoutCount = currentDropoutCount;
+
+        // Update flash animation
+        if (dropoutFlashCounter > 0)
+        {
+            dropoutFlashCounter--;
+            dropoutFlashState = (dropoutFlashCounter % 2) == 1;  // Toggle on/off
+        }
+        else
+        {
+            dropoutFlashState = false;
+        }
+
+        // Update dropout label text and color
+        juce::String dropoutText = juce::String::formatted("Dropouts: %llu", currentDropoutCount);
+        dropoutLabel.setText(dropoutText, juce::dontSendNotification);
+
+        // Set color based on dropout status
+        if (currentDropoutCount == 0)
+        {
+            // No dropouts - green/normal
+            dropoutLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::playColour);
+        }
+        else if (dropoutFlashState)
+        {
+            // Flashing red for recent dropouts
+            dropoutLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::recordColour);
+        }
+        else
+        {
+            // Has dropouts but not flashing - yellow/warning
+            dropoutLabel.setColour(juce::Label::textColourId, juce::Colours::yellow);
+        }
+    }
+
     repaint();
 }
 
@@ -129,4 +188,36 @@ void StatusBar::setInputLevel(float left, float right)
     inputLevelL = juce::jlimit(0.0f, 1.0f, left);
     inputLevelR = juce::jlimit(0.0f, 1.0f, right);
     repaint();
+}
+
+void StatusBar::setAudioEngine(AudioEngine* engine)
+{
+    audioEngine = engine;
+
+    // Reset dropout tracking state
+    lastDropoutCount = 0;
+    dropoutFlashState = false;
+    dropoutFlashCounter = 0;
+
+    // Update display immediately if engine is valid
+    if (audioEngine != nullptr)
+    {
+        lastDropoutCount = audioEngine->getDropoutCount();
+        juce::String dropoutText = juce::String::formatted("Dropouts: %llu", lastDropoutCount);
+        dropoutLabel.setText(dropoutText, juce::dontSendNotification);
+
+        if (lastDropoutCount == 0)
+        {
+            dropoutLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::playColour);
+        }
+        else
+        {
+            dropoutLabel.setColour(juce::Label::textColourId, juce::Colours::yellow);
+        }
+    }
+    else
+    {
+        dropoutLabel.setText("Dropouts: --", juce::dontSendNotification);
+        dropoutLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
+    }
 }

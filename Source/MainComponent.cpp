@@ -35,6 +35,7 @@ MainComponent::MainComponent()
     addAndMakeVisible(toolBar);
 
     // Setup status bar
+    statusBar.setAudioEngine(&audioEngine);
     addAndMakeVisible(statusBar);
     
     // Setup spectrum display
