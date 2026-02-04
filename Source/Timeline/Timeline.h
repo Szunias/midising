@@ -8,6 +8,7 @@
 // Forward declarations
 class AuxTrack;
 class GroupBus;
+class MixGroup;
 
 /**
  * Timeline is the main container for all tracks in the DAW.
@@ -194,10 +195,101 @@ public:
      */
     bool hasAnySoloedGroupBus() const;
 
+    //==========================================================================
+    // Mix Group Management (Linked Faders)
+    //==========================================================================
+
+    /**
+     * Get the number of mix groups.
+     */
+    int getNumMixGroups() const { return mixGroups.size(); }
+
+    /**
+     * Get a mix group by index.
+     * @param index Index of the mix group (0-based)
+     * @return Pointer to the mix group, or nullptr if invalid index
+     */
+    MixGroup* getMixGroup(int index);
+    const MixGroup* getMixGroup(int index) const;
+
+    /**
+     * Add a new mix group.
+     * @param mixGroup The mix group to add (timeline takes ownership)
+     */
+    void addMixGroup(MixGroup* mixGroup);
+
+    /**
+     * Create and add a new mix group with the given name.
+     * @param name Name for the new mix group
+     * @return Pointer to the newly created mix group
+     */
+    MixGroup* createMixGroup(const juce::String& name = "Mix Group");
+
+    /**
+     * Remove a mix group by index.
+     * @param index Index of the mix group to remove
+     */
+    void removeMixGroup(int index);
+
+    /**
+     * Move a mix group from one position to another.
+     */
+    void moveMixGroup(int fromIndex, int toIndex);
+
+    /**
+     * Clear all mix groups.
+     */
+    void clearMixGroups();
+
+    /**
+     * Find which mix group a track belongs to.
+     * @param trackIndex Index of the track
+     * @return Pointer to the mix group, or nullptr if track is not in any group
+     */
+    MixGroup* findMixGroupForTrack(int trackIndex);
+    const MixGroup* findMixGroupForTrack(int trackIndex) const;
+
+    /**
+     * Apply linked volume adjustment when a track's fader is moved.
+     * This propagates the change to other tracks in the same mix group.
+     *
+     * @param trackIndex Index of the track that was adjusted
+     * @param volumeDelta The change in volume
+     */
+    void applyLinkedVolumeChange(int trackIndex, float volumeDelta);
+
+    /**
+     * Apply linked pan adjustment when a track's pan is changed.
+     * This propagates the change to other tracks in the same mix group.
+     *
+     * @param trackIndex Index of the track that was adjusted
+     * @param panDelta The change in pan
+     */
+    void applyLinkedPanChange(int trackIndex, float panDelta);
+
+    /**
+     * Apply linked mute when a track's mute state is changed.
+     * This propagates the change to other tracks in the same mix group.
+     *
+     * @param trackIndex Index of the track that was adjusted
+     * @param shouldMute New mute state
+     */
+    void applyLinkedMute(int trackIndex, bool shouldMute);
+
+    /**
+     * Apply linked solo when a track's solo state is changed.
+     * This propagates the change to other tracks in the same mix group.
+     *
+     * @param trackIndex Index of the track that was adjusted
+     * @param shouldSolo New solo state
+     */
+    void applyLinkedSolo(int trackIndex, bool shouldSolo);
+
 private:
     juce::OwnedArray<Track> tracks;
     juce::OwnedArray<AuxTrack> auxTracks;    // Aux/return tracks for send routing
     juce::OwnedArray<GroupBus> groupBusses;  // Group busses for submixing
+    juce::OwnedArray<MixGroup> mixGroups;    // Mix groups for linked faders
     double bpm = 120.0;
     int beatsPerBar = 4;
     double sampleRate = 44100.0;

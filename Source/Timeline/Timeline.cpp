@@ -2,6 +2,7 @@
 #include "../Audio/AudioTrack.h"
 #include "../Audio/SendReturn.h"
 #include "../Audio/GroupBus.h"
+#include "../Audio/MixGroup.h"
 #include "../MIDI/MidiTrack.h"
 
 Timeline::Timeline()
@@ -205,4 +206,128 @@ int64_t Timeline::getEndSample() const
     }
 
     return endSample;
+}
+
+//==============================================================================
+// Mix Group Management (Linked Faders)
+//==============================================================================
+
+MixGroup* Timeline::getMixGroup(int index)
+{
+    if (index >= 0 && index < mixGroups.size())
+        return mixGroups[index];
+    return nullptr;
+}
+
+const MixGroup* Timeline::getMixGroup(int index) const
+{
+    if (index >= 0 && index < mixGroups.size())
+        return mixGroups[index];
+    return nullptr;
+}
+
+void Timeline::addMixGroup(MixGroup* mixGroup)
+{
+    if (mixGroup != nullptr)
+        mixGroups.add(mixGroup);
+}
+
+MixGroup* Timeline::createMixGroup(const juce::String& name)
+{
+    auto* mixGroup = new MixGroup(name.isEmpty() ? "Mix Group " + juce::String(mixGroups.size() + 1) : name);
+    mixGroups.add(mixGroup);
+    return mixGroup;
+}
+
+void Timeline::removeMixGroup(int index)
+{
+    if (index >= 0 && index < mixGroups.size())
+        mixGroups.remove(index);
+}
+
+void Timeline::moveMixGroup(int fromIndex, int toIndex)
+{
+    mixGroups.move(fromIndex, toIndex);
+}
+
+void Timeline::clearMixGroups()
+{
+    mixGroups.clear();
+}
+
+MixGroup* Timeline::findMixGroupForTrack(int trackIndex)
+{
+    for (auto* mixGroup : mixGroups)
+    {
+        if (mixGroup->containsTrack(trackIndex))
+            return mixGroup;
+    }
+    return nullptr;
+}
+
+const MixGroup* Timeline::findMixGroupForTrack(int trackIndex) const
+{
+    for (auto* mixGroup : mixGroups)
+    {
+        if (mixGroup->containsTrack(trackIndex))
+            return mixGroup;
+    }
+    return nullptr;
+}
+
+void Timeline::applyLinkedVolumeChange(int trackIndex, float volumeDelta)
+{
+    MixGroup* mixGroup = findMixGroupForTrack(trackIndex);
+    if (mixGroup == nullptr || !mixGroup->isEnabled())
+        return;
+
+    // Get track array for the MixGroup to operate on
+    std::vector<Track*> trackPtrs;
+    trackPtrs.reserve(static_cast<size_t>(tracks.size()));
+    for (auto* track : tracks)
+        trackPtrs.push_back(track);
+
+    mixGroup->adjustVolume(trackPtrs.data(), static_cast<int>(trackPtrs.size()), volumeDelta, trackIndex);
+}
+
+void Timeline::applyLinkedPanChange(int trackIndex, float panDelta)
+{
+    MixGroup* mixGroup = findMixGroupForTrack(trackIndex);
+    if (mixGroup == nullptr || !mixGroup->isEnabled())
+        return;
+
+    std::vector<Track*> trackPtrs;
+    trackPtrs.reserve(static_cast<size_t>(tracks.size()));
+    for (auto* track : tracks)
+        trackPtrs.push_back(track);
+
+    mixGroup->adjustPan(trackPtrs.data(), static_cast<int>(trackPtrs.size()), panDelta, trackIndex);
+}
+
+void Timeline::applyLinkedMute(int trackIndex, bool shouldMute)
+{
+    MixGroup* mixGroup = findMixGroupForTrack(trackIndex);
+    if (mixGroup == nullptr || !mixGroup->isEnabled())
+        return;
+
+    std::vector<Track*> trackPtrs;
+    trackPtrs.reserve(static_cast<size_t>(tracks.size()));
+    for (auto* track : tracks)
+        trackPtrs.push_back(track);
+
+    mixGroup->setMuteAll(trackPtrs.data(), static_cast<int>(trackPtrs.size()), shouldMute);
+}
+
+void Timeline::applyLinkedSolo(int trackIndex, bool shouldSolo)
+{
+    MixGroup* mixGroup = findMixGroupForTrack(trackIndex);
+    if (mixGroup == nullptr || !mixGroup->isEnabled())
+        return;
+
+    std::vector<Track*> trackPtrs;
+    trackPtrs.reserve(static_cast<size_t>(tracks.size()));
+    for (auto* track : tracks)
+        trackPtrs.push_back(track);
+
+    mixGroup->setSoloAll(trackPtrs.data(), static_cast<int>(trackPtrs.size()), shouldSolo);
 }

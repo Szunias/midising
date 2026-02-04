@@ -1,4 +1,5 @@
 #include "MixerPanel.h"
+#include "../Audio/MixGroup.h"
 
 MixerPanel::MixerPanel()
 {
@@ -96,9 +97,130 @@ void MixerPanel::updateChannelStrips()
         channelStrips.pop_back();
     }
 
-    // Configure strips
+    // Configure strips with mix group linked fader support
     for (size_t i = 0; i < channelStrips.size(); ++i)
     {
-        channelStrips[i]->setTrack(timelinePtr->getTrack(static_cast<int>(i)));
+        int trackIndex = static_cast<int>(i);
+        Track* track = timelinePtr->getTrack(trackIndex);
+        channelStrips[i]->setTrack(track);
+
+        // Set up volume callback with mix group linking
+        channelStrips[i]->onVolumeChanged = [this, trackIndex](Track* t, float newVolume)
+        {
+            if (timelinePtr == nullptr || t == nullptr)
+                return;
+
+            float oldVolume = t->getVolume();
+            float volumeDelta = newVolume - oldVolume;
+
+            // First set this track's volume
+            t->setVolume(newVolume);
+
+            // Then apply to linked tracks (excludes source track internally)
+            MixGroup* mixGroup = timelinePtr->findMixGroupForTrack(trackIndex);
+            if (mixGroup != nullptr && mixGroup->isEnabled())
+            {
+                // Apply delta to other tracks in the group
+                const auto& indices = mixGroup->getTrackIndices();
+                for (int idx : indices)
+                {
+                    if (idx != trackIndex && idx >= 0 && idx < timelinePtr->getNumTracks())
+                    {
+                        Track* linkedTrack = timelinePtr->getTrack(idx);
+                        if (linkedTrack != nullptr)
+                        {
+                            float linkedVolume = linkedTrack->getVolume();
+                            linkedTrack->setVolume(juce::jlimit(0.0f, 2.0f, linkedVolume + volumeDelta));
+                        }
+                    }
+                }
+            }
+        };
+
+        // Set up pan callback with mix group linking
+        channelStrips[i]->onPanChanged = [this, trackIndex](Track* t, float newPan)
+        {
+            if (timelinePtr == nullptr || t == nullptr)
+                return;
+
+            float oldPan = t->getPan();
+            float panDelta = newPan - oldPan;
+
+            // First set this track's pan
+            t->setPan(newPan);
+
+            // Then apply to linked tracks if pan linking is enabled
+            MixGroup* mixGroup = timelinePtr->findMixGroupForTrack(trackIndex);
+            if (mixGroup != nullptr && mixGroup->isEnabled() && mixGroup->isPanLinked())
+            {
+                const auto& indices = mixGroup->getTrackIndices();
+                for (int idx : indices)
+                {
+                    if (idx != trackIndex && idx >= 0 && idx < timelinePtr->getNumTracks())
+                    {
+                        Track* linkedTrack = timelinePtr->getTrack(idx);
+                        if (linkedTrack != nullptr)
+                        {
+                            float linkedPan = linkedTrack->getPan();
+                            linkedTrack->setPan(juce::jlimit(-1.0f, 1.0f, linkedPan + panDelta));
+                        }
+                    }
+                }
+            }
+        };
+
+        // Set up mute callback with mix group linking
+        channelStrips[i]->onMuteChanged = [this, trackIndex](Track* t)
+        {
+            if (timelinePtr == nullptr || t == nullptr)
+                return;
+
+            bool shouldMute = t->isMuted();
+
+            // Apply to linked tracks if mute linking is enabled
+            MixGroup* mixGroup = timelinePtr->findMixGroupForTrack(trackIndex);
+            if (mixGroup != nullptr && mixGroup->isEnabled() && mixGroup->isMuteLinked())
+            {
+                const auto& indices = mixGroup->getTrackIndices();
+                for (int idx : indices)
+                {
+                    if (idx != trackIndex && idx >= 0 && idx < timelinePtr->getNumTracks())
+                    {
+                        Track* linkedTrack = timelinePtr->getTrack(idx);
+                        if (linkedTrack != nullptr)
+                        {
+                            linkedTrack->setMuted(shouldMute);
+                        }
+                    }
+                }
+            }
+        };
+
+        // Set up solo callback with mix group linking
+        channelStrips[i]->onSoloChanged = [this, trackIndex](Track* t)
+        {
+            if (timelinePtr == nullptr || t == nullptr)
+                return;
+
+            bool shouldSolo = t->isSoloed();
+
+            // Apply to linked tracks if solo linking is enabled
+            MixGroup* mixGroup = timelinePtr->findMixGroupForTrack(trackIndex);
+            if (mixGroup != nullptr && mixGroup->isEnabled() && mixGroup->isSoloLinked())
+            {
+                const auto& indices = mixGroup->getTrackIndices();
+                for (int idx : indices)
+                {
+                    if (idx != trackIndex && idx >= 0 && idx < timelinePtr->getNumTracks())
+                    {
+                        Track* linkedTrack = timelinePtr->getTrack(idx);
+                        if (linkedTrack != nullptr)
+                        {
+                            linkedTrack->setSoloed(shouldSolo);
+                        }
+                    }
+                }
+            }
+        };
     }
 }
