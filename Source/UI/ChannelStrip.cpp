@@ -4,6 +4,210 @@
 #include "EffectRackUI.h"
 
 //==============================================================================
+// VUMeter Implementation
+//==============================================================================
+
+VUMeter::VUMeter()
+{
+    startTimerHz(static_cast<int>(1000 / timerIntervalMs));
+}
+
+void VUMeter::paint(juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().toFloat();
+
+    // Calculate clip indicator height
+    float clipIndicatorHeight = juce::jmin(8.0f, bounds.getHeight() * 0.04f);
+
+    // Draw clip indicator at top
+    auto clipBounds = bounds.removeFromTop(clipIndicatorHeight);
+    if (clipHold)
+    {
+        g.setColour(MidiSingLookAndFeel::recordColour);
+    }
+    else
+    {
+        g.setColour(MidiSingLookAndFeel::sliderBackground.brighter(0.1f));
+    }
+    g.fillRect(clipBounds);
+
+    // Small gap between clip and meter
+    bounds.removeFromTop(1.0f);
+
+    // Draw meter background
+    g.setColour(MidiSingLookAndFeel::sliderBackground);
+    g.fillRect(bounds);
+
+    // Calculate meter height
+    float meterHeight = bounds.getHeight();
+    float levelHeight = meterHeight * juce::jlimit(0.0f, 1.0f, displayLevel);
+
+    // Draw level meter with gradient colors
+    if (levelHeight > 0.0f)
+    {
+        auto levelBounds = bounds;
+        levelBounds = levelBounds.removeFromBottom(levelHeight);
+
+        // Determine color based on level
+        juce::Colour meterColour;
+        if (displayLevel >= redThreshold)
+        {
+            // Red zone - approaching clipping
+            meterColour = MidiSingLookAndFeel::recordColour;
+        }
+        else if (displayLevel >= yellowThreshold)
+        {
+            // Yellow/orange zone - warning
+            float t = (displayLevel - yellowThreshold) / (redThreshold - yellowThreshold);
+            meterColour = MidiSingLookAndFeel::warningColour.interpolatedWith(
+                MidiSingLookAndFeel::recordColour, t);
+        }
+        else
+        {
+            // Green zone - safe
+            float t = displayLevel / yellowThreshold;
+            meterColour = MidiSingLookAndFeel::playColour.interpolatedWith(
+                MidiSingLookAndFeel::warningColour, t * 0.3f);
+        }
+
+        g.setColour(meterColour);
+        g.fillRect(levelBounds);
+    }
+
+    // Draw peak hold indicator
+    if (peakHoldEnabled && peakLevel > 0.01f)
+    {
+        float peakY = bounds.getBottom() - (meterHeight * juce::jlimit(0.0f, 1.0f, peakLevel));
+
+        // Peak indicator color (matches level color at that position)
+        juce::Colour peakColour;
+        if (peakLevel >= redThreshold)
+            peakColour = MidiSingLookAndFeel::recordColour;
+        else if (peakLevel >= yellowThreshold)
+            peakColour = MidiSingLookAndFeel::warningColour;
+        else
+            peakColour = MidiSingLookAndFeel::playColour;
+
+        g.setColour(peakColour.brighter(0.3f));
+        g.fillRect(bounds.getX(), peakY - 2.0f, bounds.getWidth(), 2.0f);
+    }
+
+    // Draw subtle scale marks
+    g.setColour(MidiSingLookAndFeel::borderColour.withAlpha(0.5f));
+
+    // -6dB mark (0.5 normalized)
+    float y6db = bounds.getBottom() - (meterHeight * 0.5f);
+    g.drawHorizontalLine(static_cast<int>(y6db), bounds.getX(), bounds.getRight());
+
+    // -12dB mark (0.25 normalized)
+    float y12db = bounds.getBottom() - (meterHeight * 0.25f);
+    g.drawHorizontalLine(static_cast<int>(y12db), bounds.getX(), bounds.getRight());
+}
+
+void VUMeter::resized()
+{
+    // Nothing special needed
+}
+
+void VUMeter::timerCallback()
+{
+    bool needsRepaint = false;
+
+    // Apply VU ballistics
+    if (displayLevel < targetLevel)
+    {
+        // Rising - use rise rate
+        displayLevel = juce::jmin(displayLevel + vuRiseRate, targetLevel);
+        needsRepaint = true;
+    }
+    else if (displayLevel > targetLevel)
+    {
+        // Falling - use fall rate
+        displayLevel = juce::jmax(displayLevel - vuFallRate, targetLevel);
+        needsRepaint = true;
+    }
+
+    // Update peak hold
+    if (peakHoldEnabled)
+    {
+        juce::int64 currentTime = juce::Time::currentTimeMillis();
+
+        // Update peak if current display level exceeds it
+        if (displayLevel > peakLevel)
+        {
+            peakLevel = displayLevel;
+            peakHoldTime = currentTime;
+            needsRepaint = true;
+        }
+        else if (peakLevel > 0.0f && currentTime - peakHoldTime > peakHoldTimeMs)
+        {
+            // Slowly decay peak after hold time
+            peakLevel = juce::jmax(0.0f, peakLevel - 0.02f);
+            needsRepaint = true;
+        }
+    }
+
+    // Update clip hold
+    if (clipHold)
+    {
+        juce::int64 currentTime = juce::Time::currentTimeMillis();
+        if (currentTime - clipHoldTime > clipHoldTimeMs)
+        {
+            clipHold = false;
+            needsRepaint = true;
+        }
+    }
+
+    if (needsRepaint)
+        repaint();
+}
+
+void VUMeter::setLevel(float level)
+{
+    targetLevel = juce::jlimit(0.0f, 1.5f, level);  // Allow some headroom for clipping indication
+
+    // Auto-detect clipping
+    if (level >= 1.0f)
+    {
+        clipHold = true;
+        clipHoldTime = juce::Time::currentTimeMillis();
+    }
+}
+
+void VUMeter::setLevelWithClipping(float level, bool clipping)
+{
+    targetLevel = juce::jlimit(0.0f, 1.5f, level);
+
+    if (clipping)
+    {
+        clipHold = true;
+        clipHoldTime = juce::Time::currentTimeMillis();
+    }
+}
+
+void VUMeter::resetPeakHold()
+{
+    peakLevel = 0.0f;
+    peakHoldTime = 0;
+    repaint();
+}
+
+void VUMeter::resetClipIndicator()
+{
+    clipHold = false;
+    clipHoldTime = 0;
+    repaint();
+}
+
+void VUMeter::mouseDown(const juce::MouseEvent& event)
+{
+    juce::ignoreUnused(event);
+    // Click anywhere on meter resets both peak and clip indicators
+    resetPeakHold();
+    resetClipIndicator();
+}
+
+//==============================================================================
 // InsertSlotButton Implementation
 //==============================================================================
 
@@ -293,6 +497,10 @@ ChannelStrip::ChannelStrip()
         sendKnobs[static_cast<size_t>(i)]->setEnabled(false);  // Disabled until aux tracks exist
         addAndMakeVisible(sendKnobs[static_cast<size_t>(i)].get());
     }
+
+    // VU meters for level display
+    addAndMakeVisible(leftMeter);
+    addAndMakeVisible(rightMeter);
 }
 
 void ChannelStrip::paint(juce::Graphics& g)
@@ -308,71 +516,6 @@ void ChannelStrip::paint(juce::Graphics& g)
         g.setColour(trackPtr->getColour());
         g.fillRect(bounds.removeFromTop(4));
     }
-
-    // Level meters (simple visualisation on sides)
-    auto meterArea = bounds.reduced(4);
-    int meterWidth = 4;
-    int clipIndicatorHeight = 6;
-
-    // Left meter
-    auto leftMeterBounds = meterArea.removeFromLeft(meterWidth);
-
-    // Draw clip indicator at top of left meter
-    auto leftClipBounds = leftMeterBounds.removeFromTop(clipIndicatorHeight);
-    if (clipHoldL)
-    {
-        g.setColour(MidiSingLookAndFeel::recordColour);  // Red for clipping
-    }
-    else
-    {
-        g.setColour(MidiSingLookAndFeel::sliderBackground.brighter(0.1f));
-    }
-    g.fillRect(leftClipBounds);
-
-    // Draw left meter background and level
-    g.setColour(MidiSingLookAndFeel::sliderBackground);
-    g.fillRect(leftMeterBounds);
-    float leftHeight = leftMeterBounds.getHeight() * levelL;
-
-    // Color gradient: green for normal, yellow/orange approaching 0dB, red at clipping
-    juce::Colour leftMeterColour = MidiSingLookAndFeel::playColour;
-    if (levelL > 0.9f)
-        leftMeterColour = juce::Colour(0xffd4a85a);  // Orange/yellow warning
-    if (levelL >= 1.0f)
-        leftMeterColour = MidiSingLookAndFeel::recordColour;  // Red for clipping
-
-    g.setColour(leftMeterColour);
-    g.fillRect(leftMeterBounds.removeFromBottom(static_cast<int>(leftHeight)));
-
-    // Right meter
-    auto rightMeterBounds = meterArea.removeFromRight(meterWidth);
-
-    // Draw clip indicator at top of right meter
-    auto rightClipBounds = rightMeterBounds.removeFromTop(clipIndicatorHeight);
-    if (clipHoldR)
-    {
-        g.setColour(MidiSingLookAndFeel::recordColour);  // Red for clipping
-    }
-    else
-    {
-        g.setColour(MidiSingLookAndFeel::sliderBackground.brighter(0.1f));
-    }
-    g.fillRect(rightClipBounds);
-
-    // Draw right meter background and level
-    g.setColour(MidiSingLookAndFeel::sliderBackground);
-    g.fillRect(rightMeterBounds);
-    float rightHeight = rightMeterBounds.getHeight() * levelR;
-
-    // Color gradient: green for normal, yellow/orange approaching 0dB, red at clipping
-    juce::Colour rightMeterColour = MidiSingLookAndFeel::playColour;
-    if (levelR > 0.9f)
-        rightMeterColour = juce::Colour(0xffd4a85a);  // Orange/yellow warning
-    if (levelR >= 1.0f)
-        rightMeterColour = MidiSingLookAndFeel::recordColour;  // Red for clipping
-
-    g.setColour(rightMeterColour);
-    g.fillRect(rightMeterBounds.removeFromBottom(static_cast<int>(rightHeight)));
 
     // Border
     g.setColour(MidiSingLookAndFeel::borderColour);
@@ -441,9 +584,22 @@ void ChannelStrip::resized()
 
     bounds.removeFromTop(2);
 
+    // Volume fader and VU meters - meters on each side
+    int meterWidth = 6;
+
+    // Left VU meter
+    auto leftMeterBounds = bounds.removeFromLeft(meterWidth);
+    leftMeter.setBounds(leftMeterBounds);
+
+    // Right VU meter
+    auto rightMeterBounds = bounds.removeFromRight(meterWidth);
+    rightMeter.setBounds(rightMeterBounds);
+
+    // Small gap between meters and fader
+    bounds.removeFromLeft(2);
+    bounds.removeFromRight(2);
+
     // Volume fader fills the rest
-    bounds.removeFromLeft(10); // Space for meter
-    bounds.removeFromRight(10); // Space for meter
     volumeSlider.setBounds(bounds);
 }
 
@@ -457,57 +613,26 @@ void ChannelStrip::setTrack(Track* track)
 
 void ChannelStrip::setLevel(float left, float right)
 {
-    levelL = juce::jlimit(0.0f, 1.0f, left);
-    levelR = juce::jlimit(0.0f, 1.0f, right);
-    repaint();
+    leftMeter.setLevel(left);
+    rightMeter.setLevel(right);
 }
 
 void ChannelStrip::setLevelWithClipping(float left, float right, bool clippingL, bool clippingR)
 {
-    levelL = juce::jlimit(0.0f, 1.0f, left);
-    levelR = juce::jlimit(0.0f, 1.0f, right);
-
-    juce::int64 currentTime = juce::Time::currentTimeMillis();
-
-    // Set clip hold if clipping detected
-    if (clippingL)
-    {
-        clipHoldL = true;
-        clipHoldTimeL = currentTime;
-    }
-    else if (clipHoldL)
-    {
-        // Check if hold duration has elapsed
-        if (currentTime - clipHoldTimeL > clipHoldDurationMs)
-        {
-            clipHoldL = false;
-        }
-    }
-
-    if (clippingR)
-    {
-        clipHoldR = true;
-        clipHoldTimeR = currentTime;
-    }
-    else if (clipHoldR)
-    {
-        // Check if hold duration has elapsed
-        if (currentTime - clipHoldTimeR > clipHoldDurationMs)
-        {
-            clipHoldR = false;
-        }
-    }
-
-    repaint();
+    leftMeter.setLevelWithClipping(left, clippingL);
+    rightMeter.setLevelWithClipping(right, clippingR);
 }
 
 void ChannelStrip::resetClipIndicators()
 {
-    clipHoldL = false;
-    clipHoldR = false;
-    clipHoldTimeL = 0;
-    clipHoldTimeR = 0;
-    repaint();
+    leftMeter.resetClipIndicator();
+    rightMeter.resetClipIndicator();
+}
+
+void ChannelStrip::resetPeakHold()
+{
+    leftMeter.resetPeakHold();
+    rightMeter.resetPeakHold();
 }
 
 void ChannelStrip::setAvailableAuxTracks(const juce::StringArray& auxNames)
