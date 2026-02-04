@@ -6,6 +6,7 @@
 #include "AudioTrack.h"
 #include "SendReturn.h"
 #include "GroupBus.h"
+#include "LoudnessMeter.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <cmath>
 
@@ -70,6 +71,9 @@ public:
 
         // Pre-allocate group work buffer for group bus processing
         groupWorkBuffer.setSize(2, samplesPerBlock);
+
+        // Prepare loudness meter for LUFS metering
+        loudnessMeter.prepareToPlay(sampleRate, samplesPerBlock);
     }
 
     /**
@@ -196,6 +200,9 @@ public:
 
         // Apply master volume (master bus processing)
         outputBuffer.applyGain(masterVolume.load());
+
+        // Process loudness meter (LUFS metering on final output)
+        loudnessMeter.processSamples(outputBuffer);
     }
 
     // Master volume control
@@ -641,4 +648,40 @@ public:
 
         stereoCorrelation.store(juce::jlimit(-1.0f, 1.0f, correlation));
     }
+
+    // === LUFS Loudness Metering ===
+
+    /**
+     * Get momentary loudness (400ms window).
+     * @return Loudness in LUFS
+     */
+    float getMomentaryLoudness() const { return loudnessMeter.getMomentaryLoudness(); }
+
+    /**
+     * Get short-term loudness (3s window).
+     * @return Loudness in LUFS
+     */
+    float getShortTermLoudness() const { return loudnessMeter.getShortTermLoudness(); }
+
+    /**
+     * Get integrated loudness (entire program).
+     * @return Loudness in LUFS
+     */
+    float getIntegratedLoudness() const { return loudnessMeter.getIntegratedLoudness(); }
+
+    /**
+     * Get loudness range (LRA).
+     * @return Loudness range in LU
+     */
+    float getLoudnessRange() const { return loudnessMeter.getLoudnessRange(); }
+
+    /**
+     * Reset integrated loudness measurement.
+     * Call when starting a new measurement period.
+     */
+    void resetLoudnessMeter() { loudnessMeter.reset(); }
+
+private:
+    // LUFS loudness meter for master bus
+    LoudnessMeter loudnessMeter;
 };
