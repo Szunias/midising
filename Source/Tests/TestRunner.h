@@ -9,6 +9,7 @@
 #include "UndoTests.h"
 #include "AutomationTests.h"
 #include "MidiTests.h"
+#include "TimeStretchTests.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -105,6 +106,15 @@ public:
             passedTests += 12;
         }
         totalTests += 12;
+        juce::Logger::writeToLog("");
+
+        // TimeStretch tests
+        juce::Logger::writeToLog("--- TimeStretch Tests ---");
+        if (TimeStretchTests::runAllTests())
+        {
+            passedTests += 9;
+        }
+        totalTests += 9;
         juce::Logger::writeToLog("");
 
         // Summary
