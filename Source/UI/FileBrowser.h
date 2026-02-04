@@ -48,9 +48,16 @@ private:
 /**
  * AudioPreviewComponent handles audio file preview playback.
  * Shows waveform and allows click-to-preview functionality.
+ * Features:
+ * - Waveform visualization with playhead
+ * - Volume control for preview
+ * - Auto-play on file selection (optional)
+ * - Loop mode for sample previewing
+ * - Click-to-seek in waveform
  */
 class AudioPreviewComponent : public juce::Component,
-                               public juce::Timer
+                               public juce::Timer,
+                               public juce::ChangeListener
 {
 public:
     AudioPreviewComponent();
@@ -60,33 +67,71 @@ public:
     void resized() override;
     void mouseDown(const juce::MouseEvent& e) override;
     void timerCallback() override;
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     void setFile(const juce::File& file);
     void play();
     void stop();
     bool isPlaying() const { return transportSource.isPlaying(); }
 
-    // Get the device manager for audio preview
-    void setDeviceManager(juce::AudioDeviceManager* dm) { deviceManager = dm; }
+    // Set the audio device manager for audio preview
+    void setDeviceManager(juce::AudioDeviceManager* dm);
+
+    // Volume control (0.0 to 1.0)
+    void setVolume(float newVolume);
+    float getVolume() const { return volume; }
+
+    // Auto-play when file is selected
+    void setAutoPlay(bool shouldAutoPlay) { autoPlay = shouldAutoPlay; }
+    bool getAutoPlay() const { return autoPlay; }
+
+    // Loop mode
+    void setLooping(bool shouldLoop);
+    bool getLooping() const { return looping; }
+
+    // Get file info
+    double getDurationSeconds() const;
+    double getSampleRate() const { return currentSampleRate; }
+    int getNumChannels() const { return currentNumChannels; }
+    int getBitsPerSample() const { return currentBitsPerSample; }
+    juce::String getFileInfo() const;
 
 private:
     void loadFile(const juce::File& file);
     void drawWaveform(juce::Graphics& g, juce::Rectangle<int> bounds);
+    void updateTransportState();
+    void prepareAudioPlayer();
 
     juce::AudioDeviceManager* deviceManager = nullptr;
     juce::AudioFormatManager formatManager;
     juce::AudioTransportSource transportSource;
     std::unique_ptr<juce::AudioFormatReaderSource> readerSource;
     juce::AudioSourcePlayer audioSourcePlayer;
+    bool audioPlayerPrepared = false;
 
     juce::File currentFile;
     juce::AudioBuffer<float> waveformBuffer;
     bool fileLoaded = false;
 
+    // Audio file properties
+    double currentSampleRate = 44100.0;
+    int currentNumChannels = 2;
+    int currentBitsPerSample = 16;
+    int64_t currentLengthInSamples = 0;
+
+    // Playback settings
+    float volume = 0.8f;
+    bool autoPlay = true;
+    bool looping = false;
+
+    // UI Components
     juce::TextButton playButton;
     juce::TextButton stopButton;
+    juce::TextButton loopButton;
+    juce::Slider volumeSlider;
     juce::Label fileNameLabel;
     juce::Label durationLabel;
+    juce::Label infoLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioPreviewComponent)
 };
@@ -203,7 +248,7 @@ private:
     // Layout constants
     static constexpr int TOOLBAR_HEIGHT = 30;
     static constexpr int LOCATION_BAR_HEIGHT = 28;
-    static constexpr int PREVIEW_HEIGHT = 80;
+    static constexpr int PREVIEW_HEIGHT = 100;  // Increased for waveform + info + controls
     static constexpr int SEARCH_HEIGHT = 26;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FileBrowser)

@@ -129,29 +129,73 @@ AudioPreviewComponent::AudioPreviewComponent()
 {
     formatManager.registerBasicFormats();
 
+    // Listen to transport changes
+    transportSource.addChangeListener(this);
+
     // Play button
-    playButton.setButtonText("Play");
+    playButton.setButtonText(">");
+    playButton.setTooltip("Play");
     playButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::playColour.withAlpha(0.8f));
-    playButton.onClick = [this]() { play(); };
+    playButton.onClick = [this]() {
+        if (isPlaying())
+            stop();
+        else
+            play();
+    };
     addAndMakeVisible(playButton);
 
     // Stop button
-    stopButton.setButtonText("Stop");
+    stopButton.setButtonText("[]");
+    stopButton.setTooltip("Stop");
     stopButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::recordColour.withAlpha(0.8f));
-    stopButton.onClick = [this]() { stop(); };
+    stopButton.onClick = [this]() {
+        stop();
+        transportSource.setPosition(0);
+    };
     addAndMakeVisible(stopButton);
+
+    // Loop button
+    loopButton.setButtonText("L");
+    loopButton.setTooltip("Loop");
+    loopButton.setClickingTogglesState(true);
+    loopButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::backgroundMid);
+    loopButton.setColour(juce::TextButton::buttonOnColourId, MidiSingLookAndFeel::accentColour);
+    loopButton.onClick = [this]() {
+        setLooping(loopButton.getToggleState());
+    };
+    addAndMakeVisible(loopButton);
+
+    // Volume slider
+    volumeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+    volumeSlider.setRange(0.0, 1.0, 0.01);
+    volumeSlider.setValue(volume, juce::dontSendNotification);
+    volumeSlider.setTooltip("Preview Volume");
+    volumeSlider.onValueChange = [this]() {
+        setVolume(static_cast<float>(volumeSlider.getValue()));
+    };
+    addAndMakeVisible(volumeSlider);
 
     // File name label
     fileNameLabel.setText("No file selected", juce::dontSendNotification);
     fileNameLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
     fileNameLabel.setJustificationType(juce::Justification::centredLeft);
+    fileNameLabel.setFont(juce::Font(12.0f));
     addAndMakeVisible(fileNameLabel);
 
     // Duration label
     durationLabel.setText("--:--", juce::dontSendNotification);
     durationLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textDimColour);
     durationLabel.setJustificationType(juce::Justification::centredRight);
+    durationLabel.setFont(juce::Font(11.0f));
     addAndMakeVisible(durationLabel);
+
+    // Info label (sample rate, channels, bit depth)
+    infoLabel.setText("", juce::dontSendNotification);
+    infoLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textDimColour);
+    infoLabel.setJustificationType(juce::Justification::centredLeft);
+    infoLabel.setFont(juce::Font(10.0f));
+    addAndMakeVisible(infoLabel);
 
     // Start timer for updating playback position
     startTimerHz(30);
@@ -160,6 +204,7 @@ AudioPreviewComponent::AudioPreviewComponent()
 AudioPreviewComponent::~AudioPreviewComponent()
 {
     stopTimer();
+    transportSource.removeChangeListener(this);
     stop();
 
     if (deviceManager != nullptr)
@@ -170,6 +215,83 @@ AudioPreviewComponent::~AudioPreviewComponent()
     audioSourcePlayer.setSource(nullptr);
     transportSource.setSource(nullptr);
     readerSource.reset();
+}
+
+void AudioPreviewComponent::setDeviceManager(juce::AudioDeviceManager* dm)
+{
+    if (deviceManager != dm)
+    {
+        // Remove from old device manager
+        if (deviceManager != nullptr)
+        {
+            deviceManager->removeAudioCallback(&audioSourcePlayer);
+        }
+
+        deviceManager = dm;
+        audioPlayerPrepared = false;
+
+        // Prepare with new device manager
+        if (deviceManager != nullptr)
+        {
+            prepareAudioPlayer();
+        }
+    }
+}
+
+void AudioPreviewComponent::prepareAudioPlayer()
+{
+    if (deviceManager != nullptr && !audioPlayerPrepared)
+    {
+        auto* currentDevice = deviceManager->getCurrentAudioDevice();
+        if (currentDevice != nullptr)
+        {
+            double sampleRate = currentDevice->getCurrentSampleRate();
+            int blockSize = currentDevice->getCurrentBufferSizeSamples();
+
+            if (sampleRate > 0 && blockSize > 0)
+            {
+                transportSource.prepareToPlay(blockSize, sampleRate);
+                audioPlayerPrepared = true;
+            }
+        }
+    }
+}
+
+void AudioPreviewComponent::setVolume(float newVolume)
+{
+    volume = juce::jlimit(0.0f, 1.0f, newVolume);
+    audioSourcePlayer.setGain(volume);
+}
+
+void AudioPreviewComponent::setLooping(bool shouldLoop)
+{
+    looping = shouldLoop;
+    if (readerSource != nullptr)
+    {
+        readerSource->setLooping(looping);
+    }
+}
+
+void AudioPreviewComponent::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source == &transportSource)
+    {
+        updateTransportState();
+    }
+}
+
+void AudioPreviewComponent::updateTransportState()
+{
+    if (transportSource.isPlaying())
+    {
+        playButton.setButtonText("||");
+        playButton.setTooltip("Pause");
+    }
+    else
+    {
+        playButton.setButtonText(">");
+        playButton.setTooltip("Play");
+    }
 }
 
 void AudioPreviewComponent::paint(juce::Graphics& g)
@@ -184,9 +306,9 @@ void AudioPreviewComponent::paint(juce::Graphics& g)
     g.setColour(MidiSingLookAndFeel::borderColour);
     g.drawRoundedRectangle(bounds.toFloat().reduced(0.5f), 4.0f, 1.0f);
 
-    // Waveform area
+    // Waveform area (accounting for new layout)
     auto waveformBounds = bounds.reduced(4);
-    waveformBounds.removeFromTop(22);  // Space for filename
+    waveformBounds.removeFromTop(34);  // Space for filename + info
     waveformBounds.removeFromBottom(26);  // Space for buttons
 
     if (fileLoaded && waveformBuffer.getNumSamples() > 0)
@@ -194,9 +316,10 @@ void AudioPreviewComponent::paint(juce::Graphics& g)
         drawWaveform(g, waveformBounds);
 
         // Draw playhead position
-        if (transportSource.isPlaying())
+        double lengthInSeconds = transportSource.getLengthInSeconds();
+        if (lengthInSeconds > 0)
         {
-            double position = transportSource.getCurrentPosition() / transportSource.getLengthInSeconds();
+            double position = transportSource.getCurrentPosition() / lengthInSeconds;
             int playheadX = waveformBounds.getX() + static_cast<int>(position * waveformBounds.getWidth());
 
             g.setColour(MidiSingLookAndFeel::accentColour);
@@ -217,15 +340,28 @@ void AudioPreviewComponent::resized()
     auto bounds = getLocalBounds().reduced(4);
 
     // File name at top
-    auto topRow = bounds.removeFromTop(20);
+    auto topRow = bounds.removeFromTop(18);
     fileNameLabel.setBounds(topRow.removeFromLeft(topRow.getWidth() - 50));
     durationLabel.setBounds(topRow);
 
+    // Info row (sample rate, channels, etc.)
+    auto infoRow = bounds.removeFromTop(14);
+    infoLabel.setBounds(infoRow);
+
     // Buttons at bottom
     auto bottomRow = bounds.removeFromBottom(24);
-    playButton.setBounds(bottomRow.removeFromLeft(50));
-    bottomRow.removeFromLeft(4);
-    stopButton.setBounds(bottomRow.removeFromLeft(50));
+    int btnWidth = 28;
+    int spacing = 3;
+
+    playButton.setBounds(bottomRow.removeFromLeft(btnWidth));
+    bottomRow.removeFromLeft(spacing);
+    stopButton.setBounds(bottomRow.removeFromLeft(btnWidth));
+    bottomRow.removeFromLeft(spacing);
+    loopButton.setBounds(bottomRow.removeFromLeft(btnWidth));
+    bottomRow.removeFromLeft(spacing + 4);
+
+    // Volume slider takes remaining space
+    volumeSlider.setBounds(bottomRow);
 }
 
 void AudioPreviewComponent::mouseDown(const juce::MouseEvent& e)
@@ -234,7 +370,7 @@ void AudioPreviewComponent::mouseDown(const juce::MouseEvent& e)
     if (fileLoaded && transportSource.getLengthInSeconds() > 0)
     {
         auto bounds = getLocalBounds().reduced(4);
-        bounds.removeFromTop(22);
+        bounds.removeFromTop(34);  // Match paint() layout
         bounds.removeFromBottom(26);
 
         if (bounds.contains(e.getPosition()))
@@ -242,6 +378,12 @@ void AudioPreviewComponent::mouseDown(const juce::MouseEvent& e)
             double clickPosition = static_cast<double>(e.x - bounds.getX()) / bounds.getWidth();
             clickPosition = juce::jlimit(0.0, 1.0, clickPosition);
             transportSource.setPosition(clickPosition * transportSource.getLengthInSeconds());
+
+            // Start playing if not already
+            if (!isPlaying())
+            {
+                play();
+            }
         }
     }
 }
@@ -250,15 +392,44 @@ void AudioPreviewComponent::timerCallback()
 {
     if (transportSource.isPlaying())
     {
+        // Update duration label to show current position / total
+        double currentPos = transportSource.getCurrentPosition();
+        double totalLength = transportSource.getLengthInSeconds();
+
+        if (totalLength > 0)
+        {
+            int curMins = static_cast<int>(currentPos) / 60;
+            int curSecs = static_cast<int>(currentPos) % 60;
+            int totMins = static_cast<int>(totalLength) / 60;
+            int totSecs = static_cast<int>(totalLength) % 60;
+
+            durationLabel.setText(juce::String::formatted("%d:%02d / %d:%02d",
+                curMins, curSecs, totMins, totSecs), juce::dontSendNotification);
+        }
+
         repaint();
+    }
+    else if (fileLoaded)
+    {
+        // Reset to show total duration when stopped
+        double totalLength = transportSource.getLengthInSeconds();
+        if (totalLength > 0)
+        {
+            int mins = static_cast<int>(totalLength) / 60;
+            int secs = static_cast<int>(totalLength) % 60;
+            int millis = static_cast<int>((totalLength - static_cast<int>(totalLength)) * 10);
+            durationLabel.setText(juce::String::formatted("%d:%02d.%d", mins, secs, millis),
+                juce::dontSendNotification);
+        }
     }
 }
 
 void AudioPreviewComponent::setFile(const juce::File& file)
 {
-    if (file == currentFile)
+    if (file == currentFile && fileLoaded)
         return;
 
+    // Stop previous playback
     stop();
     currentFile = file;
 
@@ -266,16 +437,49 @@ void AudioPreviewComponent::setFile(const juce::File& file)
     {
         loadFile(file);
         fileNameLabel.setText(file.getFileName(), juce::dontSendNotification);
+
+        // Auto-play if enabled
+        if (fileLoaded && autoPlay)
+        {
+            play();
+        }
     }
     else
     {
         fileLoaded = false;
+        currentSampleRate = 44100.0;
+        currentNumChannels = 2;
+        currentBitsPerSample = 16;
+        currentLengthInSamples = 0;
+
         fileNameLabel.setText("No file selected", juce::dontSendNotification);
         durationLabel.setText("--:--", juce::dontSendNotification);
+        infoLabel.setText("", juce::dontSendNotification);
         waveformBuffer.clear();
     }
 
     repaint();
+}
+
+double AudioPreviewComponent::getDurationSeconds() const
+{
+    if (currentSampleRate > 0 && currentLengthInSamples > 0)
+    {
+        return static_cast<double>(currentLengthInSamples) / currentSampleRate;
+    }
+    return 0.0;
+}
+
+juce::String AudioPreviewComponent::getFileInfo() const
+{
+    if (!fileLoaded)
+        return "";
+
+    juce::String info;
+    info << juce::String(currentSampleRate / 1000.0, 1) << " kHz | ";
+    info << currentNumChannels << " ch | ";
+    info << currentBitsPerSample << " bit";
+    return info;
 }
 
 void AudioPreviewComponent::loadFile(const juce::File& file)
@@ -284,33 +488,43 @@ void AudioPreviewComponent::loadFile(const juce::File& file)
 
     if (reader != nullptr)
     {
+        // Store file properties
+        currentSampleRate = reader->sampleRate;
+        currentNumChannels = static_cast<int>(reader->numChannels);
+        currentBitsPerSample = static_cast<int>(reader->bitsPerSample);
+        currentLengthInSamples = reader->lengthInSamples;
+
         // Create waveform preview buffer (downsampled)
         auto numSamples = static_cast<int>(reader->lengthInSamples);
         int previewSamples = juce::jmin(512, numSamples);
-        waveformBuffer.setSize(reader->numChannels, previewSamples);
 
-        // Downsample for waveform display
-        juce::AudioBuffer<float> tempBuffer(reader->numChannels, numSamples);
-        reader->read(&tempBuffer, 0, numSamples, 0, true, true);
-
-        int samplesPerPixel = numSamples / previewSamples;
-        for (int ch = 0; ch < static_cast<int>(reader->numChannels); ++ch)
+        if (previewSamples > 0)
         {
-            auto* src = tempBuffer.getReadPointer(ch);
-            auto* dest = waveformBuffer.getWritePointer(ch);
+            waveformBuffer.setSize(static_cast<int>(reader->numChannels), previewSamples);
 
-            for (int i = 0; i < previewSamples; ++i)
+            // Downsample for waveform display
+            juce::AudioBuffer<float> tempBuffer(static_cast<int>(reader->numChannels), numSamples);
+            reader->read(&tempBuffer, 0, numSamples, 0, true, true);
+
+            int samplesPerPixel = juce::jmax(1, numSamples / previewSamples);
+            for (int ch = 0; ch < static_cast<int>(reader->numChannels); ++ch)
             {
-                float maxVal = 0.0f;
-                int start = i * samplesPerPixel;
-                int end = juce::jmin(start + samplesPerPixel, numSamples);
+                auto* src = tempBuffer.getReadPointer(ch);
+                auto* dest = waveformBuffer.getWritePointer(ch);
 
-                for (int j = start; j < end; ++j)
+                for (int i = 0; i < previewSamples; ++i)
                 {
-                    maxVal = juce::jmax(maxVal, std::abs(src[j]));
-                }
+                    float maxVal = 0.0f;
+                    int start = i * samplesPerPixel;
+                    int end = juce::jmin(start + samplesPerPixel, numSamples);
 
-                dest[i] = maxVal;
+                    for (int j = start; j < end; ++j)
+                    {
+                        maxVal = juce::jmax(maxVal, std::abs(src[j]));
+                    }
+
+                    dest[i] = maxVal;
+                }
             }
         }
 
@@ -318,13 +532,27 @@ void AudioPreviewComponent::loadFile(const juce::File& file)
         readerSource = std::make_unique<juce::AudioFormatReaderSource>(
             formatManager.createReaderFor(file), true);
 
-        transportSource.setSource(readerSource.get(), 0, nullptr, reader->sampleRate);
+        if (readerSource != nullptr)
+        {
+            readerSource->setLooping(looping);
+            transportSource.setSource(readerSource.get(), 0, nullptr, reader->sampleRate);
+
+            // Prepare the audio player if we have a device manager
+            if (deviceManager != nullptr && !audioPlayerPrepared)
+            {
+                prepareAudioPlayer();
+            }
+        }
 
         // Update duration label
-        double durationSecs = reader->lengthInSamples / reader->sampleRate;
+        double durationSecs = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
         int mins = static_cast<int>(durationSecs) / 60;
         int secs = static_cast<int>(durationSecs) % 60;
-        durationLabel.setText(juce::String::formatted("%d:%02d", mins, secs), juce::dontSendNotification);
+        int millis = static_cast<int>((durationSecs - static_cast<int>(durationSecs)) * 10);
+        durationLabel.setText(juce::String::formatted("%d:%02d.%d", mins, secs, millis), juce::dontSendNotification);
+
+        // Update info label
+        infoLabel.setText(getFileInfo(), juce::dontSendNotification);
 
         fileLoaded = true;
 
@@ -333,7 +561,13 @@ void AudioPreviewComponent::loadFile(const juce::File& file)
     else
     {
         fileLoaded = false;
+        currentSampleRate = 44100.0;
+        currentNumChannels = 2;
+        currentBitsPerSample = 16;
+        currentLengthInSamples = 0;
+
         durationLabel.setText("--:--", juce::dontSendNotification);
+        infoLabel.setText("", juce::dontSendNotification);
     }
 }
 
@@ -380,10 +614,27 @@ void AudioPreviewComponent::play()
 {
     if (fileLoaded && deviceManager != nullptr)
     {
+        // Ensure the audio player is prepared
+        if (!audioPlayerPrepared)
+        {
+            prepareAudioPlayer();
+        }
+
+        // Set up the audio chain
         audioSourcePlayer.setSource(&transportSource);
+        audioSourcePlayer.setGain(volume);
+
+        // Add callback if not already added
         deviceManager->addAudioCallback(&audioSourcePlayer);
-        transportSource.setPosition(0);
+
+        // If at the end, restart from beginning
+        if (transportSource.getCurrentPosition() >= transportSource.getLengthInSeconds() - 0.1)
+        {
+            transportSource.setPosition(0);
+        }
+
         transportSource.start();
+        updateTransportState();
     }
 }
 
@@ -397,6 +648,7 @@ void AudioPreviewComponent::stop()
     }
 
     audioSourcePlayer.setSource(nullptr);
+    updateTransportState();
 }
 
 //==============================================================================
@@ -597,10 +849,14 @@ void FileBrowser::selectionChanged()
                             juce::File::descriptionOfSizeInBytes(selectedFile.getSize()),
                             juce::dontSendNotification);
 
-        // If it's an audio file, load it in preview
+        // If it's an audio file, load it in preview (but don't auto-play on selection change)
         if (isAudioFile(selectedFile))
         {
+            // Temporarily disable auto-play for selection changes
+            bool wasAutoPlay = previewComponent->getAutoPlay();
+            previewComponent->setAutoPlay(false);
             previewComponent->setFile(selectedFile);
+            previewComponent->setAutoPlay(wasAutoPlay);
         }
 
         if (onFileSelected)
@@ -624,11 +880,11 @@ void FileBrowser::fileClicked(const juce::File& file, const juce::MouseEvent& e)
 
     if (file.existsAsFile())
     {
-        // Preview audio file on single click
+        // Preview audio file on single click (with auto-play enabled)
         if (isAudioFile(file))
         {
+            previewComponent->setAutoPlay(true);
             previewComponent->setFile(file);
-            previewComponent->play();
         }
 
         if (onFileSelected)
