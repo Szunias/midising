@@ -107,13 +107,20 @@ public:
     void setQuantizeValue(QuantizeValue value) { quantizeValue = value; repaint(); }
     QuantizeValue getQuantizeValue() const { return quantizeValue; }
 
+    // Quantize strength (0.0 = no quantization, 1.0 = full quantization)
+    void setQuantizeStrength(float strength) { quantizeStrength = juce::jlimit(0.0f, 1.0f, strength); repaint(); }
+    float getQuantizeStrength() const { return quantizeStrength; }
+
     // Get the grid size in beats for the current quantize value
     double getQuantizeGridSize() const;
 
-    // Quantize a beat position to the current grid
+    // Quantize a beat position to the current grid (full snap for interactive editing)
     double quantizeBeatPosition(double beat) const;
 
-    // Apply quantization to selected notes
+    // Quantize a beat position with strength parameter (for partial quantization)
+    double quantizeBeatPositionWithStrength(double beat, float strength) const;
+
+    // Apply quantization to selected notes (uses quantizeStrength)
     void quantizeSelectedNotes();
 
     // CC Lane management
@@ -244,6 +251,7 @@ private:
     // Quantization state
     bool quantizeEnabled = true;  // Snap to grid enabled by default
     QuantizeValue quantizeValue = QuantizeValue::Sixteenth;  // Default to 1/16 notes
+    float quantizeStrength = 1.0f;  // Quantize strength (0.0 = none, 1.0 = full)
 
     // CC Lane visibility state (ModWheel, Sustain, PitchBend, Expression)
     bool ccLaneVisible[4] = { false, false, false, false };

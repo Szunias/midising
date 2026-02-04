@@ -1374,8 +1374,26 @@ double PianoRoll::quantizeBeatPosition(double beat) const
     if (gridSize <= 0.0)
         return beat;
 
-    // Round to nearest grid position
+    // Round to nearest grid position (full snap for interactive editing)
     return std::round(beat / gridSize) * gridSize;
+}
+
+double PianoRoll::quantizeBeatPositionWithStrength(double beat, float strength) const
+{
+    double gridSize = getQuantizeGridSize();
+    if (gridSize <= 0.0 || strength <= 0.0f)
+        return beat;
+
+    // Calculate the fully quantized position
+    double quantizedBeat = std::round(beat / gridSize) * gridSize;
+
+    if (strength >= 1.0f)
+        return quantizedBeat;
+
+    // Apply partial quantization based on strength
+    // newPosition = original + (quantized - original) * strength
+    // This linearly interpolates between the original and quantized position
+    return beat + (quantizedBeat - beat) * static_cast<double>(strength);
 }
 
 void PianoRoll::quantizeSelectedNotes()
@@ -1383,9 +1401,12 @@ void PianoRoll::quantizeSelectedNotes()
     if (midiRegion == nullptr || selectedNoteIndices.empty())
         return;
 
+    // Skip if strength is zero (no quantization)
+    if (quantizeStrength <= 0.0f)
+        return;
+
     auto& seq = midiRegion->getMidiSequence();
     double ticksPerBeat = 960.0;
-    double gridSize = getQuantizeGridSize();
 
     // Process each selected note
     for (int eventIndex : selectedNoteIndices)
@@ -1400,8 +1421,8 @@ void PianoRoll::quantizeSelectedNotes()
         // Get current beat position
         double currentBeat = event->message.getTimeStamp() / ticksPerBeat;
 
-        // Quantize to nearest grid position
-        double quantizedBeat = std::round(currentBeat / gridSize) * gridSize;
+        // Quantize using the strength parameter for partial quantization
+        double quantizedBeat = quantizeBeatPositionWithStrength(currentBeat, quantizeStrength);
 
         // Update the note-on timestamp
         double newTicks = quantizedBeat * ticksPerBeat;
@@ -1413,7 +1434,7 @@ void PianoRoll::quantizeSelectedNotes()
             double noteOffBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
             double noteLength = noteOffBeat - currentBeat;
 
-            // Keep the same duration, but optionally quantize the duration too
+            // Keep the same duration - note-off follows note-on
             double newNoteOffBeat = quantizedBeat + noteLength;
             event->noteOffObject->message.setTimeStamp(newNoteOffBeat * ticksPerBeat);
         }
