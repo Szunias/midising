@@ -13,6 +13,7 @@
  * - Accent on first beat of each measure (louder)
  * - Adjustable volume
  * - Pre-allocated click buffers (no allocation in audio thread)
+ * - Pre-count (count-in) support with UI feedback methods
  */
 class Metronome
 {
@@ -44,8 +45,28 @@ public:
     void setCountInBars(int bars); // 0 = off, 1 or 2 bars
     int getCountInBars() const { return countInBars.load(); }
     void startCountIn(int64_t startPosition);
+    void stopCountIn();  // Stop/cancel count-in
+    void resetCountIn(); // Reset count-in state (after completion)
     bool isInCountIn() const { return isCountingIn.load(); }
     bool isCountInComplete(int64_t currentPosition, double bpm) const;
+
+    // Pre-count UI feedback methods (for visual countdown display)
+    // Returns current beat number within count-in (1-4 for 1 bar, 1-8 for 2 bars)
+    // Returns 0 if not in count-in
+    int getCountInBeat(int64_t currentPosition, double bpm) const;
+
+    // Returns current bar within count-in (1 or 2 for 2-bar count-in)
+    // Returns 0 if not in count-in
+    int getCountInBar(int64_t currentPosition, double bpm) const;
+
+    // Returns beats remaining in count-in (0 if not counting or complete)
+    int getCountInBeatsRemaining(int64_t currentPosition, double bpm) const;
+
+    // Returns total beats in configured count-in (4 for 1 bar, 8 for 2 bars)
+    int getTotalCountInBeats() const;
+
+    // Returns progress as 0.0-1.0 for UI visualization (0 = start, 1 = done)
+    float getCountInProgress(int64_t currentPosition, double bpm) const;
 
     // Time signature (currently fixed to 4/4)
     int getBeatsPerMeasure() const { return beatsPerMeasure; }

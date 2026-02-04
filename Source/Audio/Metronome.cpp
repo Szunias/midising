@@ -153,7 +153,21 @@ void Metronome::startCountIn(int64_t startPosition)
     {
         isCountingIn.store(true);
         countInStartPosition.store(startPosition);
+        lastBeatSample = -1; // Reset beat tracking for fresh count-in
     }
+}
+
+void Metronome::stopCountIn()
+{
+    isCountingIn.store(false);
+    countInStartPosition.store(-1);
+    lastBeatSample = -1;
+}
+
+void Metronome::resetCountIn()
+{
+    isCountingIn.store(false);
+    countInStartPosition.store(-1);
 }
 
 bool Metronome::isCountInComplete(int64_t currentPosition, double bpm) const
@@ -183,4 +197,125 @@ bool Metronome::isCountInComplete(int64_t currentPosition, double bpm) const
     }
 
     return false;
+}
+
+int Metronome::getCountInBeat(int64_t currentPosition, double bpm) const
+{
+    if (!isCountingIn.load())
+        return 0;
+
+    const int64_t startPos = countInStartPosition.load();
+    if (startPos < 0)
+        return 0;
+
+    // Calculate samples per beat
+    const double beatsPerSecond = bpm / 60.0;
+    const double samplesPerBeat = currentSampleRate / beatsPerSecond;
+
+    // Calculate elapsed samples since count-in started
+    const int64_t elapsedSamples = currentPosition - startPos;
+    if (elapsedSamples < 0)
+        return 0;
+
+    // Calculate which beat we're on (1-indexed)
+    const int beat = static_cast<int>(elapsedSamples / samplesPerBeat) + 1;
+
+    // Clamp to total count-in beats
+    const int totalBeats = countInBars.load() * beatsPerMeasure;
+    if (beat > totalBeats)
+        return totalBeats;
+
+    return beat;
+}
+
+int Metronome::getCountInBar(int64_t currentPosition, double bpm) const
+{
+    if (!isCountingIn.load())
+        return 0;
+
+    const int64_t startPos = countInStartPosition.load();
+    if (startPos < 0)
+        return 0;
+
+    // Calculate samples per bar
+    const double beatsPerSecond = bpm / 60.0;
+    const double samplesPerBeat = currentSampleRate / beatsPerSecond;
+    const double samplesPerBar = samplesPerBeat * beatsPerMeasure;
+
+    // Calculate elapsed samples since count-in started
+    const int64_t elapsedSamples = currentPosition - startPos;
+    if (elapsedSamples < 0)
+        return 0;
+
+    // Calculate which bar we're on (1-indexed)
+    const int bar = static_cast<int>(elapsedSamples / samplesPerBar) + 1;
+
+    // Clamp to configured count-in bars
+    const int totalBars = countInBars.load();
+    if (bar > totalBars)
+        return totalBars;
+
+    return bar;
+}
+
+int Metronome::getCountInBeatsRemaining(int64_t currentPosition, double bpm) const
+{
+    if (!isCountingIn.load())
+        return 0;
+
+    const int64_t startPos = countInStartPosition.load();
+    if (startPos < 0)
+        return 0;
+
+    // Calculate samples per beat
+    const double beatsPerSecond = bpm / 60.0;
+    const double samplesPerBeat = currentSampleRate / beatsPerSecond;
+
+    // Calculate total count-in duration
+    const int totalBeats = countInBars.load() * beatsPerMeasure;
+    const double totalSamples = samplesPerBeat * totalBeats;
+
+    // Calculate elapsed samples since count-in started
+    const int64_t elapsedSamples = currentPosition - startPos;
+    if (elapsedSamples < 0)
+        return totalBeats;
+
+    // Calculate beats remaining
+    const int elapsedBeats = static_cast<int>(elapsedSamples / samplesPerBeat);
+    const int remaining = totalBeats - elapsedBeats;
+
+    return (remaining > 0) ? remaining : 0;
+}
+
+int Metronome::getTotalCountInBeats() const
+{
+    return countInBars.load() * beatsPerMeasure;
+}
+
+float Metronome::getCountInProgress(int64_t currentPosition, double bpm) const
+{
+    if (!isCountingIn.load())
+        return 1.0f; // Completed
+
+    const int64_t startPos = countInStartPosition.load();
+    if (startPos < 0)
+        return 1.0f;
+
+    // Calculate samples per bar
+    const double beatsPerSecond = bpm / 60.0;
+    const double samplesPerBeat = currentSampleRate / beatsPerSecond;
+    const double samplesPerBar = samplesPerBeat * beatsPerMeasure;
+
+    // Calculate total count-in duration
+    const double totalSamples = samplesPerBar * countInBars.load();
+
+    // Calculate elapsed samples since count-in started
+    const int64_t elapsedSamples = currentPosition - startPos;
+    if (elapsedSamples < 0)
+        return 0.0f;
+
+    // Calculate progress (0.0 to 1.0)
+    const float progress = static_cast<float>(elapsedSamples / totalSamples);
+
+    return (progress < 1.0f) ? progress : 1.0f;
 }
