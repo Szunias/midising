@@ -90,6 +90,8 @@ target_sources(MidiSing
         Source/UI/StatusBar.cpp
         Source/UI/SpectrumDisplay.h
         Source/UI/SpectrumDisplay.cpp
+        Source/UI/AutomationLaneView.h
+        Source/UI/AutomationLaneView.cpp
         Source/Audio/SpectrumAnalyzer.h
         Source/Audio/SpectrumAnalyzer.cpp
         # Audio Recording
