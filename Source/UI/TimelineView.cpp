@@ -3493,140 +3493,172 @@ void TimelineView::drawWaveformRmsPlusPeak(juce::Graphics& g, juce::Rectangle<in
     if (width <= 0 || height <= 0)
         return;
 
+    // OPTIMIZATION 1: Visible bounds culling - only render pixels in visible clip region
+    auto clipBounds = g.getClipBounds();
+    int visibleLeft = juce::jmax(clipBounds.getX(), bounds.getX());
+    int visibleRight = juce::jmin(clipBounds.getRight(), bounds.getRight());
+
+    // Early exit if region is completely outside visible area
+    if (visibleLeft >= visibleRight)
+        return;
+
+    // Calculate relative pixel range within this region's bounds
+    int startPixel = juce::jmax(0, visibleLeft - bounds.getX());
+    int endPixel = juce::jmin(width, visibleRight - bounds.getX());
+
+    if (startPixel >= endPixel)
+        return;
+
+    int visibleWidth = endPixel - startPixel;
+
     // Calculate samples per pixel for this zoom level
     double samplesPerPixel = static_cast<double>(regionLength) / static_cast<double>(width);
 
+    // OPTIMIZATION 2: Pixel stride for very zoomed out views
+    // When zoomed out far, drawing every pixel is wasteful - use stride to reduce workload
+    int pixelStride = 1;
+    if (visibleWidth > 2000)
+        pixelStride = 2;
+    else if (visibleWidth > 4000)
+        pixelStride = 4;
+
+    // Calculate effective number of data points we'll collect
+    int numDataPoints = (visibleWidth + pixelStride - 1) / pixelStride;
+
     // Calculate channel heights
     int channelHeight = height / numChannels;
-    if (channelHeight < 4)
+    bool combineChannels = channelHeight < 4;
+    if (combineChannels)
         channelHeight = height;  // Combine channels if too small
 
+    int numChannelsToDraw = combineChannels ? 1 : numChannels;
+
     // Draw each channel
-    for (int ch = 0; ch < (channelHeight == height ? 1 : numChannels); ++ch)
+    for (int ch = 0; ch < numChannelsToDraw; ++ch)
     {
         int channelY = bounds.getY() + ch * channelHeight;
         int centerY = channelY + channelHeight / 2;
         float halfHeight = channelHeight * 0.5f * 0.85f;  // Leave some margin
 
-        // Create paths for peak and RMS
-        juce::Path peakPath;
-        juce::Path rmsPath;
-
-        bool peakPathStarted = false;
-        bool rmsPathStarted = false;
-
-        // First pass: top half of waveform (positive values)
-        for (int x = 0; x < width; ++x)
+        // OPTIMIZATION 3: Pre-allocate vectors for single-pass data collection
+        // This avoids recalculating peaks for the bottom half of the waveform
+        struct WaveformPoint
         {
-            // Calculate sample range for this pixel
+            float x;
+            float peakMin;
+            float peakMax;
+            float rms;
+            bool valid;
+        };
+
+        std::vector<WaveformPoint> points;
+        points.reserve(static_cast<size_t>(numDataPoints));
+
+        // Single pass: collect all peak data
+        for (int localX = 0; localX < visibleWidth; localX += pixelStride)
+        {
+            int x = startPixel + localX;
+
+            // Calculate sample range for this pixel (accounting for stride)
             int64_t startSample = regionOffset + static_cast<int64_t>(x * samplesPerPixel);
-            int64_t endSample = regionOffset + static_cast<int64_t>((x + 1) * samplesPerPixel);
+            int64_t endSample = regionOffset + static_cast<int64_t>(juce::jmin(x + pixelStride, width) * samplesPerPixel);
 
             // Clamp to valid range
             startSample = juce::jmax((int64_t)0, startSample);
             endSample = juce::jmin(regionOffset + regionLength, endSample);
 
-            if (startSample >= endSample)
-                continue;
+            WaveformPoint point;
+            point.x = static_cast<float>(bounds.getX() + x);
+            point.valid = false;
 
-            float peakMin, peakMax, rms;
-            if (!waveformCache.getPeaksForRange(cacheHash, startSample, endSample,
-                                                 (channelHeight == height && numChannels > 1) ? 0 : ch,
-                                                 peakMin, peakMax, rms))
+            if (startSample < endSample)
             {
-                continue;
-            }
-
-            // If stereo and combining channels, get max of both
-            if (channelHeight == height && numChannels > 1)
-            {
-                float peakMin2, peakMax2, rms2;
-                if (waveformCache.getPeaksForRange(cacheHash, startSample, endSample, 1,
-                                                    peakMin2, peakMax2, rms2))
+                int channelToRead = (combineChannels && numChannels > 1) ? 0 : ch;
+                if (waveformCache.getPeaksForRange(cacheHash, startSample, endSample,
+                                                    channelToRead, point.peakMin, point.peakMax, point.rms))
                 {
-                    peakMin = juce::jmin(peakMin, peakMin2);
-                    peakMax = juce::jmax(peakMax, peakMax2);
-                    rms = juce::jmax(rms, rms2);
+                    // If stereo and combining channels, get max of both
+                    if (combineChannels && numChannels > 1)
+                    {
+                        float peakMin2, peakMax2, rms2;
+                        if (waveformCache.getPeaksForRange(cacheHash, startSample, endSample, 1,
+                                                            peakMin2, peakMax2, rms2))
+                        {
+                            point.peakMin = juce::jmin(point.peakMin, peakMin2);
+                            point.peakMax = juce::jmax(point.peakMax, peakMax2);
+                            point.rms = juce::jmax(point.rms, rms2);
+                        }
+                    }
+                    point.valid = true;
                 }
             }
 
-            // Calculate Y positions
-            float peakTopY = centerY - peakMax * halfHeight;
-            float rmsTopY = centerY - rms * halfHeight;
+            points.push_back(point);
+        }
 
-            float pixelX = static_cast<float>(bounds.getX() + x);
+        // Skip if no valid data points
+        if (points.empty())
+            continue;
 
-            // Build peak path (top half)
+        // OPTIMIZATION 4: Pre-allocate path memory
+        // Each path needs approximately 2 * numDataPoints elements (top + bottom)
+        juce::Path peakPath;
+        juce::Path rmsPath;
+        peakPath.preallocateSpace(static_cast<int>(points.size() * 2 * 3));  // x, y per point, top + bottom
+        rmsPath.preallocateSpace(static_cast<int>(points.size() * 2 * 3));
+
+        bool peakPathStarted = false;
+        bool rmsPathStarted = false;
+
+        // Build top half of waveform (positive values) - forward direction
+        for (const auto& pt : points)
+        {
+            if (!pt.valid)
+                continue;
+
+            float peakTopY = centerY - pt.peakMax * halfHeight;
+            float rmsTopY = centerY - pt.rms * halfHeight;
+
             if (!peakPathStarted)
             {
-                peakPath.startNewSubPath(pixelX, peakTopY);
+                peakPath.startNewSubPath(pt.x, peakTopY);
                 peakPathStarted = true;
             }
             else
             {
-                peakPath.lineTo(pixelX, peakTopY);
+                peakPath.lineTo(pt.x, peakTopY);
             }
 
-            // Build RMS path (top half)
             if (!rmsPathStarted)
             {
-                rmsPath.startNewSubPath(pixelX, rmsTopY);
+                rmsPath.startNewSubPath(pt.x, rmsTopY);
                 rmsPathStarted = true;
             }
             else
             {
-                rmsPath.lineTo(pixelX, rmsTopY);
+                rmsPath.lineTo(pt.x, rmsTopY);
             }
         }
 
-        // Second pass: bottom half of waveform (negative values) - reverse direction
-        for (int x = width - 1; x >= 0; --x)
+        // Build bottom half of waveform (negative values) - reverse direction
+        // OPTIMIZATION: Use stored data instead of recalculating
+        for (auto it = points.rbegin(); it != points.rend(); ++it)
         {
-            int64_t startSample = regionOffset + static_cast<int64_t>(x * samplesPerPixel);
-            int64_t endSample = regionOffset + static_cast<int64_t>((x + 1) * samplesPerPixel);
-
-            startSample = juce::jmax((int64_t)0, startSample);
-            endSample = juce::jmin(regionOffset + regionLength, endSample);
-
-            if (startSample >= endSample)
+            if (!it->valid)
                 continue;
 
-            float peakMin, peakMax, rms;
-            if (!waveformCache.getPeaksForRange(cacheHash, startSample, endSample,
-                                                 (channelHeight == height && numChannels > 1) ? 0 : ch,
-                                                 peakMin, peakMax, rms))
-            {
-                continue;
-            }
+            // peakMin is negative, so centerY - peakMin gives bottom peak position
+            float peakBottomY = centerY - it->peakMin * halfHeight;
+            float rmsBottomY = centerY + it->rms * halfHeight;
 
-            if (channelHeight == height && numChannels > 1)
-            {
-                float peakMin2, peakMax2, rms2;
-                if (waveformCache.getPeaksForRange(cacheHash, startSample, endSample, 1,
-                                                    peakMin2, peakMax2, rms2))
-                {
-                    peakMin = juce::jmin(peakMin, peakMin2);
-                    peakMax = juce::jmax(peakMax, peakMax2);
-                    rms = juce::jmax(rms, rms2);
-                }
-            }
-
-            // Calculate Y positions for bottom half
-            float peakBottomY = centerY - peakMin * halfHeight;  // peakMin is negative
-            float rmsBottomY = centerY + rms * halfHeight;
-
-            float pixelX = static_cast<float>(bounds.getX() + x);
-
-            // Continue peak path (bottom half)
             if (peakPathStarted)
             {
-                peakPath.lineTo(pixelX, peakBottomY);
+                peakPath.lineTo(it->x, peakBottomY);
             }
 
-            // Continue RMS path (bottom half)
             if (rmsPathStarted)
             {
-                rmsPath.lineTo(pixelX, rmsBottomY);
+                rmsPath.lineTo(it->x, rmsBottomY);
             }
         }
 
