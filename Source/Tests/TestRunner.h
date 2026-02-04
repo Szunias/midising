@@ -8,6 +8,7 @@
 #include "AudioEngineTest.h"
 #include "UndoTests.h"
 #include "AutomationTests.h"
+#include "MidiTests.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -91,6 +92,15 @@ public:
         // Automation tests
         juce::Logger::writeToLog("--- Automation Tests ---");
         if (AutomationTests::runAllTests())
+        {
+            passedTests += 12;
+        }
+        totalTests += 12;
+        juce::Logger::writeToLog("");
+
+        // MIDI tests
+        juce::Logger::writeToLog("--- MIDI Tests ---");
+        if (MidiTests::runAllTests())
         {
             passedTests += 12;
         }
