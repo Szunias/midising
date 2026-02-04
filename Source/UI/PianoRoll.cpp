@@ -1474,7 +1474,7 @@ void PianoRoll::drawQuantizeGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
 void PianoRoll::setCCLaneVisible(CCLaneType laneType, bool visible)
 {
     int index = static_cast<int>(laneType);
-    if (index >= 0 && index < 3)
+    if (index >= 0 && index < 4)
     {
         ccLaneVisible[index] = visible;
         repaint();
@@ -1484,7 +1484,7 @@ void PianoRoll::setCCLaneVisible(CCLaneType laneType, bool visible)
 bool PianoRoll::isCCLaneVisible(CCLaneType laneType) const
 {
     int index = static_cast<int>(laneType);
-    if (index >= 0 && index < 3)
+    if (index >= 0 && index < 4)
     {
         return ccLaneVisible[index];
     }
@@ -1499,7 +1499,7 @@ void PianoRoll::toggleCCLane(CCLaneType laneType)
 int PianoRoll::getNumVisibleCCLanes() const
 {
     int count = 0;
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 4; ++i)
     {
         if (ccLaneVisible[i])
             ++count;
@@ -1514,6 +1514,7 @@ int PianoRoll::getCCNumberForLaneType(CCLaneType laneType)
         case CCLaneType::ModWheel:   return 1;   // CC1 - Modulation
         case CCLaneType::Sustain:    return 64;  // CC64 - Sustain pedal
         case CCLaneType::PitchBend:  return -1;  // Special: pitch bend is not a CC
+        case CCLaneType::Expression: return 11;  // CC11 - Expression
         default:                     return -1;
     }
 }
@@ -1525,6 +1526,7 @@ juce::String PianoRoll::getCCLaneName(CCLaneType laneType)
         case CCLaneType::ModWheel:   return "Mod Wheel";
         case CCLaneType::Sustain:    return "Sustain";
         case CCLaneType::PitchBend:  return "Pitch Bend";
+        case CCLaneType::Expression: return "Expression";
         default:                     return "Unknown";
     }
 }
@@ -1541,7 +1543,7 @@ void PianoRoll::drawCCLanes(juce::Graphics& g, juce::Rectangle<int> bounds)
                static_cast<float>(bounds.getRight()), static_cast<float>(bounds.getY()), 2.0f);
 
     int laneIndex = 0;
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 4; ++i)
     {
         if (ccLaneVisible[i])
         {
@@ -1763,7 +1765,7 @@ int PianoRoll::getCCLaneAtY(int y) const
 PianoRoll::CCLaneType PianoRoll::getCCLaneTypeAtIndex(int index) const
 {
     int currentIndex = 0;
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 4; ++i)
     {
         if (ccLaneVisible[i])
         {

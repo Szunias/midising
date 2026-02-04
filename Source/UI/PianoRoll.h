@@ -43,7 +43,8 @@ public:
     {
         ModWheel,       // CC1 - Modulation wheel
         Sustain,        // CC64 - Sustain pedal
-        PitchBend       // Pitch bend (not a CC, but a separate MIDI message type)
+        PitchBend,      // Pitch bend (not a CC, but a separate MIDI message type)
+        Expression      // CC11 - Expression controller
     };
 
     PianoRoll();
@@ -244,8 +245,8 @@ private:
     bool quantizeEnabled = true;  // Snap to grid enabled by default
     QuantizeValue quantizeValue = QuantizeValue::Sixteenth;  // Default to 1/16 notes
 
-    // CC Lane visibility state (ModWheel, Sustain, PitchBend)
-    bool ccLaneVisible[3] = { false, false, false };
+    // CC Lane visibility state (ModWheel, Sustain, PitchBend, Expression)
+    bool ccLaneVisible[4] = { false, false, false, false };
 
     // CC editing state
     bool isEditingCC = false;
