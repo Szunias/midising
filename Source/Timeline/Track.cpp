@@ -155,3 +155,41 @@ bool Track::hasActiveSends() const
     }
     return false;
 }
+
+//==============================================================================
+// Per-track CPU usage monitoring
+//==============================================================================
+
+void Track::updateCpuLoad(double processingTimeMs, double bufferDurationMs)
+{
+    // Update exponential moving average for processing time
+    double currentAvg = averageProcessingTimeMs.load();
+    double newAvg = currentAvg * kCpuLoadSmoothing + processingTimeMs * (1.0 - kCpuLoadSmoothing);
+    averageProcessingTimeMs.store(newAvg);
+
+    // Calculate CPU load as ratio of processing time to buffer duration
+    if (bufferDurationMs > 0.0)
+    {
+        double newCpuLoad = cpuLoad.load() * kCpuLoadSmoothing +
+                           (processingTimeMs / bufferDurationMs) * (1.0 - kCpuLoadSmoothing);
+        cpuLoad.store(newCpuLoad);
+    }
+}
+
+void Track::resetCpuLoad()
+{
+    cpuLoad.store(0.0);
+    averageProcessingTimeMs.store(0.0);
+}
+
+void Track::startProcessingTimer()
+{
+    processingStartTime = Clock::now();
+}
+
+void Track::stopProcessingTimer(double bufferDurationMs)
+{
+    auto endTime = Clock::now();
+    double processingTimeMs = std::chrono::duration<double, std::milli>(endTime - processingStartTime).count();
+    updateCpuLoad(processingTimeMs, bufferDurationMs);
+}

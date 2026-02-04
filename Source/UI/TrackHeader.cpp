@@ -18,6 +18,18 @@ TrackHeader::TrackHeader()
     };
     addAndMakeVisible(nameLabel);
 
+    // CPU usage label
+    cpuLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textDimColour);
+    cpuLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    cpuLabel.setFont(juce::Font(10.0f));
+    cpuLabel.setJustificationType(juce::Justification::centredRight);
+    cpuLabel.setText("0%", juce::dontSendNotification);
+    cpuLabel.setTooltip("Track CPU usage");
+    addAndMakeVisible(cpuLabel);
+
+    // Start timer for CPU display updates (10 Hz)
+    startTimer(100);
+
     // Mute button
     muteButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
     muteButton.onClick = [this]()
@@ -98,6 +110,55 @@ TrackHeader::TrackHeader()
     addAndMakeVisible(autoButton);
 }
 
+TrackHeader::~TrackHeader()
+{
+    stopTimer();
+}
+
+void TrackHeader::timerCallback()
+{
+    updateCpuDisplay();
+}
+
+void TrackHeader::updateCpuDisplay()
+{
+    if (trackPtr == nullptr)
+    {
+        cpuLabel.setText("--", juce::dontSendNotification);
+        cpuLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textDimColour);
+        return;
+    }
+
+    double cpuLoad = trackPtr->getCpuLoad();
+    int cpuPercent = static_cast<int>(cpuLoad * 100.0);
+
+    // Clamp display to reasonable range
+    cpuPercent = juce::jlimit(0, 999, cpuPercent);
+
+    juce::String cpuText = juce::String(cpuPercent) + "%";
+    cpuLabel.setText(cpuText, juce::dontSendNotification);
+
+    // Color code based on CPU load
+    juce::Colour textColour;
+    if (cpuLoad < 0.5)
+    {
+        // Green for low load
+        textColour = MidiSingLookAndFeel::playColour;
+    }
+    else if (cpuLoad < 0.8)
+    {
+        // Orange/warning for medium load
+        textColour = MidiSingLookAndFeel::warningColour;
+    }
+    else
+    {
+        // Red for high load
+        textColour = MidiSingLookAndFeel::recordColour;
+    }
+
+    cpuLabel.setColour(juce::Label::textColourId, textColour);
+}
+
 void TrackHeader::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds();
@@ -123,8 +184,12 @@ void TrackHeader::resized()
     auto bounds = getLocalBounds().reduced(6, 4);
     bounds.removeFromLeft(4); // Space for colour strip
 
-    // Track type indicator and name
+    // Track type indicator and name with CPU label on the right
     auto topRow = bounds.removeFromTop(20);
+
+    // CPU label takes 35 pixels on the right
+    cpuLabel.setBounds(topRow.removeFromRight(35));
+    topRow.removeFromRight(2); // Small gap
     nameLabel.setBounds(topRow);
 
     bounds.removeFromTop(2);
@@ -181,6 +246,9 @@ void TrackHeader::updateFromTrack()
         return;
 
     nameLabel.setText(trackPtr->getName(), juce::dontSendNotification);
+
+    // Update CPU display
+    updateCpuDisplay();
 
     // Update button colours based on state
     muteButton.setColour(juce::TextButton::buttonColourId,

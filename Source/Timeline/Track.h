@@ -6,6 +6,7 @@
 #include <atomic>
 #include <vector>
 #include <memory>
+#include <chrono>
 
 // Forward declarations
 class AutomationLane;
@@ -155,6 +156,50 @@ public:
      */
     bool isRoutedToGroup() const { return outputGroupBusIndex.load() >= 0; }
 
+    //==========================================================================
+    // Per-track CPU usage monitoring
+    //==========================================================================
+
+    /**
+     * Get the current CPU load for this track's processing.
+     * @return CPU load as a value from 0.0 to 1.0+ (>1.0 indicates overload)
+     */
+    double getCpuLoad() const { return cpuLoad.load(); }
+
+    /**
+     * Get the average processing time for this track in milliseconds.
+     */
+    double getAverageProcessingTimeMs() const { return averageProcessingTimeMs.load(); }
+
+    /**
+     * Update the CPU load metrics after processing a block.
+     * Should be called from processBlock implementations.
+     * @param processingTimeMs The time taken to process the block in milliseconds
+     * @param bufferDurationMs The available time for processing (buffer size / sample rate * 1000)
+     */
+    void updateCpuLoad(double processingTimeMs, double bufferDurationMs);
+
+    /**
+     * Reset the CPU load metrics to zero.
+     */
+    void resetCpuLoad();
+
+    /**
+     * Start timing for processBlock. Call at the beginning of processBlock.
+     */
+    void startProcessingTimer();
+
+    /**
+     * Stop timing and update CPU metrics. Call at the end of processBlock.
+     * @param bufferDurationMs The available time for processing
+     */
+    void stopProcessingTimer(double bufferDurationMs);
+
+protected:
+    // High-resolution clock for timing measurements
+    using Clock = std::chrono::high_resolution_clock;
+    Clock::time_point processingStartTime;
+
 private:
     juce::String name;
     TrackType type;
@@ -181,6 +226,13 @@ private:
 
     // Output routing to group bus (-1 = master bus)
     std::atomic<int> outputGroupBusIndex { OUTPUT_TO_MASTER };
+
+    // Per-track CPU usage monitoring
+    std::atomic<double> cpuLoad { 0.0 };
+    std::atomic<double> averageProcessingTimeMs { 0.0 };
+
+    // Exponential moving average coefficient for CPU load smoothing
+    static constexpr double kCpuLoadSmoothing = 0.95;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Track)
 };

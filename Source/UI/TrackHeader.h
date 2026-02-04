@@ -8,15 +8,18 @@
 
 /**
  * TrackHeader displays track name, mute/solo/arm/automation buttons for the track list.
+ * Also shows per-track CPU usage for performance monitoring.
  */
-class TrackHeader : public juce::Component
+class TrackHeader : public juce::Component,
+                    private juce::Timer
 {
 public:
     TrackHeader();
-    ~TrackHeader() override = default;
+    ~TrackHeader() override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void timerCallback() override;
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDoubleClick(const juce::MouseEvent& event) override;
     bool keyPressed(const juce::KeyPress& key) override;
@@ -47,11 +50,14 @@ private:
     int trackIndex = -1;
 
     juce::Label nameLabel;
+    juce::Label cpuLabel;  // CPU usage display
     juce::TextButton muteButton { "M" };
     juce::TextButton soloButton { "S" };
     juce::TextButton armButton { "R" };
     juce::TextButton monitorButton { "I" };  // Input monitoring toggle button
     juce::TextButton autoButton { "A" };  // Automation toggle button
+
+    void updateCpuDisplay();
 
     // Context menu item IDs
     enum MenuItemIds
