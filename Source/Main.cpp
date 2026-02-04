@@ -1,7 +1,10 @@
 #include "MainComponent.h"
+#include "UI/SplashScreen.h"
+#include "UI/LookAndFeel.h"
 
 //==============================================================================
-class MidiSingApplication : public juce::JUCEApplication
+class MidiSingApplication : public juce::JUCEApplication,
+                            public juce::Timer
 {
 public:
     MidiSingApplication() {}
@@ -13,12 +16,32 @@ public:
     void initialise(const juce::String& commandLine) override
     {
         juce::ignoreUnused(commandLine);
-        mainWindow.reset(new MainWindow(getApplicationName()));
+
+        // Set up look and feel
+        lookAndFeel = std::make_unique<MidiSingLookAndFeel>();
+        juce::LookAndFeel::setDefaultLookAndFeel(lookAndFeel.get());
+
+        // Show splash screen
+        splashWindow = std::make_unique<SplashScreenWindow>();
+
+        // Set up callback for when splash is ready to close
+        splashWindow->getSplashScreen()->setOnReadyCallback([this]()
+        {
+            closeSplashAndShowMain();
+        });
+
+        // Start initialization sequence
+        initializationStage = 0;
+        startTimer(50); // Start staged initialization
     }
 
     void shutdown() override
     {
+        stopTimer();
         mainWindow = nullptr;
+        splashWindow = nullptr;
+        juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
+        lookAndFeel = nullptr;
     }
 
     void systemRequestedQuit() override
@@ -29,6 +52,59 @@ public:
     void anotherInstanceStarted(const juce::String& commandLine) override
     {
         juce::ignoreUnused(commandLine);
+    }
+
+    void timerCallback() override
+    {
+        if (splashWindow == nullptr || splashWindow->getSplashScreen() == nullptr)
+            return;
+
+        auto* splash = splashWindow->getSplashScreen();
+
+        // Staged initialization with progress updates
+        switch (initializationStage)
+        {
+            case 0:
+                splash->setProgress(0.1, "Loading audio engine...");
+                initializationStage++;
+                break;
+
+            case 1:
+                splash->setProgress(0.25, "Initializing MIDI system...");
+                initializationStage++;
+                break;
+
+            case 2:
+                splash->setProgress(0.4, "Loading plugins...");
+                initializationStage++;
+                break;
+
+            case 3:
+                splash->setProgress(0.55, "Setting up timeline...");
+                initializationStage++;
+                break;
+
+            case 4:
+                splash->setProgress(0.7, "Preparing user interface...");
+                initializationStage++;
+                break;
+
+            case 5:
+                // Create main window (this may take some time)
+                createMainWindow();
+                splash->setProgress(0.9, "Finalizing...");
+                initializationStage++;
+                break;
+
+            case 6:
+                splash->setProgress(1.0, "Ready!");
+                stopTimer();
+                // Splash screen will call closeSplashAndShowMain via callback
+                break;
+
+            default:
+                break;
+        }
     }
 
     //==============================================================================
@@ -50,8 +126,6 @@ public:
                 setResizable(true, true);
                 centreWithSize(1200, 800);
             #endif
-
-            setVisible(true);
         }
 
         void closeButtonPressed() override
@@ -93,7 +167,36 @@ public:
     };
 
 private:
+    void createMainWindow()
+    {
+        if (mainWindow == nullptr)
+        {
+            mainWindow = std::make_unique<MainWindow>(getApplicationName());
+            mainWindow->setVisible(false); // Keep hidden until splash closes
+        }
+    }
+
+    void closeSplashAndShowMain()
+    {
+        // Hide and destroy splash
+        if (splashWindow != nullptr)
+        {
+            splashWindow->setVisible(false);
+            splashWindow = nullptr;
+        }
+
+        // Show main window
+        if (mainWindow != nullptr)
+        {
+            mainWindow->setVisible(true);
+            mainWindow->toFront(true);
+        }
+    }
+
+    std::unique_ptr<MidiSingLookAndFeel> lookAndFeel;
+    std::unique_ptr<SplashScreenWindow> splashWindow;
     std::unique_ptr<MainWindow> mainWindow;
+    int initializationStage = 0;
 };
 
 //==============================================================================
