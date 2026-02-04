@@ -803,6 +803,23 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
+    // W = Toggle swing
+    if ((key.getTextCharacter() == 'w' || key.getTextCharacter() == 'W') && !key.getModifiers().isShiftDown())
+    {
+        setSwingEnabled(!swingEnabled);
+        return true;
+    }
+
+    // Shift+W = Apply swing to selected notes
+    if ((key.getTextCharacter() == 'w' || key.getTextCharacter() == 'W') && key.getModifiers().isShiftDown())
+    {
+        if (!selectedNoteIndices.empty())
+        {
+            applySwingToSelectedNotes();
+            return true;
+        }
+    }
+
     // Number keys 6-9 for quick quantize value selection (when Ctrl is held)
     if (key.getModifiers().isCommandDown())
     {
@@ -1437,6 +1454,122 @@ void PianoRoll::quantizeSelectedNotes()
             // Keep the same duration - note-off follows note-on
             double newNoteOffBeat = quantizedBeat + noteLength;
             event->noteOffObject->message.setTimeStamp(newNoteOffBeat * ticksPerBeat);
+        }
+    }
+
+    // Re-sort and update matched pairs after modifying timestamps
+    seq.sort();
+    seq.updateMatchedPairs();
+
+    repaint();
+}
+
+bool PianoRoll::isOffBeat(double beat) const
+{
+    double gridSize = getQuantizeGridSize();
+    if (gridSize <= 0.0)
+        return false;
+
+    // Calculate position within the pair of grid units
+    // For example, with 1/8 notes (0.5 beat grid):
+    // Beat 0.0, 1.0, 2.0 are on-beats (first of each pair)
+    // Beat 0.5, 1.5, 2.5 are off-beats (second of each pair)
+    double pairSize = gridSize * 2.0;
+    double positionInPair = std::fmod(beat, pairSize);
+
+    // Normalize negative values
+    if (positionInPair < 0.0)
+        positionInPair += pairSize;
+
+    // Check if we're in the second half of the pair (off-beat)
+    // Allow small tolerance for floating point comparison
+    double tolerance = gridSize * 0.1;
+    return positionInPair >= (gridSize - tolerance) && positionInPair < (pairSize - tolerance);
+}
+
+double PianoRoll::applySwingToBeat(double beat) const
+{
+    if (!swingEnabled || swingAmount <= 0.0f)
+        return beat;
+
+    double gridSize = getQuantizeGridSize();
+    if (gridSize <= 0.0)
+        return beat;
+
+    // Only apply swing to off-beats
+    if (!isOffBeat(beat))
+        return beat;
+
+    // Calculate the swing offset
+    // At swingAmount = 0.0: no swing (straight timing)
+    // At swingAmount = 0.5: moderate groove (common for jazz/funk)
+    // At swingAmount = 1.0: maximum swing (almost triplet feel)
+    // The offset shifts the off-beat forward by up to half of the grid size
+    double maxSwingOffset = gridSize * 0.5;
+    double swingOffset = maxSwingOffset * static_cast<double>(swingAmount);
+
+    return beat + swingOffset;
+}
+
+void PianoRoll::applySwingToSelectedNotes()
+{
+    if (midiRegion == nullptr || selectedNoteIndices.empty())
+        return;
+
+    // Skip if swing is disabled or amount is zero
+    if (!swingEnabled || swingAmount <= 0.0f)
+        return;
+
+    auto& seq = midiRegion->getMidiSequence();
+    double ticksPerBeat = 960.0;
+    double gridSize = getQuantizeGridSize();
+
+    // Process each selected note
+    for (int eventIndex : selectedNoteIndices)
+    {
+        if (eventIndex < 0 || eventIndex >= seq.getNumEvents())
+            continue;
+
+        auto* event = seq.getEventPointer(eventIndex);
+        if (event == nullptr || !event->message.isNoteOn())
+            continue;
+
+        // Get current beat position
+        double currentBeat = event->message.getTimeStamp() / ticksPerBeat;
+
+        // First, quantize to the grid (if close enough to an off-beat)
+        double quantizedBeat = std::round(currentBeat / gridSize) * gridSize;
+
+        // Only apply swing if the note is quantized to an off-beat position
+        if (isOffBeat(quantizedBeat))
+        {
+            // Calculate the swing offset
+            double maxSwingOffset = gridSize * 0.5;
+            double swingOffset = maxSwingOffset * static_cast<double>(swingAmount);
+
+            // Apply swing to the quantized position
+            double swungBeat = quantizedBeat + swingOffset;
+
+            // Calculate the delta between current and target
+            double delta = swungBeat - currentBeat;
+
+            // Apply the change proportional to quantize strength
+            double newBeat = currentBeat + (delta * static_cast<double>(quantizeStrength));
+
+            // Update the note-on timestamp
+            double newTicks = newBeat * ticksPerBeat;
+            event->message.setTimeStamp(newTicks);
+
+            // If there's a note-off, adjust it to maintain note length
+            if (event->noteOffObject != nullptr)
+            {
+                double noteOffBeat = event->noteOffObject->message.getTimeStamp() / ticksPerBeat;
+                double noteLength = noteOffBeat - currentBeat;
+
+                // Keep the same duration - note-off follows note-on
+                double newNoteOffBeat = newBeat + noteLength;
+                event->noteOffObject->message.setTimeStamp(newNoteOffBeat * ticksPerBeat);
+            }
         }
     }
 

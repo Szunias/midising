@@ -111,6 +111,12 @@ public:
     void setQuantizeStrength(float strength) { quantizeStrength = juce::jlimit(0.0f, 1.0f, strength); repaint(); }
     float getQuantizeStrength() const { return quantizeStrength; }
 
+    // Swing quantization settings
+    void setSwingEnabled(bool enabled) { swingEnabled = enabled; repaint(); }
+    bool isSwingEnabled() const { return swingEnabled; }
+    void setSwingAmount(float amount) { swingAmount = juce::jlimit(0.0f, 1.0f, amount); repaint(); }
+    float getSwingAmount() const { return swingAmount; }
+
     // Get the grid size in beats for the current quantize value
     double getQuantizeGridSize() const;
 
@@ -122,6 +128,15 @@ public:
 
     // Apply quantization to selected notes (uses quantizeStrength)
     void quantizeSelectedNotes();
+
+    // Apply swing to a beat position (shifts off-beats forward based on swing amount)
+    double applySwingToBeat(double beat) const;
+
+    // Check if a beat position is an off-beat (second note in grid pair)
+    bool isOffBeat(double beat) const;
+
+    // Apply swing quantization to selected notes
+    void applySwingToSelectedNotes();
 
     // CC Lane management
     void setCCLaneVisible(CCLaneType laneType, bool visible);
@@ -252,6 +267,10 @@ private:
     bool quantizeEnabled = true;  // Snap to grid enabled by default
     QuantizeValue quantizeValue = QuantizeValue::Sixteenth;  // Default to 1/16 notes
     float quantizeStrength = 1.0f;  // Quantize strength (0.0 = none, 1.0 = full)
+
+    // Swing quantization state
+    bool swingEnabled = false;  // Swing disabled by default
+    float swingAmount = 0.5f;   // Swing amount (0.0 = straight, 0.5 = moderate groove, 1.0 = max swing)
 
     // CC Lane visibility state (ModWheel, Sustain, PitchBend, Expression)
     bool ccLaneVisible[4] = { false, false, false, false };
