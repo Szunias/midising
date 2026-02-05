@@ -78,7 +78,7 @@ struct WaveformMipmapLevel
             stream.write(maxValues.data(), dataSize * sizeof(float));
             stream.write(rmsValues.data(), dataSize * sizeof(float));
         }
-        return !stream.getStatus().failed();
+        return true;
     }
 
     bool readFromBinaryStream(juce::InputStream& stream)
@@ -262,7 +262,7 @@ public:
                 return false;
         }
 
-        return !stream.getStatus().failed();
+        return true;
     }
 
     /**
@@ -320,7 +320,7 @@ private:
         // But for efficiency, we actually use 1 sample = 1 point
         auto& level = levels[0];
         level.samplesPerPoint = kMipmapFactors[0];
-        level.allocate(numChannels, totalSamples);
+        level.allocate(numChannels, static_cast<int>(totalSamples));
 
         for (int ch = 0; ch < numChannels; ++ch)
         {

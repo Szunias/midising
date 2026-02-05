@@ -113,7 +113,10 @@ namespace TempoRampUtils
 class TempoTrack
 {
 public:
-    TempoTrack(double initialBpm = 120.0);
+    TempoTrack(double bpm = 120.0)
+        : initialBpm(juce::jlimit(20.0, 300.0, bpm))
+    {
+    }
     ~TempoTrack() = default;
 
     //==========================================================================

@@ -1480,7 +1480,7 @@ void TimelineView::updateAutomationLaneViews()
                     // Set tempo from timeline if available
                     if (timelinePtr != nullptr)
                     {
-                        view->setTempo(timelinePtr->getTempo());
+                        view->setTempo(timelinePtr->getBpm());
                     }
 
                     // Configure display options
@@ -1509,7 +1509,7 @@ void TimelineView::syncAutomationLaneViewSettings()
 
             if (timelinePtr != nullptr)
             {
-                view->setTempo(timelinePtr->getTempo());
+                view->setTempo(timelinePtr->getBpm());
             }
 
             view->setSnapEnabled(snapToGrid);
@@ -3895,7 +3895,7 @@ void TimelineView::drawSpectrogramOverlay(juce::Graphics& g, juce::Rectangle<int
         return;
 
     // Get or generate spectrogram ID
-    int64_t thumbnailHash = region->getThumbnailHash();
+    int64_t thumbnailHash = audioRegion->getThumbnailHash();
     int64_t spectrogramId = 0;
 
     auto it = regionSpectrogramIds.find(thumbnailHash);

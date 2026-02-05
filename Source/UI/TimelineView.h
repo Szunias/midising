@@ -32,18 +32,6 @@ enum class WaveformDisplayMode
 };
 
 /**
- * Automation mode for Read/Write control.
- */
-enum class AutomationMode
-{
-    Off,        // Automation is disabled
-    Read,       // Read automation curves (default)
-    Write,      // Overwrite automation at playhead position
-    Touch,      // Write only while mouse is pressed
-    Latch       // Write from first touch until stopped
-};
-
-/**
  * TimelineView displays tracks, regions, time ruler, and playhead.
  * Main arrangement view of the DAW. Supports drag-and-drop for audio files.
  * Supports automation lanes with Read/Write modes for Volume and Pan.

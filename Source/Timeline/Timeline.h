@@ -4,13 +4,13 @@
 #include "TempoTrack.h"
 #include "TimeSignatureTrack.h"
 #include "../Utils/TimeConversion.h"
+#include "../Audio/MixGroup.h"
 #include <juce_core/juce_core.h>
 #include <memory>
 
 // Forward declarations
 class AuxTrack;
 class GroupBus;
-class MixGroup;
 
 /**
  * Timeline is the main container for all tracks in the DAW.

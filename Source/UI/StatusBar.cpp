@@ -1,6 +1,11 @@
 #include "StatusBar.h"
 #include "../Audio/AudioEngine.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+#endif
+
 StatusBar::StatusBar(juce::AudioDeviceManager& deviceManager)
     : audioDeviceManager(deviceManager)
 {
@@ -127,8 +132,15 @@ void StatusBar::timerCallback()
     juce::String cpuText = juce::String::formatted("CPU: %.1f%%", currentCpuUsage * 100.0);
 
     // Update memory usage statistics
-    auto memoryUsageMB = juce::SystemStats::getMemoryUsageInMegabytes();
-    juce::String memoryText = juce::String::formatted("Mem: %d MB", memoryUsageMB);
+    int64_t memoryUsageMB = 0;
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
+    {
+        memoryUsageMB = static_cast<int64_t>(pmc.WorkingSetSize / (1024 * 1024));
+    }
+#endif
+    juce::String memoryText = juce::String::formatted("Mem: %lld MB", memoryUsageMB);
     memoryLabel.setText(memoryText, juce::dontSendNotification);
 
     // Set memory label color based on usage (warning at 1GB, critical at 2GB)
