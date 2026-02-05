@@ -92,6 +92,28 @@ TransportBar::TransportBar()
     positionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(positionLabel);
 
+    // Metronome button
+    metronomeButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    metronomeButton.setClickingTogglesState(true);
+    metronomeButton.onClick = [this]()
+    {
+        if (onMetronomeToggle)
+            onMetronomeToggle(metronomeButton.getToggleState());
+    };
+    addAndMakeVisible(metronomeButton);
+
+    // Metronome volume slider
+    metronomeVolumeSlider.setRange(0.0, 1.0, 0.01);
+    metronomeVolumeSlider.setValue(0.7);
+    metronomeVolumeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    metronomeVolumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    metronomeVolumeSlider.onValueChange = [this]()
+    {
+        if (onMetronomeVolumeChange)
+            onMetronomeVolumeChange(metronomeVolumeSlider.getValue());
+    };
+    addAndMakeVisible(metronomeVolumeSlider);
+
     // Start timer for position updates
     startTimer(50); // 20 FPS
 }
