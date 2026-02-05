@@ -771,10 +771,11 @@ void ChannelStrip::showInsertContextMenu(int slotIndex, const juce::Point<int>& 
     if (audioTrack == nullptr)
         return;
 
-    auto* effect = audioTrack->getInsert(slotIndex);
-    if (effect == nullptr)
+    auto* insertEffect = audioTrack->getInsert(slotIndex);
+    if (insertEffect == nullptr)
         return;
 
+    juce::ignoreUnused(insertEffect);
     juce::PopupMenu menu;
 
     // Bypass toggle
@@ -813,11 +814,11 @@ void ChannelStrip::updateInsertSlots()
 
         if (audioTrack != nullptr)
         {
-            auto* effect = audioTrack->getInsert(i);
-            if (effect != nullptr)
+            auto* slotEffect = audioTrack->getInsert(i);
+            if (slotEffect != nullptr)
             {
                 slot->setEmpty(false);
-                slot->setEffectName(effect->getName());
+                slot->setEffectName(slotEffect->getName());
                 slot->setBypassed(audioTrack->isInsertBypassed(i));
             }
             else

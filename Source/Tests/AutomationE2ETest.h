@@ -316,7 +316,6 @@ private:
         juce::AudioBuffer<float> outputMid(2, blockSize);
         mixer.processBlock(timeline, outputMid, blockSize * 3, blockSize);
         mixer.updatePeakLevels(outputMid);
-        float peakMid = mixer.getPeakLevel(0);
 
         // Process block at end (should be lowest)
         juce::AudioBuffer<float> outputEnd(2, blockSize);

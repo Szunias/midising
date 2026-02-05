@@ -282,7 +282,6 @@ private:
 
         // Initial state
         int64_t originalLength = regionPtr->getLength();
-        float originalStretchRatio = regionPtr->getStretchRatio();
 
         // Simulate Alt+drag edge to stretch to 2x duration
         // This simulates the user workflow: Hold Alt and drag edge
@@ -535,7 +534,7 @@ private:
 
         // Store original values
         const int64_t originalLength = regionPtr->getLength();
-        const float originalStretchRatio = regionPtr->getStretchRatio();
+        juce::ignoreUnused(originalLength);
 
         // Measure input frequency
         float inputFrequency = estimateFrequency(regionPtr->getAudioBuffer(), sampleRate);

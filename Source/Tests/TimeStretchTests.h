@@ -333,9 +333,6 @@ private:
         auto inputBuffer = createSineBuffer(blockSize * 2, 440.0f, 0.5f, 2);
         timeStretch.pushSamples(inputBuffer);
 
-        // There should be some output available
-        int availableBefore = timeStretch.getAvailableOutputSamples();
-
         // Reset the processor
         timeStretch.reset();
 

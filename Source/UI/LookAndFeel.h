@@ -448,10 +448,10 @@ public:
             juce::Path tick;
             tick.startNewSubPath(tickArea.getX() + tickArea.getWidth() * 0.2f,
                                  tickArea.getCentreY());
-            tick.lineTo(tickArea.getX() + tickArea.getWidth() * 0.4f,
-                       tickArea.getY() + tickArea.getHeight() * 0.7f);
-            tick.lineTo(tickArea.getX() + tickArea.getWidth() * 0.8f,
-                       tickArea.getY() + tickArea.getHeight() * 0.3f);
+            tick.lineTo(static_cast<float>(tickArea.getX()) + static_cast<float>(tickArea.getWidth()) * 0.4f,
+                       static_cast<float>(tickArea.getY()) + static_cast<float>(tickArea.getHeight()) * 0.7f);
+            tick.lineTo(static_cast<float>(tickArea.getX()) + static_cast<float>(tickArea.getWidth()) * 0.8f,
+                       static_cast<float>(tickArea.getY()) + static_cast<float>(tickArea.getHeight()) * 0.3f);
             g.setColour(accentColour);
             g.strokePath(tick, juce::PathStrokeType(2.0f));
             r.removeFromLeft(4);

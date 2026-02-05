@@ -1265,7 +1265,6 @@ private:
         for (const auto& human : humanizations)
         {
             double searchStart = forward ? human.originalStartTicks : human.humanizedStartTicks;
-            float searchVel = forward ? human.originalVelocity : human.humanizedVelocity;
 
             double targetStart = forward ? human.humanizedStartTicks : human.originalStartTicks;
             double targetEnd = forward ? human.humanizedEndTicks : human.originalEndTicks;

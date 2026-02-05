@@ -449,7 +449,6 @@ private:
         // === Step 4: Play back and verify CC affects sound ===
         // Collect all CC events in playback order
         std::vector<int> ccValues;
-        double ticksPerBeat = 960.0;
 
         for (int i = 0; i < seq.getNumEvents(); ++i)
         {

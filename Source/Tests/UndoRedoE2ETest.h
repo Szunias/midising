@@ -641,7 +641,6 @@ private:
         track1->addRegion(std::move(region1));
 
         auto region2 = createTestRegion(44100, 22050, "Chorus");
-        AudioRegion* region2Ptr = region2.get();
         track1->addRegion(std::move(region2));
 
         AutomationLane* volumeLane = track1->addAutomationLane("Volume");

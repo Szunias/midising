@@ -693,7 +693,7 @@ private:
      * @param outputBuffer The master output buffer
      * @param numSamples Number of samples to process
      */
-    void mixInputMonitoring(Timeline& timeline, juce::AudioBuffer<float>& outputBuffer, int numSamples)
+    void mixInputMonitoring(Timeline& timeline, juce::AudioBuffer<float>& outputBuffer, [[maybe_unused]] int numSamples)
     {
         for (int i = 0; i < timeline.getNumTracks(); ++i)
         {

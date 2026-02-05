@@ -273,7 +273,6 @@ int Metronome::getCountInBeatsRemaining(int64_t currentPosition, double bpm) con
 
     // Calculate total count-in duration
     const int totalBeats = countInBars.load() * beatsPerMeasure;
-    const double totalSamples = samplesPerBeat * totalBeats;
 
     // Calculate elapsed samples since count-in started
     const int64_t elapsedSamples = currentPosition - startPos;

@@ -55,7 +55,7 @@ public:
             highShelfFilters[ch].reset();
             highShelfFilters[ch].prepare(spec);
             highShelfFilters[ch].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighShelf(
-                sampleRate, 1681.974, 0.7071068, juce::Decibels::decibelsToGain(4.0f));
+                static_cast<float>(sampleRate), 1681.974f, 0.7071068f, juce::Decibels::decibelsToGain(4.0f));
         }
 
         // Stage 2: High-pass filter (RLB weighting)
@@ -65,7 +65,7 @@ public:
             highPassFilters[ch].reset();
             highPassFilters[ch].prepare(spec);
             highPassFilters[ch].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass(
-                sampleRate, 38.13547, 0.5003270);
+                static_cast<float>(sampleRate), 38.13547f, 0.5003270f);
         }
 
         // Calculate block sizes for momentary (400ms) and short-term (3s) windows

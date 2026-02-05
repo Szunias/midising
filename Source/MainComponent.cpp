@@ -966,7 +966,7 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
     return menu;
 }
 
-void MainComponent::menuItemSelected(int menuItemID, int topLevelMenuIndex)
+void MainComponent::menuItemSelected(int menuItemID, [[maybe_unused]] int topLevelMenuIndex)
 {
     // Handle recent files menu items
     if (menuItemID >= 1000 && menuItemID < 2000)
@@ -1530,13 +1530,13 @@ public:
         setStatusMessage("Rendering audio...");
 
         exportSuccess = exporter.exportToFile(audioEngine, file, 0, lengthSamples,
-            [this](float progress)
+            [this](float exportProgress)
             {
                 // Update progress bar (0.0 to 1.0)
-                setProgress(static_cast<double>(progress));
+                setProgress(static_cast<double>(exportProgress));
 
                 // Update status message with percentage
-                int percent = static_cast<int>(progress * 100.0f);
+                int percent = static_cast<int>(exportProgress * 100.0f);
                 setStatusMessage("Exporting... " + juce::String(percent) + "%");
 
                 // Check for user cancellation

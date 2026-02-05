@@ -50,11 +50,9 @@ private:
         bool passed = true;
 
         // Verify all components are accessible
-        Timeline& timeline = engine.getTimeline();
         Transport& transport = engine.getTransport();
-        Mixer& mixer = engine.getMixer();
-        MidiEngine& midiEngine = engine.getMidiEngine();
-        AudioRecorder& recorder = engine.getRecorder();
+        juce::ignoreUnused(engine.getTimeline(), engine.getMixer(), 
+                          engine.getMidiEngine(), engine.getRecorder());
 
         // Verify initial state
         passed &= (transport.isStopped());

@@ -85,7 +85,7 @@ void TimeStretch::reset()
 }
 
 void TimeStretch::process(const juce::AudioBuffer<float>& inputBuffer,
-                          juce::AudioBuffer<float>& outputBuffer)
+                          juce::AudioBuffer<float>& outBuffer)
 {
     const int numInputChannels = inputBuffer.getNumChannels();
     const int numInputSamples = inputBuffer.getNumSamples();
@@ -95,7 +95,7 @@ void TimeStretch::process(const juce::AudioBuffer<float>& inputBuffer,
         std::ceil(numInputSamples / stretchRatio));
 
     // Ensure output buffer is properly sized
-    outputBuffer.setSize(numInputChannels, expectedOutputSamples, false, true, true);
+    outBuffer.setSize(numInputChannels, expectedOutputSamples, false, true, true);
 
     numChannels = numInputChannels;
 
@@ -103,7 +103,7 @@ void TimeStretch::process(const juce::AudioBuffer<float>& inputBuffer,
     pushSamples(inputBuffer);
 
     // Pull output samples
-    pullSamples(outputBuffer, expectedOutputSamples);
+    pullSamples(outBuffer, expectedOutputSamples);
 }
 
 void TimeStretch::pushSamples(const juce::AudioBuffer<float>& inputBuffer)
@@ -314,15 +314,6 @@ void TimeStretch::synthesizeFrame(int channel)
         state.outputFifoWritePos = (state.outputFifoWritePos + 1) % outputFifoSize;
     }
 
-    // Clear the overlap buffer ahead for next frame
-    for (int i = 0; i < fftSize; ++i)
-    {
-        const int clearIndex = (state.outputFifoWritePos + i) % outputFifoSize;
-        if (i >= synthesisHopSize)
-        {
-            // Only clear samples that won't be used in the current overlap
-        }
-    }
 }
 
 bool TimeStretch::detectTransient(int channel, const float* frame)

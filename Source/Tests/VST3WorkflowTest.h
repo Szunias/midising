@@ -194,7 +194,7 @@ private:
         // The buffer should have some audio output (not silent if synth is working)
         // With the built-in synth, we expect some audio
         // Note: Without plugin, uses MidiEngine's built-in synthesis
-        float maxLevel = buffer.getMagnitude(0, blockSize);
+        juce::ignoreUnused(buffer.getMagnitude(0, blockSize));
 
         // Built-in synth may produce audio, or may be silent if not triggered
         // The important thing is that processBlock completes without error

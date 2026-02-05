@@ -1358,7 +1358,6 @@ void PianoRoll::handleSelectToolMouseUp(const juce::MouseEvent& e)
 
         // Find all notes that intersect with the selection rectangle
         const auto& seq = midiRegion->getMidiSequence();
-        double ticksPerBeat = 960.0;
 
         for (int i = 0; i < seq.getNumEvents(); ++i)
         {

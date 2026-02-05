@@ -323,9 +323,6 @@ void PitchShift::shiftPitch(int channel)
         // Scale frequency for the destination bin
         const float scaledFreq = trueFreq * pitchRatio;
 
-        // Calculate expected phase advance for destination bin
-        const float destExpectedPhase = static_cast<float>(destBin) * expectedPhaseDiff;
-
         // Calculate phase increment
         const float phaseIncrement = scaledFreq;
 

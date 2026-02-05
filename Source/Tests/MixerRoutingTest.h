@@ -254,7 +254,7 @@ private:
         timeline.addTrack(track2);
 
         // Create aux track for reverb
-        AuxTrack* reverbAux = timeline.createAuxTrack("Reverb");
+        juce::ignoreUnused(timeline.createAuxTrack("Reverb"));
 
         // Set up sends from tracks to aux
         SendManager& sendMgr1 = track1->getSendManager();
