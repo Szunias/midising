@@ -105,6 +105,7 @@ private:
 
     // Last beat tracking (to avoid retriggering same beat)
     int64_t lastBeatSample = -1;
+    int64_t lastTriggeredBeat = -1;  // Track which beat number was last triggered
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Metronome)
 };

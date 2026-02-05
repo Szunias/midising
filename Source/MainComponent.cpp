@@ -9,6 +9,7 @@
 #include "UI/CommandIDs.h"
 #include "UI/SettingsPanel.h"
 #include "Export/AudioExporter.h"
+#include "Plugins/PluginManager.h"
 
 //==============================================================================
 MainComponent::MainComponent()
@@ -93,6 +94,9 @@ MainComponent::~MainComponent()
     removeKeyListener(this);
     setLookAndFeel(nullptr);
     shutdownAudio();
+    
+    // Clean up PluginManager singleton
+    PluginManager::destroyInstance();
 
     // Clean up recovery file on normal exit if no unsaved changes
     if (!hasUnsavedChanges_)
@@ -155,6 +159,9 @@ void MainComponent::prepareToPlay(int samplesPerBlockExpected, double sampleRate
 
     audioEngine.prepareToPlay(samplesPerBlockExpected, sampleRate);
     timelineView.setSampleRate(sampleRate);
+    
+    // Initialize PluginManager with audio settings for VST plugin hosting
+    PluginManager::getInstance().prepareToPlay(sampleRate, samplesPerBlockExpected);
 }
 
 void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
@@ -299,6 +306,7 @@ void MainComponent::setupTransportCallbacks()
     transportBar.onBpmChange = [this](double bpm)
     {
         audioEngine.getTimeline().setBpm(bpm);
+        audioEngine.getTransport().setBPM(bpm);  // Also update transport for metronome
         setHasUnsavedChanges(true);
     };
 

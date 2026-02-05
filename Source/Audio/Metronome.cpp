@@ -118,25 +118,19 @@ bool Metronome::shouldTriggerClick(int64_t playheadPosition, double bpm, int& be
 
     // Calculate which beat we're on
     const int64_t currentBeat = static_cast<int64_t>(playheadPosition / samplesPerBeat);
-    const int64_t beatStartSample = static_cast<int64_t>(currentBeat * samplesPerBeat);
-
-    // Avoid retriggering the same beat
-    if (beatStartSample == lastBeatSample)
+    
+    // Check if this is a new beat (different from last triggered beat)
+    if (currentBeat == lastTriggeredBeat)
     {
         return false;
     }
 
-    // Check if we're at or past a beat boundary (within a small tolerance)
-    const int64_t tolerance = 128; // Samples tolerance for beat detection
-    if (playheadPosition >= beatStartSample &&
-        playheadPosition < beatStartSample + tolerance)
-    {
-        // Calculate beat number within measure (1-4 for 4/4 time)
-        beatNumber = static_cast<int>((currentBeat % beatsPerMeasure) + 1);
-        return true;
-    }
-
-    return false;
+    // We've crossed into a new beat - trigger click
+    lastTriggeredBeat = currentBeat;
+    
+    // Calculate beat number within measure (1-4 for 4/4 time)
+    beatNumber = static_cast<int>((currentBeat % beatsPerMeasure) + 1);
+    return true;
 }
 
 void Metronome::setCountInBars(int bars)
@@ -154,6 +148,7 @@ void Metronome::startCountIn(int64_t startPosition)
         isCountingIn.store(true);
         countInStartPosition.store(startPosition);
         lastBeatSample = -1; // Reset beat tracking for fresh count-in
+        lastTriggeredBeat = -1;
     }
 }
 
@@ -162,6 +157,7 @@ void Metronome::stopCountIn()
     isCountingIn.store(false);
     countInStartPosition.store(-1);
     lastBeatSample = -1;
+    lastTriggeredBeat = -1;
 }
 
 void Metronome::resetCountIn()

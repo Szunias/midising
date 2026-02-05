@@ -1,5 +1,15 @@
 #include "MixerPanel.h"
 #include "../Audio/MixGroup.h"
+#include "../Audio/AudioTrack.h"
+#include "../Plugins/PluginManager.h"
+#include "../Plugins/PluginInstance.h"
+#include "../Effects/GainEffect.h"
+#include "../Effects/SimpleEQEffect.h"
+#include "../Effects/ReverbEffect.h"
+#include "../Effects/ParametricEQ.h"
+#include "../Effects/VCACompressor.h"
+#include "../Effects/StereoDelay.h"
+#include <map>
 
 MixerPanel::MixerPanel()
 {
@@ -221,6 +231,138 @@ void MixerPanel::updateChannelStrips()
                     }
                 }
             }
+        };
+
+        // Set up insert slot click callback to show plugin/effect selector
+        channelStrips[i]->onInsertSlotClicked = [this](Track* t, int slotIndex)
+        {
+            if (t == nullptr)
+                return;
+
+            auto* audioTrack = dynamic_cast<AudioTrack*>(t);
+            if (audioTrack == nullptr)
+                return;
+
+            // Build popup menu with built-in effects and VST plugins
+            juce::PopupMenu menu;
+
+            // Built-in effects submenu
+            juce::PopupMenu builtInMenu;
+            builtInMenu.addItem(101, "Gain");
+            builtInMenu.addItem(102, "Simple EQ");
+            builtInMenu.addItem(103, "Parametric EQ");
+            builtInMenu.addItem(104, "VCA Compressor");
+            builtInMenu.addItem(105, "Reverb");
+            builtInMenu.addItem(106, "Stereo Delay");
+            menu.addSubMenu("Built-in Effects", builtInMenu);
+
+            // VST3 Plugins submenu
+            auto& pluginManager = PluginManager::getInstance();
+            auto effectPlugins = pluginManager.getEffectPlugins();
+
+            if (!effectPlugins.isEmpty())
+            {
+                juce::PopupMenu vstMenu;
+
+                // Group by manufacturer
+                std::map<juce::String, juce::Array<juce::PluginDescription>> byManufacturer;
+                for (const auto& desc : effectPlugins)
+                {
+                    juce::String mfr = desc.manufacturerName.isEmpty() ? "Unknown" : desc.manufacturerName;
+                    byManufacturer[mfr].add(desc);
+                }
+
+                int vstId = 1000;
+                for (auto& [manufacturer, plugins] : byManufacturer)
+                {
+                    juce::PopupMenu mfrMenu;
+                    for (const auto& plugin : plugins)
+                    {
+                        mfrMenu.addItem(vstId++, plugin.name);
+                    }
+                    vstMenu.addSubMenu(manufacturer, mfrMenu);
+                }
+
+                menu.addSubMenu("VST3 Plugins", vstMenu);
+            }
+
+            menu.addSeparator();
+            menu.addItem(1, "Scan for VST3 plugins...");
+
+            // Show menu
+            menu.showMenuAsync(juce::PopupMenu::Options(),
+                [this, audioTrack, slotIndex, effectPlugins](int result)
+                {
+                    if (result == 0)
+                        return;
+
+                    if (result == 1)
+                    {
+                        // Scan for plugins
+                        PluginManager::getInstance().startScan(
+                            [](float progress, const juce::String& pluginName) {
+                                DBG("Scanning: " + juce::String(progress * 100, 1) + "% - " + pluginName);
+                            },
+                            []() {
+                                DBG("Plugin scan complete");
+                            });
+                        return;
+                    }
+
+                    // Built-in effects (101-199)
+                    if (result >= 101 && result < 200)
+                    {
+                        std::unique_ptr<Effect> effect;
+                        switch (result)
+                        {
+                            case 101: effect = std::make_unique<GainEffect>(); break;
+                            case 102: effect = std::make_unique<SimpleEQEffect>(); break;
+                            case 103: effect = std::make_unique<ParametricEQ>(); break;
+                            case 104: effect = std::make_unique<VCACompressor>(); break;
+                            case 105: effect = std::make_unique<ReverbEffect>(); break;
+                            case 106: effect = std::make_unique<StereoDelay>(); break;
+                        }
+                        if (effect)
+                        {
+                            audioTrack->addInsertAtSlot(slotIndex, std::move(effect));
+                        }
+                        return;
+                    }
+
+                    // VST3 plugins (1000+)
+                    if (result >= 1000)
+                    {
+                        int pluginIndex = result - 1000;
+                        if (pluginIndex >= 0 && pluginIndex < effectPlugins.size())
+                        {
+                            const auto& desc = effectPlugins[pluginIndex];
+                            
+                            // Load plugin asynchronously
+                            PluginManager::getInstance().loadPluginAsync(desc,
+                                [audioTrack, slotIndex, desc](std::unique_ptr<juce::AudioPluginInstance> instance,
+                                                              const juce::String& errorMessage)
+                                {
+                                    if (instance == nullptr)
+                                    {
+                                        juce::AlertWindow::showMessageBoxAsync(
+                                            juce::MessageBoxIconType::WarningIcon,
+                                            "Plugin Load Error",
+                                            "Failed to load '" + desc.name + "':\n" + errorMessage);
+                                        return;
+                                    }
+
+                                    // For now, just show that it loaded successfully
+                                    // Full integration would require PluginEffect wrapper class
+                                    DBG("Plugin loaded successfully: " + desc.name);
+                                    juce::AlertWindow::showMessageBoxAsync(
+                                        juce::MessageBoxIconType::InfoIcon,
+                                        "Plugin Loaded",
+                                        "Plugin '" + desc.name + "' loaded successfully.\n\n"
+                                        "Note: Full VST insert integration is still in progress.");
+                                });
+                        }
+                    }
+                });
         };
     }
 }

@@ -70,6 +70,14 @@ target_sources(MidiSing
         Source/MIDI/MidiImporter.cpp
         Source/MIDI/PluginHost.h
         Source/MIDI/PluginHost.cpp
+        # Plugins (VST3 hosting)
+        Source/Plugins/PluginInstance.h
+        Source/Plugins/PluginInstance.cpp
+        Source/Plugins/PluginManager.h
+        Source/Plugins/PluginManager.cpp
+        # Presets
+        Source/Presets/PresetManager.h
+        Source/Presets/PresetManager.cpp
         # UI
         Source/UI/LookAndFeel.h
         Source/UI/TransportBar.h
@@ -137,6 +145,10 @@ target_sources(MidiSing
         Source/Effects/StereoDelay.cpp
         Source/UI/EffectRackUI.h
         Source/UI/EffectRackUI.cpp
+        Source/UI/PluginSlot.h
+        Source/UI/PluginSlot.cpp
+        Source/UI/PluginWindow.h
+        Source/UI/PluginWindow.cpp
         Source/UI/CollapsiblePanel.h
         Source/UI/BrowserPanel.h
         Source/UI/FileBrowser.h
