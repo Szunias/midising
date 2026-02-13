@@ -16,6 +16,8 @@
 #include "TimeStretchE2ETest.h"
 #include "PerformanceVerificationTest.h"
 #include "TempoTimeSigTest.h"
+#include "EffectParamTest.h"
+#include "PDCTest.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -85,6 +87,24 @@ public:
             passedTests += 7;
         }
         totalTests += 7;
+        juce::Logger::writeToLog("");
+
+        // Effect Parameter tests (v1.4)
+        juce::Logger::writeToLog("--- Effect Parameter Tests ---");
+        if (EffectParamTest::runAllTests())
+        {
+            passedTests += 20;
+        }
+        totalTests += 20;
+        juce::Logger::writeToLog("");
+
+        // PDC tests (v1.4)
+        juce::Logger::writeToLog("--- PDC Tests ---");
+        if (PDCTest::runAllTests())
+        {
+            passedTests += 5;
+        }
+        totalTests += 5;
         juce::Logger::writeToLog("");
 
         // Undo System tests

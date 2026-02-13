@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(MidiSing VERSION 1.3.0 LANGUAGES CXX)
+project(MidiSing VERSION 1.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,6 +46,7 @@ target_sources(MidiSing
         Source/Timeline/Timeline.cpp
         Source/Timeline/AutomationLane.h
         Source/Timeline/AutomationLane.cpp
+        Source/Timeline/AutomationTarget.h
         Source/Timeline/TempoTrack.h
         Source/Timeline/TimeSignatureTrack.h
         Source/Timeline/Marker.h
@@ -56,6 +57,8 @@ target_sources(MidiSing
         # Audio
         Source/Audio/Transport.h
         Source/Audio/Mixer.h
+        Source/Audio/DelayCompensation.h
+        Source/Audio/SidechainRouter.h
         Source/Audio/LoudnessMeter.h
         Source/Audio/SendReturn.h
         Source/Audio/SendReturn.cpp
@@ -171,6 +174,7 @@ target_sources(MidiSing
         Source/Actions/TempoActions.h
         Source/Actions/TimeSignatureActions.h
         # Effects
+        Source/Effects/EffectParameter.h
         Source/Effects/Effect.h
         Source/Effects/EffectChain.h
         Source/Effects/EffectChain.cpp
@@ -201,6 +205,8 @@ target_sources(MidiSing
         Source/Effects/DeEsser.cpp
         Source/UI/EffectRackUI.h
         Source/UI/EffectRackUI.cpp
+        Source/UI/EffectParameterEditor.h
+        Source/UI/EffectParameterEditor.cpp
         Source/UI/PluginSlot.h
         Source/UI/PluginSlot.cpp
         Source/UI/PluginWindow.h
@@ -274,6 +280,7 @@ target_sources(MidiSingTests
         Source/Timeline/Timeline.cpp
         Source/Timeline/AutomationLane.h
         Source/Timeline/AutomationLane.cpp
+        Source/Timeline/AutomationTarget.h
         Source/Timeline/TempoTrack.h
         Source/Timeline/TimeSignatureTrack.h
         Source/Timeline/Marker.h
@@ -283,6 +290,8 @@ target_sources(MidiSingTests
         Source/Timeline/TrackFolder.h
         Source/Audio/Transport.h
         Source/Audio/Mixer.h
+        Source/Audio/DelayCompensation.h
+        Source/Audio/SidechainRouter.h
         Source/Audio/LoudnessMeter.h
         Source/Audio/SendReturn.h
         Source/Audio/SendReturn.cpp
@@ -350,6 +359,7 @@ target_sources(MidiSingTests
         Source/Actions/GrooveActions.h
         Source/Actions/TempoActions.h
         Source/Actions/TimeSignatureActions.h
+        Source/Effects/EffectParameter.h
         Source/Effects/Effect.h
         Source/Effects/EffectChain.h
         Source/Effects/EffectChain.cpp
@@ -403,6 +413,8 @@ target_sources(MidiSingTests
         Source/Tests/TimeStretchE2ETest.h
         Source/Tests/PerformanceVerificationTest.h
         Source/Tests/TempoTimeSigTest.h
+        Source/Tests/EffectParamTest.h
+        Source/Tests/PDCTest.h
 )
 
 target_compile_definitions(MidiSingTests

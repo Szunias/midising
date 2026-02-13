@@ -103,4 +103,10 @@ namespace CommandIDs
 
     // Loudness meter
     static const int toggleLoudnessMeter = 0xF001;
+
+    // v1.4 - Effect editor, automation, PDC, sidechain
+    static const int openEffectEditor     = 0xF101;
+    static const int addEffectAutomation  = 0xF102;
+    static const int recalculatePDC       = 0xF103;
+    static const int setSidechainSource   = 0xF104;
 }

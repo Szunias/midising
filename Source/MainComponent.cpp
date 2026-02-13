@@ -2170,13 +2170,17 @@ void MainComponent::exportAudio()
 void MainComponent::showAboutDialog()
 {
     juce::String message;
-    message << "MidiSing v1.3.0\n\n"
+    message << "MidiSing v1.4.0\n\n"
             << "A digital audio workstation built with JUCE.\n\n"
             << "Features:\n"
             << "  - Multi-track audio and MIDI recording\n"
             << "  - VST3 plugin hosting\n"
             << "  - Built-in effects (EQ, Reverb, Compressor, Delay,\n"
             << "    Phaser, Multiband Compressor, De-Esser, and more)\n"
+            << "  - Visual effect parameter editing\n"
+            << "  - Effect/plugin parameter automation\n"
+            << "  - Plugin delay compensation (PDC)\n"
+            << "  - Sidechain routing\n"
             << "  - Tempo Track and Time Signature Track editors\n"
             << "  - Marker/Locator system, Punch-In/Out recording\n"
             << "  - Crossfade editor, Region processing (Reverse/Normalize)\n"

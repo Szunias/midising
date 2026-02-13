@@ -36,6 +36,28 @@ public:
     // Metering
     float getGainReduction() const { return currentGainReduction; }
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        return {
+            { "ceiling",   "Ceiling",    -12.0f, 0.0f,   -0.3f,  ceilingDb,    0.1f, "dB", 1.0f },
+            { "release",   "Release",    1.0f,   500.0f, 100.0f, releaseMs,    1.0f, "ms", 2.0f },
+            { "inputGain", "Input Gain", -12.0f, 24.0f,  0.0f,   inputGainDb,  0.1f, "dB", 1.0f }
+        };
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        if (id == "ceiling")         setCeiling(value);
+        else if (id == "release")    setRelease(value);
+        else if (id == "inputGain")  setInputGain(value);
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        if (id == "ceiling")         return ceilingDb;
+        if (id == "release")         return releaseMs;
+        if (id == "inputGain")       return inputGainDb;
+        return 0.0f;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override;
     void loadFromXml(const juce::XmlElement& xml) override;

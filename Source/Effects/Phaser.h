@@ -35,6 +35,37 @@ public:
     int getNumStages() const { return numStages; }
     float getCenterFreq() const { return centerFreq; }
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        return {
+            { "rate",       "Rate",        0.1f,  5.0f,    0.5f,    rateHz,     0.01f, "Hz", 2.0f },
+            { "depth",      "Depth",       0.0f,  1.0f,    0.7f,    depth,      0.01f, "",   1.0f },
+            { "feedback",   "Feedback",    0.0f,  0.95f,   0.3f,    feedback,   0.01f, "",   1.0f },
+            { "mix",        "Mix",         0.0f,  1.0f,    0.5f,    mix,        0.01f, "",   1.0f },
+            { "stages",     "Stages",      2.0f,  12.0f,   6.0f,    static_cast<float>(numStages), 2.0f, "", 1.0f },
+            { "centerFreq", "Center Freq", 200.0f, 5000.0f, 1000.0f, centerFreq, 1.0f, "Hz", 2.0f }
+        };
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        if (id == "rate")            setRate(value);
+        else if (id == "depth")      setDepth(value);
+        else if (id == "feedback")   setFeedback(value);
+        else if (id == "mix")        setMix(value);
+        else if (id == "stages")     setNumStages(static_cast<int>(value));
+        else if (id == "centerFreq") setCenterFreq(value);
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        if (id == "rate")            return rateHz;
+        if (id == "depth")           return depth;
+        if (id == "feedback")        return feedback;
+        if (id == "mix")             return mix;
+        if (id == "stages")          return static_cast<float>(numStages);
+        if (id == "centerFreq")      return centerFreq;
+        return 0.0f;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override;
     void loadFromXml(const juce::XmlElement& xml) override;

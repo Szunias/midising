@@ -40,6 +40,31 @@ public:
     // Metering
     float getCurrentGainReduction() const { return currentGainReduction; }
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        return {
+            { "frequency",  "Frequency",  2000.0f, 12000.0f, 6000.0f, frequency,    1.0f, "Hz", 2.0f },
+            { "bandwidth",  "Bandwidth",  0.5f,    3.0f,     1.5f,    bandwidth,    0.01f, "oct", 1.0f },
+            { "threshold",  "Threshold",  -40.0f,  0.0f,     -20.0f,  thresholdDb,  0.1f, "dB", 1.0f },
+            { "reduction",  "Reduction",  0.0f,    24.0f,    6.0f,    reductionDb,  0.1f, "dB", 1.0f }
+        };
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        if (id == "frequency")       setFrequency(value);
+        else if (id == "bandwidth")  setBandwidth(value);
+        else if (id == "threshold")  setThreshold(value);
+        else if (id == "reduction")  setReduction(value);
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        if (id == "frequency")       return frequency;
+        if (id == "bandwidth")       return bandwidth;
+        if (id == "threshold")       return thresholdDb;
+        if (id == "reduction")       return reductionDb;
+        return 0.0f;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override;
     void loadFromXml(const juce::XmlElement& xml) override;

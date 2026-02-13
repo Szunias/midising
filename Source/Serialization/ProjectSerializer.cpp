@@ -1328,6 +1328,13 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createAutomationLanesXml(co
         laneXml->setAttribute("maxValue", lane->getMaxValue());
         laneXml->setAttribute("height", lane->getHeight());
 
+        // Save automation target data
+        const auto& target = lane->getTarget();
+        laneXml->setAttribute("targetType", static_cast<int>(target.targetType));
+        laneXml->setAttribute("effectIndex", target.effectIndex);
+        laneXml->setAttribute("parameterId", target.parameterId);
+        laneXml->setAttribute("parameterName", target.parameterName);
+
         // Save automation points
         const auto& points = lane->getPoints();
         for (const auto& point : points)
@@ -1370,6 +1377,14 @@ void ProjectSerializer::restoreAutomationLanesFromXml(Track& track, const juce::
             static_cast<float>(laneXml->getDoubleAttribute("maxValue", 1.0))
         );
         lane->setHeight(laneXml->getIntAttribute("height", 60));
+
+        // Restore automation target data
+        AutomationTarget target;
+        target.targetType = static_cast<AutomationTarget::Type>(laneXml->getIntAttribute("targetType", 0));
+        target.effectIndex = laneXml->getIntAttribute("effectIndex", -1);
+        target.parameterId = laneXml->getStringAttribute("parameterId");
+        target.parameterName = laneXml->getStringAttribute("parameterName");
+        lane->setTarget(target);
 
         // Restore automation points
         for (auto* pointXml : laneXml->getChildIterator())

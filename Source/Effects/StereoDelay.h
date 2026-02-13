@@ -69,6 +69,34 @@ public:
     float getFilterCutoff() const { return filterCutoffHz; }
     bool isPingPong() const { return pingPongEnabled; }
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        return {
+            { "delayL",    "Delay L",     1.0f,   2000.0f, 250.0f, delayTimeLeftMs,  1.0f, "ms", 2.0f },
+            { "delayR",    "Delay R",     1.0f,   2000.0f, 250.0f, delayTimeRightMs, 1.0f, "ms", 2.0f },
+            { "feedback",  "Feedback",    0.0f,   0.95f,   0.4f,   feedback,         0.01f, "", 1.0f },
+            { "mix",       "Mix",         0.0f,   1.0f,    0.5f,   mix,              0.01f, "", 1.0f },
+            { "filterCutoff", "Filter",   200.0f, 16000.0f, 8000.0f, filterCutoffHz, 1.0f, "Hz", 2.0f }
+        };
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        if (id == "delayL")           setDelayTimeLeftMs(value);
+        else if (id == "delayR")      setDelayTimeRightMs(value);
+        else if (id == "feedback")    setFeedback(value);
+        else if (id == "mix")         setMix(value);
+        else if (id == "filterCutoff") setFilterCutoff(value);
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        if (id == "delayL")           return delayTimeLeftMs;
+        if (id == "delayR")           return delayTimeRightMs;
+        if (id == "feedback")         return feedback;
+        if (id == "mix")              return mix;
+        if (id == "filterCutoff")     return filterCutoffHz;
+        return 0.0f;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override;
     void loadFromXml(const juce::XmlElement& xml) override;

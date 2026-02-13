@@ -44,6 +44,34 @@ public:
     float getMix() const { return mix; }
     float getDelayOffset() const { return delayOffsetMs; }
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        return {
+            { "rate",     "Rate",     0.1f, 10.0f,  0.5f,   rateHz,        0.01f, "Hz", 2.0f },
+            { "depth",    "Depth",    0.0f, 1.0f,   0.5f,   depth,         0.01f, "",   1.0f },
+            { "feedback", "Feedback", 0.0f, 0.95f,  0.0f,   feedback,      0.01f, "",   1.0f },
+            { "mix",      "Mix",      0.0f, 1.0f,   0.5f,   mix,           0.01f, "",   1.0f },
+            { "delay",    "Delay",    1.0f, 50.0f,  20.0f,  delayOffsetMs, 0.1f,  "ms", 2.0f }
+        };
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        if (id == "rate")            setRate(value);
+        else if (id == "depth")      setDepth(value);
+        else if (id == "feedback")   setFeedback(value);
+        else if (id == "mix")        setMix(value);
+        else if (id == "delay")      setDelayOffset(value);
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        if (id == "rate")            return rateHz;
+        if (id == "depth")           return depth;
+        if (id == "feedback")        return feedback;
+        if (id == "mix")             return mix;
+        if (id == "delay")           return delayOffsetMs;
+        return 0.0f;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override;
     void loadFromXml(const juce::XmlElement& xml) override;

@@ -55,6 +55,43 @@ public:
     // Convenience setters for all parameters at once
     void setBandParams(int bandIndex, float frequency, float gainDecibels, float q);
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        std::vector<EffectParameter> p;
+        const char* bandNames[] = { "LowShelf", "LowMid", "Mid", "HighMid", "HighShelf" };
+        for (int i = 0; i < NumBands; ++i)
+        {
+            juce::String prefix = juce::String(bandNames[i]);
+            p.push_back({ prefix + "_freq", prefix + " Freq", 20.0f, 20000.0f, defaultFrequencies[i], bands[i].frequency, 1.0f, "Hz", 2.0f });
+            p.push_back({ prefix + "_gain", prefix + " Gain", -18.0f, 18.0f, 0.0f, bands[i].gainDb, 0.1f, "dB", 1.0f });
+            p.push_back({ prefix + "_q",    prefix + " Q",    0.1f, 10.0f, 0.707f, bands[i].q, 0.01f, "", 2.0f });
+        }
+        return p;
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        const char* bandNames[] = { "LowShelf", "LowMid", "Mid", "HighMid", "HighShelf" };
+        for (int i = 0; i < NumBands; ++i)
+        {
+            juce::String prefix = juce::String(bandNames[i]);
+            if (id == prefix + "_freq") { setBandFrequency(i, value); return; }
+            if (id == prefix + "_gain") { setBandGain(i, value); return; }
+            if (id == prefix + "_q")    { setBandQ(i, value); return; }
+        }
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        const char* bandNames[] = { "LowShelf", "LowMid", "Mid", "HighMid", "HighShelf" };
+        for (int i = 0; i < NumBands; ++i)
+        {
+            juce::String prefix = juce::String(bandNames[i]);
+            if (id == prefix + "_freq") return bands[i].frequency;
+            if (id == prefix + "_gain") return bands[i].gainDb;
+            if (id == prefix + "_q")    return bands[i].q;
+        }
+        return 0.0f;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override;
     void loadFromXml(const juce::XmlElement& xml) override;

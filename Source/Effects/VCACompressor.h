@@ -48,6 +48,44 @@ public:
     void setSidechainEnabled(bool enabled) { sidechainEnabled = enabled; }
     bool isSidechainEnabled() const { return sidechainEnabled; }
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        return {
+            { "threshold",  "Threshold",   -60.0f, 0.0f,   -20.0f, thresholdDb,   0.1f, "dB", 1.0f },
+            { "ratio",      "Ratio",       1.0f,   20.0f,  4.0f,   ratio,         0.1f, ":1", 2.0f },
+            { "attack",     "Attack",      0.1f,   100.0f, 10.0f,  attackMs,      0.1f, "ms", 2.0f },
+            { "release",    "Release",     10.0f,  1000.0f,100.0f, releaseMs,     1.0f, "ms", 2.0f },
+            { "knee",       "Knee",        0.0f,   12.0f,  3.0f,   kneeDb,        0.1f, "dB", 1.0f },
+            { "makeupGain", "Makeup Gain", 0.0f,   24.0f,  0.0f,   makeupGainDb,  0.1f, "dB", 1.0f }
+        };
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        if (id == "threshold")       setThreshold(value);
+        else if (id == "ratio")      setRatio(value);
+        else if (id == "attack")     setAttack(value);
+        else if (id == "release")    setRelease(value);
+        else if (id == "knee")       setKnee(value);
+        else if (id == "makeupGain") setMakeupGain(value);
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        if (id == "threshold")       return thresholdDb;
+        if (id == "ratio")           return ratio;
+        if (id == "attack")          return attackMs;
+        if (id == "release")         return releaseMs;
+        if (id == "knee")            return kneeDb;
+        if (id == "makeupGain")      return makeupGainDb;
+        return 0.0f;
+    }
+
+    bool supportsSidechain() const override { return true; }
+
+    void setSidechainBuffer(const juce::AudioBuffer<float>* buffer) override
+    {
+        sidechainInputBuffer = buffer;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override;
     void loadFromXml(const juce::XmlElement& xml) override;
@@ -78,6 +116,7 @@ private:
 
     // Sidechain
     bool sidechainEnabled = false;
+    const juce::AudioBuffer<float>* sidechainInputBuffer = nullptr;
 
     void updateCoefficients();
 };

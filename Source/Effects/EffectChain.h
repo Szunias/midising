@@ -25,6 +25,15 @@ public:
     int getNumEffects() const { return static_cast<int>(effects.size()); }
     void clear();
 
+    /** Sum of all effect latencies in the chain. */
+    int getTotalLatencySamples() const
+    {
+        int total = 0;
+        for (const auto& effect : effects)
+            total += effect->getLatencySamples();
+        return total;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const;
     void loadFromXml(const juce::XmlElement& xml);

@@ -42,6 +42,31 @@ public:
     float getMix() const { return mix; }
     float getOutputLevel() const { return outputLevelDb; }
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        return {
+            { "drive",  "Drive",  0.0f,  36.0f, 12.0f, driveDb,        0.1f, "dB", 1.0f },
+            { "mix",    "Mix",    0.0f,  1.0f,  1.0f,  mix,            0.01f, "",  1.0f },
+            { "output", "Output", -24.0f, 0.0f, 0.0f,  outputLevelDb,  0.1f, "dB", 1.0f },
+            { "type",   "Type",   0.0f,  3.0f,  0.0f,  static_cast<float>(satType), 1.0f, "", 1.0f }
+        };
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        if (id == "drive")           setDrive(value);
+        else if (id == "mix")        setMix(value);
+        else if (id == "output")     setOutputLevel(value);
+        else if (id == "type")       setSaturationType(static_cast<Type>(static_cast<int>(value)));
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        if (id == "drive")           return driveDb;
+        if (id == "mix")             return mix;
+        if (id == "output")          return outputLevelDb;
+        if (id == "type")            return static_cast<float>(satType);
+        return 0.0f;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override;
     void loadFromXml(const juce::XmlElement& xml) override;

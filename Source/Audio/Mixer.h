@@ -7,6 +7,8 @@
 #include "SendReturn.h"
 #include "GroupBus.h"
 #include "LoudnessMeter.h"
+#include "DelayCompensation.h"
+#include "SidechainRouter.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
@@ -98,6 +100,9 @@ public:
     {
         outputBuffer.clear();
 
+        // Clear sidechain buffers for this block
+        sidechainRouter.clearBuffers();
+
         // Clear all aux track input buffers before processing sends
         clearAuxInputBuffers(timeline);
 
@@ -125,7 +130,35 @@ public:
             // Clear work buffer and let track fill it
             // Track.processBlock handles: regions/input -> insert FX chain
             workBuffer.clear();
+
+            // Wire sidechain buffers for this track's effects before processing
+            if (track->getType() == TrackType::Audio)
+            {
+                auto* audioTrack = static_cast<AudioTrack*>(track);
+                for (int fxIdx = 0; fxIdx < audioTrack->getEffectChain().getNumEffects(); ++fxIdx)
+                {
+                    Effect* fx = audioTrack->getEffectChain().getEffect(fxIdx);
+                    if (fx != nullptr && fx->supportsSidechain())
+                    {
+                        int sourceIdx = sidechainRouter.getSidechainSource(i, fxIdx);
+                        if (sourceIdx >= 0)
+                        {
+                            const auto* scBuf = sidechainRouter.getSidechainBuffer(sourceIdx);
+                            if (scBuf != nullptr)
+                                fx->setSidechainBuffer(scBuf);
+                        }
+                    }
+                }
+            }
+
             track->processBlock(workBuffer, static_cast<int>(startSample), numSamples);
+
+            // Store this track's audio as a potential sidechain source
+            if (sidechainRouter.isTrackUsedAsSidechainSource(i))
+                sidechainRouter.storeSidechainBuffer(i, workBuffer, numSamples);
+
+            // Apply PDC compensation delay for this track
+            pdcManager.processTrack(i, workBuffer);
 
             // Get volume and pan for fader calculations
             // Check if automation should be read for this track
@@ -215,6 +248,38 @@ public:
     // Master volume control
     float getMasterVolume() const { return masterVolume.load(); }
     void setMasterVolume(float volume) { masterVolume.store(juce::jlimit(0.0f, 2.0f, volume)); }
+
+    /**
+     * Recalculate Plugin Delay Compensation for all tracks.
+     * Call when effects are added/removed/changed on any track.
+     */
+    void recalculatePDC(Timeline& timeline)
+    {
+        int numTracks = timeline.getNumTracks();
+        pdcManager.prepare(8192, numTracks);
+
+        for (int i = 0; i < numTracks; ++i)
+        {
+            Track* track = timeline.getTrack(i);
+            if (track != nullptr && track->getType() == TrackType::Audio)
+            {
+                auto* audioTrack = static_cast<AudioTrack*>(track);
+                pdcManager.setTrackLatency(i, audioTrack->getPluginLatencySamples());
+            }
+            else
+            {
+                pdcManager.setTrackLatency(i, 0);
+            }
+        }
+        pdcManager.recalculate();
+    }
+
+    /** Get total PDC latency in samples. */
+    int getPDCLatencySamples() const { return pdcManager.getTotalCompensation(); }
+
+    /** Access the sidechain router. */
+    SidechainRouter& getSidechainRouter() { return sidechainRouter; }
+    const SidechainRouter& getSidechainRouter() const { return sidechainRouter; }
 
     // Peak level for metering (call from audio thread)
     float getPeakLevel(int channel) const
@@ -721,6 +786,8 @@ private:
     juce::AudioBuffer<float> workBuffer;
     juce::AudioBuffer<float> auxWorkBuffer;    // For aux track processing
     juce::AudioBuffer<float> groupWorkBuffer;  // For group bus processing
+    DelayCompensationManager pdcManager;       // Plugin Delay Compensation
+    SidechainRouter sidechainRouter;           // Sidechain audio routing
 
     std::atomic<float> masterVolume { 1.0f };
     std::atomic<float> peakLevelLeft { 0.0f };

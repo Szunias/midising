@@ -3,6 +3,8 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_core/juce_core.h>
+#include "EffectParameter.h"
+#include <vector>
 
 /**
  * Base class for all audio effects.
@@ -38,7 +40,14 @@ public:
         bypass = xml.getBoolAttribute("bypass", false);
     }
 
-    // Parameters interface could be added here later (using AudioProcessorValueTreeState if needed)
+    // Parameter descriptor system for auto-generated UI and automation
+    virtual std::vector<EffectParameter> getParameters() const { return {}; }
+    virtual void setParameter(const juce::String& id, float value) { juce::ignoreUnused(id, value); }
+    virtual float getParameter(const juce::String& id) const { juce::ignoreUnused(id); return 0.0f; }
+
+    // Sidechain support
+    virtual bool supportsSidechain() const { return false; }
+    virtual void setSidechainBuffer(const juce::AudioBuffer<float>* buffer) { juce::ignoreUnused(buffer); }
 
 protected:
     juce::String effectName;

@@ -23,8 +23,14 @@ void VCACompressor::releaseResources()
 
 void VCACompressor::processBlock(juce::AudioBuffer<float>& buffer)
 {
-    // Use the input signal itself as the sidechain
-    processBlockWithSidechain(buffer, buffer);
+    // Use external sidechain buffer if set, otherwise use input signal
+    if (sidechainInputBuffer != nullptr && sidechainInputBuffer->getNumSamples() >= buffer.getNumSamples())
+        processBlockWithSidechain(buffer, *sidechainInputBuffer);
+    else
+        processBlockWithSidechain(buffer, buffer);
+
+    // Clear sidechain buffer pointer after use (must be re-set each block)
+    sidechainInputBuffer = nullptr;
 }
 
 void VCACompressor::processBlockWithSidechain(juce::AudioBuffer<float>& buffer,

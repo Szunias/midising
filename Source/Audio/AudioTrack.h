@@ -2,6 +2,7 @@
 
 #include "../Timeline/Track.h"
 #include "../Timeline/Region.h"
+#include "../Timeline/AutomationTarget.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <memory>
@@ -124,6 +125,12 @@ public:
 
     /** Clear all insert slots. */
     void clearInserts();
+
+    /** Get total latency from effect chain (for PDC). */
+    int getPluginLatencySamples() const { return effectChain.getTotalLatencySamples(); }
+
+    /** Apply effect parameter automation for the current playback position. */
+    void applyEffectAutomation(int64_t position);
 
     /** Bypass/unbypass insert at slot. */
     void setInsertBypassed(int slotIndex, bool bypassed);

@@ -1,4 +1,5 @@
 #include "AudioTrack.h"
+#include "../Timeline/AutomationLane.h"
 #include <cmath>
 #include <algorithm>
 
@@ -285,6 +286,10 @@ void AudioTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample,
     // Apply effects chain if we have input or if effects might generate tail (for now optimize clean tracks)
     if (hasInput || effectChain.getNumEffects() > 0)
     {
+        // Apply effect parameter automation before processing
+        if (isAutomationReading())
+            applyEffectAutomation(startPos);
+
         effectChain.processBlock(trackBuffer);
 
         // Sum execution result to main buffer
@@ -711,5 +716,39 @@ bool AudioTrack::isInsertBypassed(int slotIndex) const
         return effect->isBypassed();
     }
     return false;
+}
+
+void AudioTrack::applyEffectAutomation(int64_t position)
+{
+    for (size_t i = 0; i < getNumAutomationLanes(); ++i)
+    {
+        AutomationLane* lane = getAutomationLane(i);
+        if (lane == nullptr || lane->isBypassed() || !lane->hasAutomation())
+            continue;
+
+        const AutomationTarget& target = lane->getTarget();
+        if (!target.isEffectParam())
+            continue;
+
+        int fxIdx = target.effectIndex;
+        Effect* fx = effectChain.getEffect(fxIdx);
+        if (fx == nullptr)
+            continue;
+
+        // Get the normalized value from the automation lane and convert to parameter range
+        float normalizedValue = lane->getValueAtPosition(position);
+
+        // Find the parameter descriptor to get min/max for denormalization
+        auto params = fx->getParameters();
+        for (const auto& param : params)
+        {
+            if (param.id == target.parameterId)
+            {
+                float denormalized = param.minValue + normalizedValue * (param.maxValue - param.minValue);
+                fx->setParameter(target.parameterId, denormalized);
+                break;
+            }
+        }
+    }
 }
 

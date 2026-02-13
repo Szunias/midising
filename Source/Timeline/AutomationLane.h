@@ -2,6 +2,7 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_core/juce_core.h>
+#include "AutomationTarget.h"
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -165,6 +166,10 @@ public:
     bool isBypassed() const { return bypassed; }
     int getHeight() const { return height; }
 
+    // Automation target
+    void setTarget(const AutomationTarget& t) { target = t; }
+    const AutomationTarget& getTarget() const { return target; }
+
     // Setters
     void setParameterType(AutomationParameterType type) { parameterType = type; }
     void setParameterName(const juce::String& name) { parameterName = name; }
@@ -230,6 +235,7 @@ public:
 private:
     AutomationParameterType parameterType;
     juce::String parameterName;
+    AutomationTarget target;
 
     std::vector<AutomationPoint> points;
 

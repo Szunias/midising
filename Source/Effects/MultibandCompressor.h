@@ -47,6 +47,55 @@ public:
     // Metering
     float getBandGainReduction(int band) const;
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        std::vector<EffectParameter> p;
+        p.push_back({ "lowMidFreq",  "Low/Mid Xover",  100.0f, 500.0f,  250.0f,  lowMidFreq, 1.0f, "Hz", 2.0f });
+        p.push_back({ "midHighFreq", "Mid/High Xover", 1000.0f, 8000.0f, 3000.0f, midHighFreq, 1.0f, "Hz", 2.0f });
+        const char* bandNames[] = { "Low", "Mid", "High" };
+        for (int i = 0; i < NUM_BANDS; ++i)
+        {
+            juce::String bn(bandNames[i]);
+            p.push_back({ bn + "_thresh",  bn + " Thresh",  -60.0f, 0.0f,   -20.0f, bands[i].threshold,    0.1f, "dB", 1.0f });
+            p.push_back({ bn + "_ratio",   bn + " Ratio",   1.0f,   20.0f,  4.0f,   bands[i].ratio,        0.1f, ":1", 2.0f });
+            p.push_back({ bn + "_attack",  bn + " Attack",  0.1f,   100.0f, 10.0f,  bands[i].attackMs,     0.1f, "ms", 2.0f });
+            p.push_back({ bn + "_release", bn + " Release", 10.0f,  1000.0f,100.0f, bands[i].releaseMs,    1.0f, "ms", 2.0f });
+            p.push_back({ bn + "_makeup",  bn + " Makeup",  0.0f,   24.0f,  0.0f,   bands[i].makeupGainDb, 0.1f, "dB", 1.0f });
+        }
+        return p;
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        if (id == "lowMidFreq")  { setLowMidCrossover(value); return; }
+        if (id == "midHighFreq") { setMidHighCrossover(value); return; }
+        const char* bandNames[] = { "Low", "Mid", "High" };
+        for (int i = 0; i < NUM_BANDS; ++i)
+        {
+            juce::String bn(bandNames[i]);
+            if (id == bn + "_thresh")  { setBandThreshold(i, value); return; }
+            if (id == bn + "_ratio")   { setBandRatio(i, value); return; }
+            if (id == bn + "_attack")  { setBandAttack(i, value); return; }
+            if (id == bn + "_release") { setBandRelease(i, value); return; }
+            if (id == bn + "_makeup")  { setBandMakeupGain(i, value); return; }
+        }
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        if (id == "lowMidFreq")  return lowMidFreq;
+        if (id == "midHighFreq") return midHighFreq;
+        const char* bandNames[] = { "Low", "Mid", "High" };
+        for (int i = 0; i < NUM_BANDS; ++i)
+        {
+            juce::String bn(bandNames[i]);
+            if (id == bn + "_thresh")  return bands[i].threshold;
+            if (id == bn + "_ratio")   return bands[i].ratio;
+            if (id == bn + "_attack")  return bands[i].attackMs;
+            if (id == bn + "_release") return bands[i].releaseMs;
+            if (id == bn + "_makeup")  return bands[i].makeupGainDb;
+        }
+        return 0.0f;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override;
     void loadFromXml(const juce::XmlElement& xml) override;

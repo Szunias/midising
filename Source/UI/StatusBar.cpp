@@ -188,6 +188,15 @@ void StatusBar::timerCallback()
 
         juce::String infoText = juce::String::formatted("%s | %.0f Hz | %d spls",
             device->getName().toRawUTF8(), sampleRate, bufferSize);
+
+        // Show PDC latency if AudioEngine is available
+        if (audioEngine != nullptr)
+        {
+            int pdcSamples = audioEngine->getMixer().getPDCLatencySamples();
+            if (pdcSamples > 0)
+                infoText += " | PDC: " + juce::String(pdcSamples) + " smp";
+        }
+
         deviceInfoLabel.setText(infoText, juce::dontSendNotification);
     }
     else

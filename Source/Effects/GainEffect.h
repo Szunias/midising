@@ -19,6 +19,20 @@ public:
     void setGainDecibels(float db) { gain = juce::Decibels::decibelsToGain(db); }
     float getGain() const { return gain; }
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        return { { "gain", "Gain", -24.0f, 24.0f, 0.0f, juce::Decibels::gainToDecibels(gain), 0.1f, "dB", 1.0f } };
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        if (id == "gain") setGainDecibels(value);
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        if (id == "gain") return juce::Decibels::gainToDecibels(gain);
+        return 0.0f;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override
     {

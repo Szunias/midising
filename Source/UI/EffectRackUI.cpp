@@ -1,8 +1,9 @@
 #include "EffectRackUI.h"
 
 //==============================================================================
-EffectSlot::EffectSlot(Effect* effect, int idx, std::function<void(int)> onRemove)
-    : effectPtr(effect), index(idx)
+EffectSlot::EffectSlot(Effect* effect, int idx, std::function<void(int)> onRemove,
+                       std::function<void(Effect*)> onEdit)
+    : effectPtr(effect), index(idx), onEditCallback(onEdit)
 {
     addAndMakeVisible(nameLabel);
     nameLabel.setText(effect->getName(), juce::dontSendNotification);
@@ -15,6 +16,9 @@ EffectSlot::EffectSlot(Effect* effect, int idx, std::function<void(int)> onRemov
     addAndMakeVisible(removeButton);
     removeButton.setColour(juce::TextButton::buttonColourId, juce::Colours::red.withAlpha(0.6f));
     removeButton.onClick = [onRemove, idx]() { onRemove(idx); };
+
+    // Single-click on name label opens editor
+    nameLabel.setInterceptsMouseClicks(false, false);
 }
 
 void EffectSlot::paint(juce::Graphics& g)
@@ -27,12 +31,18 @@ void EffectSlot::paint(juce::Graphics& g)
 void EffectSlot::resized()
 {
     auto area = getLocalBounds().reduced(2);
-    
+
     removeButton.setBounds(area.removeFromRight(20).reduced(2));
     area.removeFromRight(4);
     bypassButton.setBounds(area.removeFromRight(60));
     area.removeFromRight(4);
     nameLabel.setBounds(area);
+}
+
+void EffectSlot::mouseDoubleClick(const juce::MouseEvent&)
+{
+    if (onEditCallback)
+        onEditCallback(effectPtr);
 }
 
 //==============================================================================
@@ -98,15 +108,22 @@ void EffectRackUI::paint(juce::Graphics& g)
 void EffectRackUI::resized()
 {
     auto area = getLocalBounds();
-    
+
     // Top bar for adding effects
     auto topBar = area.removeFromTop(30).reduced(2);
     addButton.setBounds(topBar.removeFromRight(30));
     topBar.removeFromRight(4);
     addEffectCombo.setBounds(topBar);
-    
+
+    // If editor is active, split view: slots on top, editor on bottom
+    if (activeEditor != nullptr)
+    {
+        int editorHeight = juce::jmin(area.getHeight() / 2, 300);
+        activeEditor->setBounds(area.removeFromBottom(editorHeight));
+    }
+
     viewport.setBounds(area);
-    contentComp.setBounds(area); // Will assume width tracks viewport, height set in refresh
+    contentComp.setBounds(area); // Width tracks viewport, height set in refresh
 }
 
 void EffectRackUI::refresh()
@@ -120,11 +137,17 @@ void EffectRackUI::refresh()
     for (int i = 0; i < effectChain.getNumEffects(); ++i)
     {
         auto* fx = effectChain.getEffect(i);
-        auto slot = std::make_unique<EffectSlot>(fx, i, [this](int idx)
-        {
-            effectChain.removeEffect(idx);
-            refresh();
-        });
+        auto slot = std::make_unique<EffectSlot>(fx, i,
+            [this](int idx)
+            {
+                closeEditor();
+                effectChain.removeEffect(idx);
+                refresh();
+            },
+            [this](Effect* effect)
+            {
+                openEditorForEffect(effect);
+            });
         
         slot->setBounds(0, y, getWidth() - (viewport.getScrollBarThickness() + 4), h);
         contentComp.addAndMakeVisible(slot.get());
@@ -135,4 +158,44 @@ void EffectRackUI::refresh()
     
     contentComp.setSize(viewport.getWidth(), juce::jmax(viewport.getHeight(), y));
     resized(); // Ensure slots are proper width
+}
+
+void EffectRackUI::openEditorForEffect(Effect* effect)
+{
+    if (effect == nullptr) return;
+
+    // If editing same effect, close it (toggle)
+    if (activeEditor != nullptr && activeEditor->getEffect() == effect)
+    {
+        closeEditor();
+        return;
+    }
+
+    closeEditor();
+
+    activeEditor = std::make_unique<EffectParameterEditor>(effect);
+
+    // Set up sidechain if supported
+    if (effect->supportsSidechain() && sidechainTrackNames.size() > 0)
+    {
+        activeEditor->setSidechainTrackNames(sidechainTrackNames);
+        activeEditor->onSidechainSourceChanged = [this, effect](int trackIndex)
+        {
+            if (onSidechainChanged)
+                onSidechainChanged(effect, trackIndex);
+        };
+    }
+
+    addAndMakeVisible(activeEditor.get());
+    resized();
+}
+
+void EffectRackUI::closeEditor()
+{
+    if (activeEditor != nullptr)
+    {
+        removeChildComponent(activeEditor.get());
+        activeEditor.reset();
+        resized();
+    }
 }

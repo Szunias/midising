@@ -2546,7 +2546,8 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
         ImportAudio,
         ImportMidi,
         DeleteTrack,
-        DuplicateTrack
+        DuplicateTrack,
+        EffectAutomationBase = 5000  // IDs 5000+ for effect params
     };
 
     bool hasSelection = (selectedRegion != nullptr && selectedTrackIndex >= 0);
@@ -2579,6 +2580,50 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
         menu.addItem(ConsolidateRegions, "Consolidate Selection", hasSelection);
     }
 
+    // Effect Automation submenu (for AudioTracks with effects)
+    // Build a mapping of menu ID -> (effectIndex, paramId, paramName, effectName)
+    struct EffectAutoInfo
+    {
+        int effectIndex;
+        juce::String parameterId;
+        juce::String parameterName;
+        juce::String effectName;
+    };
+    std::vector<EffectAutoInfo> effectAutoEntries;
+
+    if (hasTrackAtPosition && timelinePtr != nullptr)
+    {
+        auto* audioTrack = dynamic_cast<AudioTrack*>(timelinePtr->getTrack(clickedTrackIndex));
+        if (audioTrack != nullptr && audioTrack->getEffectChain().getNumEffects() > 0)
+        {
+            juce::PopupMenu effectAutoMenu;
+            int autoMenuId = EffectAutomationBase;
+
+            for (int fxIdx = 0; fxIdx < audioTrack->getEffectChain().getNumEffects(); ++fxIdx)
+            {
+                Effect* fx = audioTrack->getEffectChain().getEffect(fxIdx);
+                if (fx == nullptr) continue;
+
+                auto params = fx->getParameters();
+                if (params.empty()) continue;
+
+                juce::PopupMenu paramMenu;
+                for (const auto& param : params)
+                {
+                    effectAutoEntries.push_back({ fxIdx, param.id, param.name, fx->getName() });
+                    paramMenu.addItem(autoMenuId++, param.name);
+                }
+                effectAutoMenu.addSubMenu("Slot " + juce::String(fxIdx + 1) + ": " + fx->getName(), paramMenu);
+            }
+
+            if (effectAutoEntries.size() > 0)
+            {
+                menu.addSeparator();
+                menu.addSubMenu("Add Effect Automation...", effectAutoMenu);
+            }
+        }
+    }
+
     // Track operations section
     menu.addSeparator();
     menu.addSectionHeader("Track");
@@ -2597,8 +2642,57 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
     // Show menu and handle selection - use screen coordinates for proper positioning
     auto screenPos = juce::Point<int>(e.getScreenX(), e.getScreenY());
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(juce::Rectangle<int>(screenPos, screenPos)),
-        [this, clickX = e.x](int result)
+        [this, clickX = e.x, effectAutoEntries, clickedTrackIndex](int result)
         {
+            // Handle effect automation submenu
+            if (result >= EffectAutomationBase && result < EffectAutomationBase + static_cast<int>(effectAutoEntries.size()))
+            {
+                int idx = result - EffectAutomationBase;
+                const auto& info = effectAutoEntries[static_cast<size_t>(idx)];
+
+                if (timelinePtr != nullptr && clickedTrackIndex >= 0)
+                {
+                    Track* track = timelinePtr->getTrack(clickedTrackIndex);
+                    if (track != nullptr)
+                    {
+                        // Check if this automation lane already exists
+                        juce::String laneName = info.effectName + ": " + info.parameterName;
+                        AutomationTarget target;
+                        target.targetType = AutomationTarget::Type::EffectParam;
+                        target.effectIndex = info.effectIndex;
+                        target.parameterId = info.parameterId;
+                        target.parameterName = laneName;
+
+                        // Check if lane with same key already exists
+                        bool exists = false;
+                        for (size_t li = 0; li < track->getNumAutomationLanes(); ++li)
+                        {
+                            if (track->getAutomationLane(li)->getTarget().getKey() == target.getKey())
+                            {
+                                exists = true;
+                                track->getAutomationLane(li)->setVisible(true);
+                                break;
+                            }
+                        }
+
+                        if (!exists)
+                        {
+                            AutomationLane* lane = track->addAutomationLane(laneName);
+                            if (lane != nullptr)
+                            {
+                                lane->setParameterType(AutomationParameterType::PluginParameter);
+                                lane->setTarget(target);
+                                lane->setVisible(true);
+                            }
+                        }
+                        updateAutomationLaneViews();
+                        resized();
+                        repaint();
+                    }
+                }
+                return;
+            }
+
             switch (result)
             {
             case CutRegion:

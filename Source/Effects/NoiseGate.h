@@ -38,6 +38,37 @@ public:
     // Metering
     float getGateGain() const { return currentGateGain; }
 
+    std::vector<EffectParameter> getParameters() const override
+    {
+        return {
+            { "threshold", "Threshold", -80.0f, 0.0f,   -40.0f, thresholdDb, 0.1f, "dB", 1.0f },
+            { "ratio",     "Ratio",     1.0f,   10.0f,  10.0f,  ratio,       0.1f, ":1", 1.0f },
+            { "attack",    "Attack",    0.01f,  50.0f,  0.5f,   attackMs,    0.01f, "ms", 2.0f },
+            { "hold",      "Hold",      0.0f,   500.0f, 10.0f,  holdMs,      1.0f, "ms", 2.0f },
+            { "release",   "Release",   5.0f,   500.0f, 50.0f,  releaseMs,   1.0f, "ms", 2.0f },
+            { "range",     "Range",     -80.0f, 0.0f,   -80.0f, rangeDb,     0.1f, "dB", 1.0f }
+        };
+    }
+    void setParameter(const juce::String& id, float value) override
+    {
+        if (id == "threshold")       setThreshold(value);
+        else if (id == "ratio")      setRatio(value);
+        else if (id == "attack")     setAttack(value);
+        else if (id == "hold")       setHoldTime(value);
+        else if (id == "release")    setRelease(value);
+        else if (id == "range")      setRange(value);
+    }
+    float getParameter(const juce::String& id) const override
+    {
+        if (id == "threshold")       return thresholdDb;
+        if (id == "ratio")           return ratio;
+        if (id == "attack")          return attackMs;
+        if (id == "hold")            return holdMs;
+        if (id == "release")         return releaseMs;
+        if (id == "range")           return rangeDb;
+        return 0.0f;
+    }
+
     // Serialization
     std::unique_ptr<juce::XmlElement> createXml() const override;
     void loadFromXml(const juce::XmlElement& xml) override;
