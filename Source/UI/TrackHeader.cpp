@@ -302,6 +302,13 @@ void TrackHeader::showContextMenu(juce::Point<int> screenPosition)
 {
     juce::PopupMenu menu;
 
+    if (trackPtr != nullptr)
+    {
+        bool frozen = trackPtr->isFrozen();
+        menu.addItem(FreezeTrackId, frozen ? "Unfreeze Track" : "Freeze Track");
+        menu.addSeparator();
+    }
+
     menu.addItem(DeleteTrackId, "Delete Track", trackPtr != nullptr);
 
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(juce::Rectangle<int>(screenPosition, screenPosition)),
@@ -310,6 +317,11 @@ void TrackHeader::showContextMenu(juce::Point<int> screenPosition)
             if (result == DeleteTrackId && trackPtr != nullptr)
             {
                 showDeleteConfirmation();
+            }
+            else if (result == FreezeTrackId && trackPtr != nullptr)
+            {
+                if (onFreezeTrack)
+                    onFreezeTrack(trackPtr);
             }
         });
 }

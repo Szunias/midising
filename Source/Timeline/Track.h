@@ -56,6 +56,8 @@ public:
     int getHeight() const { return height; }
     bool isPhaseInverted() const { return phaseInverted.load(); }
     float getStereoWidth() const { return stereoWidth.load(); }
+    bool isFrozen() const { return frozen.load(); }
+    juce::File getFrozenFile() const { return frozenAudioFile; }
 
     // Setters
     void setName(const juce::String& newName) { name = newName; }
@@ -68,6 +70,11 @@ public:
     void setHeight(int newHeight) { height = juce::jmax(50, newHeight); }
     void setPhaseInverted(bool shouldInvert) { phaseInverted.store(shouldInvert); }
     void setStereoWidth(float newWidth) { stereoWidth.store(juce::jlimit(0.0f, 2.0f, newWidth)); }
+    void setFrozen(bool shouldFreeze, const juce::File& frozenFile = {})
+    {
+        frozen.store(shouldFreeze);
+        frozenAudioFile = frozenFile;
+    }
 
     // Processing (to be implemented by subclasses)
     virtual void prepareToPlay(double sampleRate, int samplesPerBlock) = 0;
@@ -214,6 +221,8 @@ private:
     std::atomic<bool> armed { false };
     std::atomic<bool> phaseInverted { false };   // Invert phase (multiply by -1)
     std::atomic<float> stereoWidth { 1.0f };     // 0.0 (mono) to 2.0 (widened), 1.0 = normal
+    std::atomic<bool> frozen { false };          // Track is frozen (uses rendered audio file)
+    juce::File frozenAudioFile;                  // Path to frozen audio file
 
     // Automation lanes for this track
     std::vector<std::unique_ptr<AutomationLane>> automationLanes;

@@ -30,6 +30,12 @@ public:
     /** Set the audio engine for dropout monitoring */
     void setAudioEngine(AudioEngine* engine);
 
+    /** Trigger MIDI activity indicator (call when MIDI input received) */
+    void triggerMidiActivity();
+
+    /** Show a brief auto-save indicator message */
+    void showAutoSaveIndicator();
+
 private:
     juce::AudioDeviceManager& audioDeviceManager;
     AudioEngine* audioEngine = nullptr;
@@ -49,6 +55,14 @@ private:
     juce::Label deviceInfoLabel;
     juce::Label dropoutLabel;
     juce::Label memoryLabel;
+    juce::Label midiActivityLabel;
+    juce::Label autoSaveLabel;
+
+    // MIDI activity indicator
+    int midiActivityCounter = 0;   // Countdown for MIDI dot display
+
+    // Auto-save indicator
+    int autoSaveDisplayCounter = 0; // Countdown for auto-save message
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StatusBar)
 };

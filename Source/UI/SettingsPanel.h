@@ -6,20 +6,13 @@
 #include "LookAndFeel.h"
 
 /**
- * SettingsPanel allows audio and MIDI device selection.
- * When MIDI input devices are enabled in the UI, they are automatically
- * connected to the provided MidiInputCallback (typically the MidiEngine).
+ * SettingsPanel allows audio/MIDI device selection and plugin path management.
+ * Includes tabs for Audio/MIDI settings and Plugin settings.
  */
 class SettingsPanel : public juce::Component,
                       public juce::ChangeListener
 {
 public:
-    /**
-     * Create a SettingsPanel for audio and MIDI device configuration.
-     * @param deviceManager The audio device manager to configure
-     * @param midiCallback Optional callback to receive MIDI input from enabled devices.
-     *                     Pass the MidiEngine pointer here to enable MIDI input recording.
-     */
     SettingsPanel(juce::AudioDeviceManager& deviceManager,
                   juce::MidiInputCallback* midiCallback = nullptr);
     ~SettingsPanel() override;
@@ -30,16 +23,31 @@ public:
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
 private:
-    /**
-     * Synchronize MIDI input callbacks with currently enabled devices.
-     * Registers the midiInputCallback for all enabled MIDI input devices
-     * and removes it from disabled devices. Safe to call multiple times.
-     */
     void syncMidiInputCallbacks();
+    void saveDeviceSettings();
+    void loadDeviceSettings();
+    juce::File getSettingsFile() const;
+    void setupPluginPathsTab();
+    void setupGeneralTab();
+    void refreshPluginPathList();
 
     juce::AudioDeviceManager& audioDeviceManager;
     juce::MidiInputCallback* midiInputCallback = nullptr;
     std::unique_ptr<juce::AudioDeviceSelectorComponent> deviceSelector;
+
+    // Plugin paths UI components (in plugin tab)
+    std::unique_ptr<juce::Component> pluginPathsPanel;
+    std::unique_ptr<juce::ListBox> pluginPathsListBox;
+    std::unique_ptr<juce::StringArray> pluginPathsArray;
+    std::unique_ptr<juce::TextButton> addPathButton;
+    std::unique_ptr<juce::TextButton> removePathButton;
+    std::unique_ptr<juce::TextButton> rescanButton;
+
+    // General settings tab
+    std::unique_ptr<juce::Component> generalPanel;
+
+    // Tabs
+    std::unique_ptr<juce::TabbedComponent> tabs;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsPanel)
 };

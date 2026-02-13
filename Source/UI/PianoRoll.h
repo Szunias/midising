@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Timeline/Region.h"
+#include "../Utils/UndoManager.h"
 #include "LookAndFeel.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -67,6 +68,10 @@ public:
     // Set the MIDI region to edit
     void setMidiRegion(MidiRegion* region) { midiRegion = region; clearSelection(); repaint(); }
     MidiRegion* getMidiRegion() const { return midiRegion; }
+
+    // Undo manager for undoable piano roll edits
+    void setUndoManager(DAWUndoManager* um) { undoManager = um; }
+    DAWUndoManager* getUndoManager() const { return undoManager; }
 
     // View settings
     void setPixelsPerBeat(double ppb) { pixelsPerBeat = juce::jlimit(10.0, 200.0, ppb); repaint(); }
@@ -247,6 +252,7 @@ private:
     void handleMuteToolMouseDown(const juce::MouseEvent& e);
 
     MidiRegion* midiRegion = nullptr;
+    DAWUndoManager* undoManager = nullptr;
 
     double pixelsPerBeat = 40.0;
     int noteHeight = 12;

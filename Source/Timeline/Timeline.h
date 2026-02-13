@@ -56,15 +56,19 @@ public:
         timeSignatureTrack.setInitialTimeSignature(beatsPerBar, beatNoteValue);
     }
 
+    // Thread-safe lock for track/region access from UI and audio threads
+    juce::CriticalSection& getLock() { return trackLock; }
+    const juce::CriticalSection& getLock() const { return trackLock; }
+
     // Track management
     int getNumTracks() const { return tracks.size(); }
     Track* getTrack(int index) { return tracks[index]; }
     const Track* getTrack(int index) const { return tracks[index]; }
-    
-    void addTrack(Track* track) { tracks.add(track); }
-    void removeTrack(int index) { tracks.remove(index); }
-    void moveTrack(int fromIndex, int toIndex) { tracks.move(fromIndex, toIndex); }
-    void clearTracks() { tracks.clear(); }
+
+    void addTrack(Track* track) { const juce::ScopedLock sl(trackLock); tracks.add(track); }
+    void removeTrack(int index) { const juce::ScopedLock sl(trackLock); tracks.remove(index); }
+    void moveTrack(int fromIndex, int toIndex) { const juce::ScopedLock sl(trackLock); tracks.move(fromIndex, toIndex); }
+    void clearTracks() { const juce::ScopedLock sl(trackLock); tracks.clear(); }
 
     // Time conversion helpers using current BPM and sample rate
     int64_t beatsToSamples(double beats) const
@@ -530,6 +534,7 @@ public:
     const TimeSignatureTrack* getTimeSignatureTrackPtr() const { return &timeSignatureTrack; }
 
 private:
+    mutable juce::CriticalSection trackLock;
     juce::OwnedArray<Track> tracks;
     juce::OwnedArray<AuxTrack> auxTracks;    // Aux/return tracks for send routing
     juce::OwnedArray<GroupBus> groupBusses;  // Group busses for submixing

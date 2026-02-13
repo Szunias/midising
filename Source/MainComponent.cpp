@@ -5,10 +5,10 @@
 #include "MIDI/MidiTrack.h"
 #include "MIDI/MidiImporter.h"
 #include "Actions/TrackActions.h"
-#include "Tests/TestRunner.h"
 #include "UI/CommandIDs.h"
 #include "UI/SettingsPanel.h"
 #include "Export/AudioExporter.h"
+#include "Export/MidiExporter.h"
 #include "Plugins/PluginManager.h"
 
 //==============================================================================
@@ -21,12 +21,6 @@ MainComponent::MainComponent()
 
     setSize(1200, 800);
 
-    // Run unit tests in debug mode - DISABLED for now due to crash
-#if 0 // JUCE_DEBUG
-    juce::Logger::writeToLog("Running unit tests...");
-    TestRunner::runAllTests();
-#endif
-    
     // Setup transport bar
     transportBar.setTransport(&audioEngine.getTransport());
     setupTransportCallbacks();
@@ -78,6 +72,12 @@ MainComponent::MainComponent()
     // Register global key listener
     getLookAndFeel().setUsingNativeAlertWindows(true);
     addKeyListener(this);
+
+    // Wire MIDI activity indicator to status bar
+    audioEngine.getMidiEngine().onMidiActivity = [this]()
+    {
+        juce::MessageManager::callAsync([this]() { statusBar.triggerMidiActivity(); });
+    };
 
     // Setup auto-save system and check for recovery files
     setupAutoSave();
@@ -661,6 +661,13 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::selectAll);
     commands.add(CommandIDs::deleteSelection);
     commands.add(CommandIDs::splitAtPlayhead);
+
+    // Help menu commands
+    commands.add(CommandIDs::aboutMidiSing);
+    commands.add(CommandIDs::keyboardShortcuts);
+
+    // Export commands
+    commands.add(CommandIDs::exportMidi);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -776,6 +783,20 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
     case CommandIDs::splitAtPlayhead:
         result.setInfo("Split at Playhead", "Split selected region at playhead position", "Edit", 0);
         result.addDefaultKeypress('b', juce::ModifierKeys::commandModifier);
+        break;
+
+    // Help menu commands
+    case CommandIDs::aboutMidiSing:
+        result.setInfo("About MidiSing", "Show application information", "Help", 0);
+        break;
+    case CommandIDs::keyboardShortcuts:
+        result.setInfo("Keyboard Shortcuts...", "Show keyboard shortcuts reference", "Help", 0);
+        result.addDefaultKeypress('/', juce::ModifierKeys::commandModifier);
+        break;
+
+    // Export commands
+    case CommandIDs::exportMidi:
+        result.setInfo("Export MIDI...", "Export MIDI tracks to a .mid file", "Project", 0);
         break;
 
     default:
@@ -898,6 +919,18 @@ bool MainComponent::perform(const InvocationInfo& info)
         }
         return true;
 
+    case CommandIDs::aboutMidiSing:
+        showAboutDialog();
+        return true;
+
+    case CommandIDs::keyboardShortcuts:
+        showKeyboardShortcuts();
+        return true;
+
+    case CommandIDs::exportMidi:
+        exportMidi();
+        return true;
+
     default:
         return false;
     }
@@ -907,7 +940,7 @@ bool MainComponent::perform(const InvocationInfo& info)
 // MenuBarModel implementation
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "File", "Edit", "View", "Track" };
+    return { "File", "Edit", "View", "Track", "Help" };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName)
@@ -944,6 +977,7 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addCommandItem(&commandManager, CommandIDs::collectAllAndSave);
         menu.addSeparator();
         menu.addCommandItem(&commandManager, CommandIDs::exportAudio);
+        menu.addCommandItem(&commandManager, CommandIDs::exportMidi);
         menu.addSeparator();
         menu.addCommandItem(&commandManager, CommandIDs::audioSettings);
         menu.addSeparator();
@@ -969,6 +1003,12 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
     {
         menu.addCommandItem(&commandManager, CommandIDs::addAudioTrack);
         menu.addCommandItem(&commandManager, CommandIDs::addMidiTrack);
+    }
+    else if (topLevelMenuIndex == 4)  // Help menu
+    {
+        menu.addCommandItem(&commandManager, CommandIDs::keyboardShortcuts);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::aboutMidiSing);
     }
 
     return menu;
@@ -1071,7 +1111,29 @@ void MainComponent::setupAudioDeviceManager()
     {
         try
         {
-            setAudioChannels(2, 2);
+            // Try to load persisted device settings first
+            auto settingsFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                .getChildFile("MidiSing").getChildFile("audio_device_settings.xml");
+
+            if (settingsFile.existsAsFile())
+            {
+                auto xml = juce::XmlDocument::parse(settingsFile);
+                if (xml != nullptr)
+                {
+                    auto error = deviceManager.initialise(2, 2, xml.get(), true);
+                    if (error.isNotEmpty())
+                        setAudioChannels(2, 2);
+                }
+                else
+                {
+                    setAudioChannels(2, 2);
+                }
+            }
+            else
+            {
+                setAudioChannels(2, 2);
+            }
+
             // Register for device change notifications
             deviceManager.addChangeListener(this);
             // Save initial working state
@@ -1308,6 +1370,7 @@ void MainComponent::setupCollapsiblePanels()
 
     // Create Piano Roll panel
     pianoRollContent = std::make_unique<PianoRoll>();
+    pianoRollContent->setUndoManager(&undoManager);
     pianoRollPanel = std::make_unique<CollapsiblePanel>("Piano Roll", CollapsiblePanel::Position::Bottom);
     pianoRollPanel->setContent(pianoRollContent.get());
     pianoRollPanel->onCollapse = [this]() { togglePianoRollPanel(); };
@@ -1529,11 +1592,18 @@ public:
         setStatusMessage("Preparing to export...");
     }
 
+    void setExportSettings(ExportFormat fmt, double rate, int bits)
+    {
+        exportFormat = fmt;
+        exportSampleRate = rate;
+        exportBitDepth = bits;
+    }
+
     void run() override
     {
-        AudioExporter exporter;
-        exporter.setSampleRate(44100.0);
-        exporter.setBitDepth(16);
+        exporter.setSampleRate(exportSampleRate);
+        exporter.setBitDepth(exportBitDepth);
+        exporter.setFormat(exportFormat);
 
         setStatusMessage("Rendering audio...");
 
@@ -1547,12 +1617,11 @@ public:
                 int percent = static_cast<int>(exportProgress * 100.0f);
                 setStatusMessage("Exporting... " + juce::String(percent) + "%");
 
-                // Check for user cancellation
+                // Check for user cancellation - signal exporter to stop
                 if (threadShouldExit())
                 {
                     wasCancelled = true;
-                    // Note: We can't actually stop the export mid-way since AudioExporter
-                    // doesn't support cancellation. We'll delete the file after completion.
+                    exporter.cancel();
                 }
             });
     }
@@ -1563,8 +1632,12 @@ public:
 
 private:
     AudioEngine& audioEngine;
+    AudioExporter exporter;
     juce::File file;
     int64_t lengthSamples;
+    ExportFormat exportFormat = ExportFormat::WAV;
+    double exportSampleRate = 44100.0;
+    int exportBitDepth = 16;
     bool exportSuccess = false;
     bool wasCancelled = false;
 
@@ -1576,9 +1649,200 @@ void MainComponent::exportAudio()
     // Stop playback
     audioEngine.getTransport().stop();
 
-    fileChooser = std::make_unique<juce::FileChooser>("Export Audio",
+    // Show format selection dialog first
+    auto* formatDialog = new juce::AlertWindow("Export Audio", "Choose export format and settings:", juce::MessageBoxIconType::NoIcon);
+
+    formatDialog->addComboBox("format", { "WAV", "FLAC", "OGG Vorbis" }, "Format:");
+    formatDialog->addComboBox("sampleRate", { "44100 Hz", "48000 Hz", "96000 Hz" }, "Sample Rate:");
+    formatDialog->addComboBox("bitDepth", { "16-bit", "24-bit", "32-bit" }, "Bit Depth:");
+    formatDialog->addButton("Export", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    formatDialog->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    formatDialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [this, formatDialog](int result)
+        {
+            if (result == 0)
+            {
+                delete formatDialog;
+                return;
+            }
+
+            int formatIndex = formatDialog->getComboBoxComponent("format")->getSelectedItemIndex();
+            int sampleRateIndex = formatDialog->getComboBoxComponent("sampleRate")->getSelectedItemIndex();
+            int bitDepthIndex = formatDialog->getComboBoxComponent("bitDepth")->getSelectedItemIndex();
+            delete formatDialog;
+
+            ExportFormat exportFormat = ExportFormat::WAV;
+            if (formatIndex == 1) exportFormat = ExportFormat::FLAC;
+            else if (formatIndex == 2) exportFormat = ExportFormat::OGG;
+
+            double exportSampleRate = 44100.0;
+            if (sampleRateIndex == 1) exportSampleRate = 48000.0;
+            else if (sampleRateIndex == 2) exportSampleRate = 96000.0;
+
+            int exportBitDepth = 16;
+            if (bitDepthIndex == 1) exportBitDepth = 24;
+            else if (bitDepthIndex == 2) exportBitDepth = 32;
+
+            juce::String ext = AudioExporter::getFileExtension(exportFormat);
+            juce::String filter = "*." + ext;
+
+            fileChooser = std::make_unique<juce::FileChooser>("Export Audio",
+                juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+                filter);
+
+            auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
+
+            fileChooser->launchAsync(chooserFlags,
+                [this, exportFormat, exportSampleRate, exportBitDepth, ext](const juce::FileChooser& fc)
+            {
+                auto file = fc.getResult();
+                if (file != juce::File())
+                {
+                    if (!file.hasFileExtension(ext))
+                        file = file.withFileExtension(ext);
+
+                    auto& timeline = audioEngine.getTimeline();
+                    int64_t endSample = timeline.getEndSample();
+
+                    if (endSample <= 0)
+                    {
+                        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                            "Export Failed",
+                            "The project is empty. Add some audio or MIDI clips before exporting.");
+                        return;
+                    }
+
+                    ExportProgressTask exportTask(audioEngine, file, endSample);
+                    exportTask.setExportSettings(exportFormat, exportSampleRate, exportBitDepth);
+
+                    if (exportTask.runThread())
+                    {
+                        if (exportTask.wasSuccessful())
+                        {
+                            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                "Export Complete",
+                                "Audio exported successfully to:\n" + file.getFullPathName());
+                        }
+                        else if (exportTask.wasCancelledByUser())
+                        {
+                            file.deleteFile();
+                            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                "Export Cancelled", "The export was cancelled.");
+                        }
+                        else
+                        {
+                            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                "Export Failed",
+                                "Failed to export audio. Please check the file path and try again.");
+                        }
+                    }
+                    else
+                    {
+                        file.deleteFile();
+                        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                            "Export Cancelled", "The export was cancelled.");
+                    }
+                }
+            });
+        }), true);
+}
+
+//==============================================================================
+// About Dialog
+//==============================================================================
+
+void MainComponent::showAboutDialog()
+{
+    juce::String message;
+    message << "MidiSing v1.0.0\n\n"
+            << "A digital audio workstation built with JUCE.\n\n"
+            << "Features:\n"
+            << "  - Multi-track audio and MIDI recording\n"
+            << "  - VST3 plugin hosting\n"
+            << "  - Built-in effects (EQ, Reverb, Compressor, Delay)\n"
+            << "  - Automation, Undo/Redo, Project Save/Load\n\n"
+            << "Copyright (c) 2025 MidiSing\n"
+            << "Licensed under the MIT License\n\n"
+            << "Built with JUCE " << juce::SystemStats::getJUCEVersion();
+
+    juce::AlertWindow::showMessageBoxAsync(
+        juce::MessageBoxIconType::InfoIcon,
+        "About MidiSing",
+        message,
+        "OK"
+    );
+}
+
+//==============================================================================
+// Keyboard Shortcuts Reference
+//==============================================================================
+
+void MainComponent::showKeyboardShortcuts()
+{
+    auto* dialogContent = new juce::TextEditor();
+    dialogContent->setMultiLine(true);
+    dialogContent->setReadOnly(true);
+    dialogContent->setScrollbarsShown(true);
+    dialogContent->setColour(juce::TextEditor::backgroundColourId, MidiSingLookAndFeel::backgroundDark);
+    dialogContent->setColour(juce::TextEditor::textColourId, MidiSingLookAndFeel::textColour);
+
+    juce::String text;
+    text << "=== Transport ===\n"
+         << "Space            Play / Stop\n"
+         << "R                Toggle Record\n\n"
+         << "=== File ===\n"
+         << "Ctrl+N           New Project\n"
+         << "Ctrl+O           Open Project\n"
+         << "Ctrl+S           Save Project\n"
+         << "Ctrl+Shift+S     Save Project As\n"
+         << "Ctrl+Alt+S       Collect All and Save\n"
+         << "Ctrl+Shift+E     Export Audio\n\n"
+         << "=== Edit ===\n"
+         << "Ctrl+Z           Undo\n"
+         << "Ctrl+Y           Redo\n"
+         << "Ctrl+A           Select All\n"
+         << "Delete           Delete Selection\n"
+         << "Ctrl+B           Split at Playhead\n\n"
+         << "=== View ===\n"
+         << "Ctrl+B           Toggle Browser\n"
+         << "Ctrl+M           Toggle Mixer\n"
+         << "Ctrl+P           Toggle Piano Roll\n\n"
+         << "=== Tools ===\n"
+         << "V                Select Tool\n"
+         << "D                Draw Tool\n"
+         << "S                Split Tool\n"
+         << "E                Erase Tool\n"
+         << "M                Mute Tool\n\n"
+         << "=== Track ===\n"
+         << "Ctrl+T           Add Audio Track\n"
+         << "Ctrl+Shift+T     Add MIDI Track\n";
+
+    dialogContent->setText(text);
+    dialogContent->setSize(400, 500);
+
+    juce::DialogWindow::LaunchOptions options;
+    options.dialogTitle = "Keyboard Shortcuts";
+    options.dialogBackgroundColour = MidiSingLookAndFeel::backgroundDark;
+    options.content.setOwned(dialogContent);
+    options.componentToCentreAround = this;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+
+    options.launchAsync();
+}
+
+//==============================================================================
+// MIDI Export
+//==============================================================================
+
+void MainComponent::exportMidi()
+{
+    audioEngine.getTransport().stop();
+
+    fileChooser = std::make_unique<juce::FileChooser>("Export MIDI",
         juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
-        "*.wav");
+        "*.mid");
 
     auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
 
@@ -1587,55 +1851,23 @@ void MainComponent::exportAudio()
         auto file = fc.getResult();
         if (file != juce::File())
         {
-            if (!file.hasFileExtension("wav"))
-                file = file.withFileExtension("wav");
+            if (!file.hasFileExtension("mid"))
+                file = file.withFileExtension("mid");
 
-            // Get timeline length in samples
-            auto& timeline = audioEngine.getTimeline();
-            int64_t endSample = timeline.getEndSample();
+            MidiExporter exporter;
+            bool success = exporter.exportToFile(audioEngine.getTimeline(), file);
 
-            if (endSample <= 0)
+            if (success)
             {
-                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       "Export Failed",
-                                                       "The project is empty. Add some audio or MIDI clips before exporting.");
-                return;
-            }
-
-            // Create and run export task with progress dialog
-            ExportProgressTask exportTask(audioEngine, file, endSample);
-
-            // runThread() shows modal dialog and returns true when thread finishes
-            if (exportTask.runThread())
-            {
-                if (exportTask.wasSuccessful())
-                {
-                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                                                           "Export Complete",
-                                                           "Audio exported successfully to:\n" + file.getFullPathName());
-                }
-                else if (exportTask.wasCancelledByUser())
-                {
-                    // Delete the partial/complete file since user cancelled
-                    file.deleteFile();
-                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                                                           "Export Cancelled",
-                                                           "The export was cancelled.");
-                }
-                else
-                {
-                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                           "Export Failed",
-                                                           "Failed to export audio. Please check the file path and try again.");
-                }
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                    "Export Complete",
+                    "MIDI exported successfully to:\n" + file.getFullPathName());
             }
             else
             {
-                // runThread() returned false - user closed the dialog early or error occurred
-                file.deleteFile();
-                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                                                       "Export Cancelled",
-                                                       "The export was cancelled.");
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                    "Export Failed",
+                    "Failed to export MIDI file.");
             }
         }
     });
@@ -1716,6 +1948,9 @@ void MainComponent::performAutoSave()
         }
 
         lastAutoSaveTime = juce::Time::getCurrentTime();
+
+        // Show auto-save indicator in status bar
+        juce::MessageManager::callAsync([this]() { statusBar.showAutoSaveIndicator(); });
 
         juce::Logger::writeToLog("Auto-save completed: " + recoveryFile.getFullPathName());
     }

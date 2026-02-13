@@ -39,4 +39,11 @@ namespace CommandIDs
     static const int selectAll       = 0x5001;
     static const int deleteSelection = 0x5002;
     static const int splitAtPlayhead = 0x5003;
+
+    // Help menu commands
+    static const int aboutMidiSing     = 0x6001;
+    static const int keyboardShortcuts = 0x6002;
+
+    // Export commands
+    static const int exportMidi        = 0x7001;
 }

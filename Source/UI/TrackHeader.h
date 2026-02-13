@@ -38,6 +38,7 @@ public:
     std::function<void(Track*)> onDeleteTrack;
     std::function<void(int, const juce::String&)> onToggleAutomationLane;
     std::function<void(Track*)> onTrackPropertiesChanged;
+    std::function<void(Track*)> onFreezeTrack;
 
 private:
     void updateFromTrack();
@@ -63,6 +64,7 @@ private:
     enum MenuItemIds
     {
         DeleteTrackId = 1,
+        FreezeTrackId = 2,
         ShowVolumeAutomationId = 10,
         ShowPanAutomationId = 11
     };

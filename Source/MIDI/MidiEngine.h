@@ -107,6 +107,10 @@ public:
         // Always play through the synth for monitoring
         handleMidiEvent(message);
 
+        // Notify MIDI activity callback (for UI indicators)
+        if (onMidiActivity)
+            onMidiActivity();
+
         // If recording is active and we have an armed track, store the event
         if (isRecording && onMidiInputReceived)
         {
@@ -166,6 +170,9 @@ public:
      * Parameters: MidiMessage, timestamp in samples
      */
     std::function<void(const juce::MidiMessage&, int64_t)> onMidiInputReceived;
+
+    /** Callback for MIDI activity indication (UI updates) */
+    std::function<void()> onMidiActivity;
 
 private:
     juce::Synthesiser synth;

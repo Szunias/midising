@@ -103,6 +103,9 @@ private:
     void setupCommands();
     void createNewProject();
     void showAudioSettings();
+    void showAboutDialog();
+    void showKeyboardShortcuts();
+    void exportMidi();
 
     // Audio device management with crash protection
     void setupAudioDeviceManager();

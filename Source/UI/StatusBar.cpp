@@ -35,6 +35,18 @@ StatusBar::StatusBar(juce::AudioDeviceManager& deviceManager)
     memoryLabel.setJustificationType(juce::Justification::centred);
     memoryLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::textColour);
 
+    // MIDI activity indicator
+    addAndMakeVisible(midiActivityLabel);
+    midiActivityLabel.setText("MIDI", juce::dontSendNotification);
+    midiActivityLabel.setJustificationType(juce::Justification::centred);
+    midiActivityLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+
+    // Auto-save indicator
+    addAndMakeVisible(autoSaveLabel);
+    autoSaveLabel.setText("", juce::dontSendNotification);
+    autoSaveLabel.setJustificationType(juce::Justification::centred);
+    autoSaveLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::playColour);
+
     // Update immediately
     timerCallback();
 
@@ -115,6 +127,12 @@ void StatusBar::resized()
 
     // Memory usage indicator after CPU
     memoryLabel.setBounds(area.removeFromLeft(90));
+
+    // MIDI activity indicator
+    midiActivityLabel.setBounds(area.removeFromLeft(40));
+
+    // Auto-save indicator
+    autoSaveLabel.setBounds(area.removeFromLeft(80));
 
     // Dropout indicator on the right side, before device info
     dropoutLabel.setBounds(area.removeFromRight(100));
@@ -221,7 +239,37 @@ void StatusBar::timerCallback()
         }
     }
 
+    // Update MIDI activity indicator
+    if (midiActivityCounter > 0)
+    {
+        midiActivityCounter--;
+        midiActivityLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::playColour);
+    }
+    else
+    {
+        midiActivityLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    }
+
+    // Update auto-save indicator
+    if (autoSaveDisplayCounter > 0)
+    {
+        autoSaveDisplayCounter--;
+        if (autoSaveDisplayCounter == 0)
+            autoSaveLabel.setText("", juce::dontSendNotification);
+    }
+
     repaint();
+}
+
+void StatusBar::triggerMidiActivity()
+{
+    midiActivityCounter = 4; // Show for 2 seconds (4 x 500ms timer)
+}
+
+void StatusBar::showAutoSaveIndicator()
+{
+    autoSaveLabel.setText("Auto-saved", juce::dontSendNotification);
+    autoSaveDisplayCounter = 6; // Show for 3 seconds (6 x 500ms timer)
 }
 
 void StatusBar::setInputLevel(float left, float right)

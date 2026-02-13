@@ -1,4 +1,5 @@
 #include "PianoRoll.h"
+#include "../Actions/PianoRollActions.h"
 #include <algorithm>
 #include <vector>
 #include <map>
@@ -173,7 +174,21 @@ void PianoRoll::mouseUp(const juce::MouseEvent& e)
     // Finalize velocity editing
     if (isEditingVelocity)
     {
-        // Velocity changes are already applied during drag, just reset state
+        // Record the final velocity as an undo action
+        if (undoManager != nullptr && midiRegion != nullptr && velocityEditNoteIndex >= 0)
+        {
+            auto& seq = midiRegion->getMidiSequence();
+            auto* event = seq.getEventPointer(velocityEditNoteIndex);
+            if (event != nullptr && event->message.isNoteOn())
+            {
+                float finalVelocity = event->message.getFloatVelocity();
+                // Restore original and let the undo action apply the new value
+                event->message.setVelocity(velocityEditOriginalVelocity);
+                undoManager->beginNewTransaction("Change Velocity");
+                undoManager->perform(new PianoRollVelocityAction(*midiRegion, velocityEditNoteIndex, finalVelocity));
+            }
+        }
+
         isEditingVelocity = false;
         velocityEditNoteIndex = -1;
         repaint();
@@ -905,56 +920,65 @@ void PianoRoll::deleteSelectedNotes()
 
     auto& seq = midiRegion->getMidiSequence();
 
-    // Collect all events to delete (both note-on and note-off)
-    // We need to delete in reverse order to maintain valid indices
-    std::vector<int> indicesToDelete;
-
-    for (int eventIndex : selectedNoteIndices)
+    if (undoManager != nullptr)
     {
-        if (eventIndex >= 0 && eventIndex < seq.getNumEvents())
-        {
-            auto* event = seq.getEventPointer(eventIndex);
-            if (event != nullptr && event->message.isNoteOn())
-            {
-                // Add note-on index
-                indicesToDelete.push_back(eventIndex);
+        undoManager->beginNewTransaction("Delete Notes");
 
-                // Find and add the matching note-off index
-                if (event->noteOffObject != nullptr)
+        // Delete in reverse index order so that earlier indices stay valid
+        std::vector<int> sortedIndices(selectedNoteIndices.begin(), selectedNoteIndices.end());
+        std::sort(sortedIndices.begin(), sortedIndices.end(), std::greater<int>());
+
+        for (int eventIndex : sortedIndices)
+        {
+            if (eventIndex >= 0 && eventIndex < seq.getNumEvents())
+            {
+                auto* event = seq.getEventPointer(eventIndex);
+                if (event != nullptr && event->message.isNoteOn())
                 {
-                    // Find the index of the note-off event
-                    for (int i = 0; i < seq.getNumEvents(); ++i)
+                    undoManager->perform(new PianoRollDeleteNoteAction(*midiRegion, eventIndex));
+                }
+            }
+        }
+    }
+    else
+    {
+        // Collect all events to delete (both note-on and note-off)
+        std::vector<int> indicesToDelete;
+
+        for (int eventIndex : selectedNoteIndices)
+        {
+            if (eventIndex >= 0 && eventIndex < seq.getNumEvents())
+            {
+                auto* event = seq.getEventPointer(eventIndex);
+                if (event != nullptr && event->message.isNoteOn())
+                {
+                    indicesToDelete.push_back(eventIndex);
+
+                    if (event->noteOffObject != nullptr)
                     {
-                        if (seq.getEventPointer(i) == event->noteOffObject)
+                        for (int i = 0; i < seq.getNumEvents(); ++i)
                         {
-                            indicesToDelete.push_back(i);
-                            break;
+                            if (seq.getEventPointer(i) == event->noteOffObject)
+                            {
+                                indicesToDelete.push_back(i);
+                                break;
+                            }
                         }
                     }
                 }
             }
         }
+
+        std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
+        indicesToDelete.erase(std::unique(indicesToDelete.begin(), indicesToDelete.end()), indicesToDelete.end());
+
+        for (int index : indicesToDelete)
+            seq.deleteEvent(index, false);
+
+        seq.updateMatchedPairs();
     }
 
-    // Sort indices in descending order to delete from end to start
-    // This prevents index shifting issues during deletion
-    std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
-
-    // Remove duplicates
-    indicesToDelete.erase(std::unique(indicesToDelete.begin(), indicesToDelete.end()), indicesToDelete.end());
-
-    // Delete events in reverse order
-    for (int index : indicesToDelete)
-    {
-        seq.deleteEvent(index, false);
-    }
-
-    // Update matched pairs after deletion
-    seq.updateMatchedPairs();
-
-    // Clear selection since the notes are deleted
     selectedNoteIndices.clear();
-
     repaint();
 }
 
@@ -1223,18 +1247,26 @@ void PianoRoll::handleDrawToolMouseUp(const juce::MouseEvent& e)
     // Create note from quantized start to end
     if (dragStartNote == endNote && quantizedEndBeat > quantizedStartBeat)
     {
-        auto& seq = midiRegion->getMidiSequence();
-
         // Convert beats to ticks (assuming 960 ticks per beat)
         double ticksPerBeat = 960.0;
         double startTicks = quantizedStartBeat * ticksPerBeat;
         double endTicks = quantizedEndBeat * ticksPerBeat;
 
-        // Add note on
-        seq.addEvent(juce::MidiMessage::noteOn(1, dragStartNote, 0.8f).withTimeStamp(startTicks));
-        // Add note off
-        seq.addEvent(juce::MidiMessage::noteOff(1, dragStartNote, 0.0f).withTimeStamp(endTicks));
-        seq.updateMatchedPairs();
+        auto noteOn = juce::MidiMessage::noteOn(1, dragStartNote, 0.8f).withTimeStamp(startTicks);
+        auto noteOff = juce::MidiMessage::noteOff(1, dragStartNote, 0.0f).withTimeStamp(endTicks);
+
+        if (undoManager != nullptr)
+        {
+            undoManager->beginNewTransaction("Add Note");
+            undoManager->perform(new PianoRollAddNoteAction(*midiRegion, noteOn, noteOff));
+        }
+        else
+        {
+            auto& seq = midiRegion->getMidiSequence();
+            seq.addEvent(noteOn);
+            seq.addEvent(noteOff);
+            seq.updateMatchedPairs();
+        }
 
         repaint();
     }
@@ -1255,37 +1287,37 @@ void PianoRoll::handleEraseToolMouseDown(const juce::MouseEvent& e)
 
         if (event != nullptr && event->message.isNoteOn())
         {
-            std::vector<int> indicesToDelete;
-            indicesToDelete.push_back(clickedNoteIndex);
-
-            // Find and add the matching note-off index
-            if (event->noteOffObject != nullptr)
+            if (undoManager != nullptr)
             {
-                for (int i = 0; i < seq.getNumEvents(); ++i)
+                undoManager->beginNewTransaction("Erase Note");
+                undoManager->perform(new PianoRollDeleteNoteAction(*midiRegion, clickedNoteIndex));
+            }
+            else
+            {
+                std::vector<int> indicesToDelete;
+                indicesToDelete.push_back(clickedNoteIndex);
+
+                if (event->noteOffObject != nullptr)
                 {
-                    if (seq.getEventPointer(i) == event->noteOffObject)
+                    for (int i = 0; i < seq.getNumEvents(); ++i)
                     {
-                        indicesToDelete.push_back(i);
-                        break;
+                        if (seq.getEventPointer(i) == event->noteOffObject)
+                        {
+                            indicesToDelete.push_back(i);
+                            break;
+                        }
                     }
                 }
+
+                std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
+                for (int index : indicesToDelete)
+                    seq.deleteEvent(index, false);
+
+                seq.updateMatchedPairs();
             }
 
-            // Sort in descending order
-            std::sort(indicesToDelete.begin(), indicesToDelete.end(), std::greater<int>());
-
-            // Delete events
-            for (int index : indicesToDelete)
-            {
-                seq.deleteEvent(index, false);
-            }
-
-            seq.updateMatchedPairs();
-
-            // Remove from selection and muted sets
             selectedNoteIndices.erase(clickedNoteIndex);
             mutedNoteIndices.erase(clickedNoteIndex);
-
             repaint();
         }
     }

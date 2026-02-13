@@ -1385,6 +1385,33 @@ void TimelineView::updateTrackHeaders()
             toggleAutomationLane(trkIdx, paramName);
         };
 
+        // Set up freeze track callback
+        header->onFreezeTrack = [this](Track* track)
+        {
+            if (track == nullptr) return;
+
+            if (track->isFrozen())
+            {
+                // Unfreeze: remove frozen file and restore live processing
+                auto frozenFile = track->getFrozenFile();
+                track->setFrozen(false);
+                if (frozenFile.existsAsFile())
+                    frozenFile.deleteFile();
+                repaint();
+            }
+            else
+            {
+                // Freeze: mark track as frozen with a rendered file path
+                auto freezeFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                    .getChildFile("MidiSing").getChildFile("FrozenTracks")
+                    .getChildFile(track->getName().replaceCharacters(" /\\", "___") + "_frozen.wav");
+                freezeFile.getParentDirectory().createDirectory();
+
+                track->setFrozen(true, freezeFile);
+                repaint();
+            }
+        };
+
         trackHeaders.push_back(std::move(header));
     }
 
