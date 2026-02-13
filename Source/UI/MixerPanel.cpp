@@ -1,6 +1,8 @@
 #include "MixerPanel.h"
 #include "../Audio/MixGroup.h"
 #include "../Audio/AudioTrack.h"
+#include "../Audio/GroupBus.h"
+#include "../Audio/SendReturn.h"
 #include "../Plugins/PluginManager.h"
 #include "../Plugins/PluginInstance.h"
 #include "../Effects/GainEffect.h"
@@ -9,6 +11,10 @@
 #include "../Effects/ParametricEQ.h"
 #include "../Effects/VCACompressor.h"
 #include "../Effects/StereoDelay.h"
+#include "../Effects/NoiseGate.h"
+#include "../Effects/Limiter.h"
+#include "../Effects/ChorusFlanger.h"
+#include "../Effects/Saturation.h"
 #include <map>
 
 MixerPanel::MixerPanel()
@@ -39,9 +45,46 @@ void MixerPanel::paint(juce::Graphics& g)
 {
     g.fillAll(MidiSingLookAndFeel::backgroundDark);
 
-    // Label for master section
+    auto bounds = getLocalBounds();
+    bounds.removeFromRight(MASTER_WIDTH); // master area
+    bounds.removeFromTop(20); // label row
+
+    // Calculate x positions for section separators
+    int x = 0;
+    int numTracks = static_cast<int>(channelStrips.size());
+    int numGroupBus = static_cast<int>(groupBusStrips.size());
+    x += numTracks * CHANNEL_WIDTH;
+
+    // Draw separator between tracks and group buses
+    if (numGroupBus > 0 && numTracks > 0)
+    {
+        g.setColour(MidiSingLookAndFeel::borderColour);
+        g.fillRect(x, bounds.getY(), SEPARATOR_WIDTH, bounds.getHeight());
+    }
+
+    int groupStartX = x + (numGroupBus > 0 && numTracks > 0 ? SEPARATOR_WIDTH : 0);
+    x = groupStartX + numGroupBus * CHANNEL_WIDTH;
+
+    int numAux = static_cast<int>(auxStrips.size());
+    // Draw separator between group buses and aux tracks
+    if (numAux > 0 && (numGroupBus > 0 || numTracks > 0))
+    {
+        g.setColour(MidiSingLookAndFeel::borderColour);
+        g.fillRect(x, bounds.getY(), SEPARATOR_WIDTH, bounds.getHeight());
+    }
+
+    // Section labels
     g.setColour(MidiSingLookAndFeel::textDimColour);
     g.setFont(10.0f);
+
+    if (numGroupBus > 0)
+        g.drawText("GROUP", groupStartX, 4, numGroupBus * CHANNEL_WIDTH, 16, juce::Justification::centred);
+
+    int auxStartX = x + (numAux > 0 && (numGroupBus > 0 || numTracks > 0) ? SEPARATOR_WIDTH : 0);
+    if (numAux > 0)
+        g.drawText("AUX", auxStartX, 4, numAux * CHANNEL_WIDTH, 16, juce::Justification::centred);
+
+    // Master label
     g.drawText("MASTER", getWidth() - MASTER_WIDTH, 4, MASTER_WIDTH, 16,
                juce::Justification::centred);
 }
@@ -64,10 +107,34 @@ void MixerPanel::resized()
     // Master strip fills the rest
     masterStrip->setBounds(masterBounds);
 
-    // Channel strips fill the rest
+    // Layout: tracks | separator | group buses | separator | aux returns
     bounds.removeFromTop(20);
     int x = 0;
+
+    // Track channel strips
     for (auto& strip : channelStrips)
+    {
+        strip->setBounds(x, bounds.getY(), CHANNEL_WIDTH, bounds.getHeight());
+        x += CHANNEL_WIDTH;
+    }
+
+    // Separator after tracks
+    if (!groupBusStrips.empty() && !channelStrips.empty())
+        x += SEPARATOR_WIDTH;
+
+    // Group bus strips
+    for (auto& strip : groupBusStrips)
+    {
+        strip->setBounds(x, bounds.getY(), CHANNEL_WIDTH, bounds.getHeight());
+        x += CHANNEL_WIDTH;
+    }
+
+    // Separator after group buses
+    if (!auxStrips.empty() && (!groupBusStrips.empty() || !channelStrips.empty()))
+        x += SEPARATOR_WIDTH;
+
+    // Aux return strips
+    for (auto& strip : auxStrips)
     {
         strip->setBounds(x, bounds.getY(), CHANNEL_WIDTH, bounds.getHeight());
         x += CHANNEL_WIDTH;
@@ -85,8 +152,36 @@ void MixerPanel::timerCallback()
         correlationMeter.setCorrelation(mixerPtr->getStereoCorrelation());
     }
 
-    // Note: Individual track meters would need per-track peak tracking
-    // For now, tracks just show 0 levels
+    // Update group bus meters
+    if (timelinePtr != nullptr)
+    {
+        for (size_t i = 0; i < groupBusStrips.size(); ++i)
+        {
+            int idx = static_cast<int>(i);
+            if (idx < timelinePtr->getNumGroupBusses())
+            {
+                auto* bus = timelinePtr->getGroupBus(idx);
+                if (bus != nullptr)
+                {
+                    groupBusStrips[i]->setLevel(bus->getPeakLevel(0), bus->getPeakLevel(1));
+                }
+            }
+        }
+
+        // Update aux return meters
+        for (size_t i = 0; i < auxStrips.size(); ++i)
+        {
+            int idx = static_cast<int>(i);
+            if (idx < timelinePtr->getNumAuxTracks())
+            {
+                auto* aux = timelinePtr->getAuxTrack(idx);
+                if (aux != nullptr)
+                {
+                    auxStrips[i]->setLevel(aux->getPeakLevel(0), aux->getPeakLevel(1));
+                }
+            }
+        }
+    }
 }
 
 void MixerPanel::updateChannelStrips()
@@ -233,6 +328,9 @@ void MixerPanel::updateChannelStrips()
             }
         };
 
+        // Set up send level callback
+        channelStrips[i]->onSendLevelChanged = [](Track*, int, float) {};
+
         // Set up insert slot click callback to show plugin/effect selector
         channelStrips[i]->onInsertSlotClicked = [this](Track* t, int slotIndex)
         {
@@ -254,6 +352,10 @@ void MixerPanel::updateChannelStrips()
             builtInMenu.addItem(104, "VCA Compressor");
             builtInMenu.addItem(105, "Reverb");
             builtInMenu.addItem(106, "Stereo Delay");
+            builtInMenu.addItem(107, "Noise Gate");
+            builtInMenu.addItem(108, "Limiter");
+            builtInMenu.addItem(109, "Chorus/Flanger");
+            builtInMenu.addItem(110, "Saturation");
             menu.addSubMenu("Built-in Effects", builtInMenu);
 
             // VST3 Plugins submenu
@@ -321,6 +423,10 @@ void MixerPanel::updateChannelStrips()
                             case 104: effect = std::make_unique<VCACompressor>(); break;
                             case 105: effect = std::make_unique<ReverbEffect>(); break;
                             case 106: effect = std::make_unique<StereoDelay>(); break;
+                            case 107: effect = std::make_unique<NoiseGate>(); break;
+                            case 108: effect = std::make_unique<Limiter>(); break;
+                            case 109: effect = std::make_unique<ChorusFlanger>(); break;
+                            case 110: effect = std::make_unique<Saturation>(); break;
                         }
                         if (effect)
                         {
@@ -364,5 +470,53 @@ void MixerPanel::updateChannelStrips()
                     }
                 });
         };
+    }
+
+    // --- Group Bus strips ---
+    int numGroupBusses = timelinePtr->getNumGroupBusses();
+    while (static_cast<int>(groupBusStrips.size()) < numGroupBusses)
+    {
+        auto strip = std::make_unique<ChannelStrip>();
+        addAndMakeVisible(strip.get());
+        groupBusStrips.push_back(std::move(strip));
+    }
+    while (static_cast<int>(groupBusStrips.size()) > numGroupBusses)
+    {
+        groupBusStrips.pop_back();
+    }
+    for (size_t i = 0; i < groupBusStrips.size(); ++i)
+    {
+        auto* bus = timelinePtr->getGroupBus(static_cast<int>(i));
+        groupBusStrips[i]->setTrack(bus);
+    }
+
+    // --- Aux Return strips ---
+    int numAuxTracks = timelinePtr->getNumAuxTracks();
+    while (static_cast<int>(auxStrips.size()) < numAuxTracks)
+    {
+        auto strip = std::make_unique<ChannelStrip>();
+        addAndMakeVisible(strip.get());
+        auxStrips.push_back(std::move(strip));
+    }
+    while (static_cast<int>(auxStrips.size()) > numAuxTracks)
+    {
+        auxStrips.pop_back();
+    }
+    for (size_t i = 0; i < auxStrips.size(); ++i)
+    {
+        auto* aux = timelinePtr->getAuxTrack(static_cast<int>(i));
+        auxStrips[i]->setTrack(aux);
+    }
+
+    // Update available aux track names on all track channel strips (for send knobs)
+    juce::StringArray auxNames;
+    for (int i = 0; i < numAuxTracks; ++i)
+    {
+        auto* aux = timelinePtr->getAuxTrack(i);
+        auxNames.add(aux != nullptr ? aux->getName() : "Aux " + juce::String(i + 1));
+    }
+    for (auto& strip : channelStrips)
+    {
+        strip->setAvailableAuxTracks(auxNames);
     }
 }

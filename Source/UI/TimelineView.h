@@ -96,6 +96,14 @@ public:
     void splitSelectionAtPosition(int64_t samplePosition);
     void selectFirstRegion();
 
+    // Clipboard operations (public wrappers for menu/shortcut access)
+    void cutSelection();
+    void copySelection();
+    void pasteAtPlayhead();
+    void duplicateSelection();
+    void nudgeSelection(int direction); // -1 = left, +1 = right
+    bool hasClipboardData() const { return clipboard.hasData; }
+
     // Automation lane management
     void setAutomationMode(AutomationMode mode);
     AutomationMode getAutomationMode() const { return automationMode; }

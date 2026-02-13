@@ -20,13 +20,19 @@ namespace CommandIDs
     static const int collectAllAndSave = 0x100C;
 
     // Track menu commands
-    static const int addAudioTrack = 0x2001;
-    static const int addMidiTrack  = 0x2002;
+    static const int addAudioTrack  = 0x2001;
+    static const int addMidiTrack   = 0x2002;
+    static const int deleteTrack    = 0x2003;
+    static const int createGroupBus = 0x2004;
+    static const int createAuxTrack = 0x2005;
 
     // View menu commands - Panel toggles
     static const int toggleBrowser   = 0x3001;
     static const int toggleMixer     = 0x3002;
     static const int togglePianoRoll = 0x3003;
+    static const int zoomIn          = 0x3004;
+    static const int zoomOut         = 0x3005;
+    static const int zoomToFit       = 0x3006;
 
     // Tool mode commands
     static const int toolSelect      = 0x4001;
@@ -39,6 +45,12 @@ namespace CommandIDs
     static const int selectAll       = 0x5001;
     static const int deleteSelection = 0x5002;
     static const int splitAtPlayhead = 0x5003;
+    static const int cut             = 0x5004;
+    static const int copy            = 0x5005;
+    static const int paste           = 0x5006;
+    static const int duplicate       = 0x5007;
+    static const int nudgeLeft       = 0x5008;
+    static const int nudgeRight      = 0x5009;
 
     // Help menu commands
     static const int aboutMidiSing     = 0x6001;

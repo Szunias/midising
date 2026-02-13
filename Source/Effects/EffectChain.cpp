@@ -70,25 +70,46 @@ std::unique_ptr<juce::XmlElement> EffectChain::createXml() const
 #include "GainEffect.h"
 #include "SimpleEQEffect.h"
 #include "ReverbEffect.h"
+#include "ParametricEQ.h"
+#include "VCACompressor.h"
+#include "StereoDelay.h"
+#include "NoiseGate.h"
+#include "Limiter.h"
+#include "ChorusFlanger.h"
+#include "Saturation.h"
 
 void EffectChain::loadFromXml(const juce::XmlElement& xml)
 {
     clear();
-    
+
     for (auto* child : xml.getChildIterator())
     {
         if (child->hasTagName("EFFECT"))
         {
             juce::String type = child->getStringAttribute("type");
             std::unique_ptr<Effect> effect;
-            
+
             if (type == "GainEffect")
                 effect = std::make_unique<GainEffect>();
             else if (type == "SimpleEQEffect")
                 effect = std::make_unique<SimpleEQEffect>();
             else if (type == "ReverbEffect")
                 effect = std::make_unique<ReverbEffect>();
-                
+            else if (type == "ParametricEQ")
+                effect = std::make_unique<ParametricEQ>();
+            else if (type == "VCACompressor")
+                effect = std::make_unique<VCACompressor>();
+            else if (type == "StereoDelay")
+                effect = std::make_unique<StereoDelay>();
+            else if (type == "NoiseGate")
+                effect = std::make_unique<NoiseGate>();
+            else if (type == "Limiter")
+                effect = std::make_unique<Limiter>();
+            else if (type == "ChorusFlanger")
+                effect = std::make_unique<ChorusFlanger>();
+            else if (type == "Saturation")
+                effect = std::make_unique<Saturation>();
+
             if (effect != nullptr)
             {
                 effect->loadFromXml(*child);

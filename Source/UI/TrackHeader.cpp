@@ -32,6 +32,7 @@ TrackHeader::TrackHeader()
 
     // Mute button
     muteButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    muteButton.setTooltip("Mute Track");
     muteButton.onClick = [this]()
     {
         if (trackPtr != nullptr)
@@ -46,6 +47,7 @@ TrackHeader::TrackHeader()
 
     // Solo button
     soloButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    soloButton.setTooltip("Solo Track");
     soloButton.onClick = [this]()
     {
         if (trackPtr != nullptr)
@@ -60,6 +62,7 @@ TrackHeader::TrackHeader()
 
     // Arm button
     armButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    armButton.setTooltip("Arm for Recording");
     armButton.onClick = [this]()
     {
         if (trackPtr != nullptr)
@@ -103,6 +106,7 @@ TrackHeader::TrackHeader()
 
     // Automation button - shows automation lane menu
     autoButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    autoButton.setTooltip("Automation Lanes");
     autoButton.onClick = [this]()
     {
         showAutomationMenu();

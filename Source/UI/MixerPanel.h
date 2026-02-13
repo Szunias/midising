@@ -156,6 +156,8 @@ public:
     static constexpr int CHANNEL_WIDTH = 80;
     static constexpr int MASTER_WIDTH = 100;
 
+    static constexpr int SEPARATOR_WIDTH = 2;
+
 private:
     void updateChannelStrips();
 
@@ -163,6 +165,8 @@ private:
     Mixer* mixerPtr = nullptr;
 
     std::vector<std::unique_ptr<ChannelStrip>> channelStrips;
+    std::vector<std::unique_ptr<ChannelStrip>> groupBusStrips;
+    std::vector<std::unique_ptr<ChannelStrip>> auxStrips;
     std::unique_ptr<ChannelStrip> masterStrip;
 
     // Stereo correlation meter for master channel

@@ -3960,3 +3960,59 @@ SpectrogramGenerator::ColorMap TimelineView::getSpectrogramColorMap() const
 {
     return spectrogramGenerator.getColorMap();
 }
+
+//==============================================================================
+// Public clipboard / edit wrappers
+//==============================================================================
+
+void TimelineView::cutSelection()
+{
+    cutSelectedRegion();
+}
+
+void TimelineView::copySelection()
+{
+    copySelectedRegion();
+}
+
+void TimelineView::pasteAtPlayhead()
+{
+    if (!clipboard.hasData || transportPtr == nullptr)
+        return;
+
+    int64_t pastePos = transportPtr->getPlayheadPosition();
+    pasteRegion(pastePos);
+}
+
+void TimelineView::duplicateSelection()
+{
+    if (selectedRegion == nullptr || selectedTrackIndex < 0)
+        return;
+
+    // Copy current selection
+    copySelectedRegion();
+
+    // Paste right after the selected region ends
+    int64_t pastePos = selectedRegion->getEndPosition();
+    pasteRegion(pastePos);
+}
+
+void TimelineView::nudgeSelection(int direction)
+{
+    if (selectedRegion == nullptr || selectedTrackIndex < 0 || timelinePtr == nullptr)
+        return;
+
+    // Get snap grid size for nudge amount
+    SnapResolution resolution = getZoomAwareSnapResolution();
+    double snapDivision = getSnapDivisionForResolution(resolution);
+    int64_t nudgeAmount = timelinePtr->beatsToSamples(snapDivision);
+
+    int64_t currentStart = selectedRegion->getStartPosition();
+    int64_t newStart = currentStart + (nudgeAmount * direction);
+
+    // Don't allow negative positions
+    newStart = juce::jmax(int64_t(0), newStart);
+
+    selectedRegion->setStartPosition(newStart);
+    repaint();
+}

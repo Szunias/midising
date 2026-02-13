@@ -4,6 +4,7 @@ TransportBar::TransportBar()
 {
     // Rewind button
     rewindButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    rewindButton.setTooltip("Rewind to start");
     rewindButton.onClick = [this]()
     {
         if (onRewind)
@@ -13,6 +14,7 @@ TransportBar::TransportBar()
 
     // Play button
     playButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    playButton.setTooltip("Play / Pause (Space)");
     playButton.onClick = [this]()
     {
         if (onPlay)
@@ -23,6 +25,7 @@ TransportBar::TransportBar()
 
     // Stop button
     stopButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    stopButton.setTooltip("Stop");
     stopButton.onClick = [this]()
     {
         if (onStop)
@@ -33,6 +36,7 @@ TransportBar::TransportBar()
 
     // Record button
     recordButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    recordButton.setTooltip("Record (R)");
     recordButton.onClick = [this]()
     {
         if (onRecord)
@@ -43,6 +47,7 @@ TransportBar::TransportBar()
 
     // Loop button
     loopButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    loopButton.setTooltip("Toggle Loop");
     loopButton.setClickingTogglesState(true);
     loopButton.onClick = [this]()
     {
@@ -53,6 +58,7 @@ TransportBar::TransportBar()
 
     // Save button
     saveButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    saveButton.setTooltip("Save Project (Ctrl+S)");
     saveButton.onClick = [this]()
     {
         if (onSave)
@@ -62,6 +68,7 @@ TransportBar::TransportBar()
 
     // Open button
     openButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    openButton.setTooltip("Open Project (Ctrl+O)");
     openButton.onClick = [this]()
     {
         if (onOpen)
@@ -70,6 +77,7 @@ TransportBar::TransportBar()
     addAndMakeVisible(openButton);
 
     // BPM slider
+    bpmSlider.setTooltip("Tempo (BPM)");
     bpmSlider.setRange(20.0, 300.0, 1.0);
     bpmSlider.setValue(120.0);
     bpmSlider.setSliderStyle(juce::Slider::LinearHorizontal);
@@ -94,6 +102,7 @@ TransportBar::TransportBar()
 
     // Metronome button
     metronomeButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    metronomeButton.setTooltip("Toggle Metronome");
     metronomeButton.setClickingTogglesState(true);
     metronomeButton.onClick = [this]()
     {
@@ -103,6 +112,7 @@ TransportBar::TransportBar()
     addAndMakeVisible(metronomeButton);
 
     // Metronome volume slider
+    metronomeVolumeSlider.setTooltip("Metronome Volume");
     metronomeVolumeSlider.setRange(0.0, 1.0, 0.01);
     metronomeVolumeSlider.setValue(0.7);
     metronomeVolumeSlider.setSliderStyle(juce::Slider::LinearHorizontal);

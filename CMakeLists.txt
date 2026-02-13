@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(MidiSing VERSION 1.0.0 LANGUAGES CXX)
+project(MidiSing VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -149,6 +149,14 @@ target_sources(MidiSing
         Source/Effects/VCACompressor.cpp
         Source/Effects/StereoDelay.h
         Source/Effects/StereoDelay.cpp
+        Source/Effects/NoiseGate.h
+        Source/Effects/NoiseGate.cpp
+        Source/Effects/Limiter.h
+        Source/Effects/Limiter.cpp
+        Source/Effects/ChorusFlanger.h
+        Source/Effects/ChorusFlanger.cpp
+        Source/Effects/Saturation.h
+        Source/Effects/Saturation.cpp
         Source/UI/EffectRackUI.h
         Source/UI/EffectRackUI.cpp
         Source/UI/PluginSlot.h
@@ -291,6 +299,14 @@ target_sources(MidiSingTests
         Source/Effects/VCACompressor.cpp
         Source/Effects/StereoDelay.h
         Source/Effects/StereoDelay.cpp
+        Source/Effects/NoiseGate.h
+        Source/Effects/NoiseGate.cpp
+        Source/Effects/Limiter.h
+        Source/Effects/Limiter.cpp
+        Source/Effects/ChorusFlanger.h
+        Source/Effects/ChorusFlanger.cpp
+        Source/Effects/Saturation.h
+        Source/Effects/Saturation.cpp
         # UI files needed by tests
         Source/UI/PianoRoll.h
         Source/UI/PianoRoll.cpp

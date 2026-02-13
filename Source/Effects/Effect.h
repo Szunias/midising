@@ -22,6 +22,8 @@ public:
     void setBypass(bool shouldBypass) { bypass = shouldBypass; }
     bool isBypassed() const { return bypass; }
 
+    virtual int getLatencySamples() const { return 0; }
+
     // Serialization
     virtual std::unique_ptr<juce::XmlElement> createXml() const
     {

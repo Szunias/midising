@@ -387,6 +387,7 @@ ChannelStrip::ChannelStrip()
     addAndMakeVisible(nameLabel);
 
     // Volume fader (vertical)
+    volumeSlider.setTooltip("Volume");
     volumeSlider.setSliderStyle(juce::Slider::LinearVertical);
     volumeSlider.setRange(-60.0, 6.0, 0.1);
     volumeSlider.setValue(0.0);
@@ -406,6 +407,7 @@ ChannelStrip::ChannelStrip()
     addAndMakeVisible(volumeSlider);
 
     // Pan knob
+    panSlider.setTooltip("Pan");
     panSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     panSlider.setRange(-1.0, 1.0, 0.01);
     panSlider.setValue(0.0);
@@ -423,6 +425,7 @@ ChannelStrip::ChannelStrip()
 
     // Mute button
     muteButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    muteButton.setTooltip("Mute");
     muteButton.onClick = [this]()
     {
         if (trackPtr != nullptr)
@@ -437,6 +440,7 @@ ChannelStrip::ChannelStrip()
 
     // Solo button
     soloButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    soloButton.setTooltip("Solo");
     soloButton.onClick = [this]()
     {
         if (trackPtr != nullptr)
@@ -451,6 +455,7 @@ ChannelStrip::ChannelStrip()
 
     // FX button (opens full effect rack)
     fxButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    fxButton.setTooltip("Effect Rack");
     fxButton.onClick = [this]()
     {
         if (trackPtr != nullptr)

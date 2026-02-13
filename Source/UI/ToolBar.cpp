@@ -4,6 +4,7 @@ ToolBar::ToolBar()
 {
     // Select button (V) - Default tool
     selectButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::accentColour);
+    selectButton.setTooltip("Select Tool (V)");
     selectButton.onClick = [this]()
     {
         setToolMode(ToolMode::Select);
@@ -12,6 +13,7 @@ ToolBar::ToolBar()
 
     // Draw button (D)
     drawButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    drawButton.setTooltip("Draw Tool (D)");
     drawButton.onClick = [this]()
     {
         setToolMode(ToolMode::Draw);
@@ -20,6 +22,7 @@ ToolBar::ToolBar()
 
     // Split button (S)
     splitButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    splitButton.setTooltip("Split Tool (S)");
     splitButton.onClick = [this]()
     {
         setToolMode(ToolMode::Split);
@@ -28,6 +31,7 @@ ToolBar::ToolBar()
 
     // Erase button (E)
     eraseButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    eraseButton.setTooltip("Erase Tool (E)");
     eraseButton.onClick = [this]()
     {
         setToolMode(ToolMode::Erase);
@@ -36,6 +40,7 @@ ToolBar::ToolBar()
 
     // Pan button (H)
     panButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    panButton.setTooltip("Pan Tool (H)");
     panButton.onClick = [this]()
     {
         setToolMode(ToolMode::Pan);
@@ -44,6 +49,7 @@ ToolBar::ToolBar()
 
     // Zoom button (Z)
     zoomButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    zoomButton.setTooltip("Zoom Tool (Z)");
     zoomButton.onClick = [this]()
     {
         setToolMode(ToolMode::Zoom);
@@ -52,6 +58,7 @@ ToolBar::ToolBar()
 
     // Automation button (A)
     automationButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    automationButton.setTooltip("Automation Tool (A)");
     automationButton.onClick = [this]()
     {
         setToolMode(ToolMode::Automation);
@@ -60,6 +67,7 @@ ToolBar::ToolBar()
 
     // Range button (R)
     rangeButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    rangeButton.setTooltip("Range Tool (R)");
     rangeButton.onClick = [this]()
     {
         setToolMode(ToolMode::Range);

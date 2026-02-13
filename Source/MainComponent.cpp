@@ -661,6 +661,22 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
     commands.add(CommandIDs::selectAll);
     commands.add(CommandIDs::deleteSelection);
     commands.add(CommandIDs::splitAtPlayhead);
+    commands.add(CommandIDs::cut);
+    commands.add(CommandIDs::copy);
+    commands.add(CommandIDs::paste);
+    commands.add(CommandIDs::duplicate);
+    commands.add(CommandIDs::nudgeLeft);
+    commands.add(CommandIDs::nudgeRight);
+
+    // View commands
+    commands.add(CommandIDs::zoomIn);
+    commands.add(CommandIDs::zoomOut);
+    commands.add(CommandIDs::zoomToFit);
+
+    // Track commands
+    commands.add(CommandIDs::deleteTrack);
+    commands.add(CommandIDs::createGroupBus);
+    commands.add(CommandIDs::createAuxTrack);
 
     // Help menu commands
     commands.add(CommandIDs::aboutMidiSing);
@@ -782,7 +798,57 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
         break;
     case CommandIDs::splitAtPlayhead:
         result.setInfo("Split at Playhead", "Split selected region at playhead position", "Edit", 0);
-        result.addDefaultKeypress('b', juce::ModifierKeys::commandModifier);
+        result.addDefaultKeypress('b', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+        break;
+    case CommandIDs::cut:
+        result.setInfo("Cut", "Cut selected region to clipboard", "Edit", 0);
+        result.addDefaultKeypress('x', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::copy:
+        result.setInfo("Copy", "Copy selected region to clipboard", "Edit", 0);
+        result.addDefaultKeypress('c', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::paste:
+        result.setInfo("Paste", "Paste region from clipboard at playhead", "Edit", 0);
+        result.addDefaultKeypress('v', juce::ModifierKeys::commandModifier);
+        result.setActive(timelineView.hasClipboardData());
+        break;
+    case CommandIDs::duplicate:
+        result.setInfo("Duplicate", "Duplicate selected region", "Edit", 0);
+        result.addDefaultKeypress('d', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::nudgeLeft:
+        result.setInfo("Nudge Left", "Move selected region left by one grid unit", "Edit", 0);
+        result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::nudgeRight:
+        result.setInfo("Nudge Right", "Move selected region right by one grid unit", "Edit", 0);
+        result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::commandModifier);
+        break;
+
+    // View commands
+    case CommandIDs::zoomIn:
+        result.setInfo("Zoom In", "Zoom into the timeline", "View", 0);
+        result.addDefaultKeypress('=', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::zoomOut:
+        result.setInfo("Zoom Out", "Zoom out of the timeline", "View", 0);
+        result.addDefaultKeypress('-', juce::ModifierKeys::commandModifier);
+        break;
+    case CommandIDs::zoomToFit:
+        result.setInfo("Zoom to Fit", "Zoom timeline to fit all content", "View", 0);
+        result.addDefaultKeypress('0', juce::ModifierKeys::commandModifier);
+        break;
+
+    // Track commands
+    case CommandIDs::deleteTrack:
+        result.setInfo("Delete Track", "Delete the selected track", "Track", 0);
+        break;
+    case CommandIDs::createGroupBus:
+        result.setInfo("Create Group Bus", "Create a new group bus for submixing", "Track", 0);
+        break;
+    case CommandIDs::createAuxTrack:
+        result.setInfo("Create Aux Track", "Create a new aux/return track for send effects", "Track", 0);
         break;
 
     // Help menu commands
@@ -931,6 +997,93 @@ bool MainComponent::perform(const InvocationInfo& info)
         exportMidi();
         return true;
 
+    // Clipboard commands
+    case CommandIDs::cut:
+        timelineView.cutSelection();
+        setHasUnsavedChanges(true);
+        return true;
+    case CommandIDs::copy:
+        timelineView.copySelection();
+        return true;
+    case CommandIDs::paste:
+        timelineView.pasteAtPlayhead();
+        setHasUnsavedChanges(true);
+        return true;
+    case CommandIDs::duplicate:
+        timelineView.duplicateSelection();
+        setHasUnsavedChanges(true);
+        return true;
+    case CommandIDs::nudgeLeft:
+        timelineView.nudgeSelection(-1);
+        setHasUnsavedChanges(true);
+        return true;
+    case CommandIDs::nudgeRight:
+        timelineView.nudgeSelection(1);
+        setHasUnsavedChanges(true);
+        return true;
+
+    // View commands
+    case CommandIDs::zoomIn:
+        timelineView.zoomIn();
+        return true;
+    case CommandIDs::zoomOut:
+        timelineView.zoomOut();
+        return true;
+    case CommandIDs::zoomToFit:
+        {
+            auto& timeline = audioEngine.getTimeline();
+            int64_t endSample = timeline.getEndSample();
+            if (endSample > 0)
+            {
+                double totalBeats = timeline.samplesToBeats(endSample);
+                int availableWidth = timelineView.getWidth() - TimelineView::HEADER_WIDTH;
+                if (availableWidth > 0 && totalBeats > 0)
+                {
+                    double newPPB = static_cast<double>(availableWidth) / totalBeats;
+                    timelineView.setPixelsPerBeat(newPPB);
+                    timelineView.setHorizontalScrollOffset(0.0);
+                }
+            }
+        }
+        return true;
+
+    // Track commands
+    case CommandIDs::deleteTrack:
+        {
+            int trackIdx = timelineView.getSelectedTrackIndex();
+            if (trackIdx >= 0)
+            {
+                auto& timeline = audioEngine.getTimeline();
+                if (trackIdx < timeline.getNumTracks())
+                {
+                    timeline.removeTrack(trackIdx);
+                    timelineView.clearSelection();
+                    timelineView.resized();
+                    timelineView.repaint();
+                    setHasUnsavedChanges(true);
+                }
+            }
+        }
+        return true;
+    case CommandIDs::createGroupBus:
+        {
+            auto& timeline = audioEngine.getTimeline();
+            timeline.createGroupBus("Group " + juce::String(timeline.getNumGroupBusses() + 1));
+            if (mixerContent != nullptr)
+                mixerContent->setTimeline(&timeline);
+            setHasUnsavedChanges(true);
+        }
+        return true;
+    case CommandIDs::createAuxTrack:
+        {
+            auto& timeline = audioEngine.getTimeline();
+            timeline.createAuxTrack("Aux " + juce::String(timeline.getNumAuxTracks() + 1));
+            if (mixerContent != nullptr)
+                mixerContent->setTimeline(&timeline);
+            setHasUnsavedChanges(true);
+        }
+        return true;
+
     default:
         return false;
     }
@@ -988,21 +1141,38 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addCommandItem(&commandManager, CommandIDs::undo);
         menu.addCommandItem(&commandManager, CommandIDs::redo);
         menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::cut);
+        menu.addCommandItem(&commandManager, CommandIDs::copy);
+        menu.addCommandItem(&commandManager, CommandIDs::paste);
+        menu.addCommandItem(&commandManager, CommandIDs::duplicate);
+        menu.addSeparator();
         menu.addCommandItem(&commandManager, CommandIDs::selectAll);
         menu.addCommandItem(&commandManager, CommandIDs::deleteSelection);
         menu.addSeparator();
         menu.addCommandItem(&commandManager, CommandIDs::splitAtPlayhead);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::nudgeLeft);
+        menu.addCommandItem(&commandManager, CommandIDs::nudgeRight);
     }
     else if (topLevelMenuIndex == 2)  // View menu
     {
         menu.addCommandItem(&commandManager, CommandIDs::toggleBrowser);
         menu.addCommandItem(&commandManager, CommandIDs::toggleMixer);
         menu.addCommandItem(&commandManager, CommandIDs::togglePianoRoll);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::zoomIn);
+        menu.addCommandItem(&commandManager, CommandIDs::zoomOut);
+        menu.addCommandItem(&commandManager, CommandIDs::zoomToFit);
     }
     else if (topLevelMenuIndex == 3)  // Track menu
     {
         menu.addCommandItem(&commandManager, CommandIDs::addAudioTrack);
         menu.addCommandItem(&commandManager, CommandIDs::addMidiTrack);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::deleteTrack);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::createGroupBus);
+        menu.addCommandItem(&commandManager, CommandIDs::createAuxTrack);
     }
     else if (topLevelMenuIndex == 4)  // Help menu
     {
@@ -1755,7 +1925,7 @@ void MainComponent::exportAudio()
 void MainComponent::showAboutDialog()
 {
     juce::String message;
-    message << "MidiSing v1.0.0\n\n"
+    message << "MidiSing v1.1.0\n\n"
             << "A digital audio workstation built with JUCE.\n\n"
             << "Features:\n"
             << "  - Multi-track audio and MIDI recording\n"
@@ -1801,13 +1971,22 @@ void MainComponent::showKeyboardShortcuts()
          << "=== Edit ===\n"
          << "Ctrl+Z           Undo\n"
          << "Ctrl+Y           Redo\n"
+         << "Ctrl+X           Cut\n"
+         << "Ctrl+C           Copy\n"
+         << "Ctrl+V           Paste\n"
+         << "Ctrl+D           Duplicate\n"
          << "Ctrl+A           Select All\n"
          << "Delete           Delete Selection\n"
-         << "Ctrl+B           Split at Playhead\n\n"
+         << "Ctrl+Shift+B     Split at Playhead\n"
+         << "Ctrl+Left        Nudge Left\n"
+         << "Ctrl+Right       Nudge Right\n\n"
          << "=== View ===\n"
          << "Ctrl+B           Toggle Browser\n"
          << "Ctrl+M           Toggle Mixer\n"
-         << "Ctrl+P           Toggle Piano Roll\n\n"
+         << "Ctrl+P           Toggle Piano Roll\n"
+         << "Ctrl+=           Zoom In\n"
+         << "Ctrl+-           Zoom Out\n"
+         << "Ctrl+0           Zoom to Fit\n\n"
          << "=== Tools ===\n"
          << "V                Select Tool\n"
          << "D                Draw Tool\n"
