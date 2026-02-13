@@ -3,12 +3,11 @@
 #include "../Timeline/Timeline.h"
 #include "../Timeline/TempoTrack.h"
 #include "../Timeline/TimeSignatureTrack.h"
-#include "../Serialization/ProjectSerializer.h"
 #include <juce_core/juce_core.h>
 
 /**
  * Tests for Tempo Track and Time Signature Track functionality.
- * Verifies event management, serialization round-trips, and calculations.
+ * Verifies event management, interpolation, and time signature lookups.
  */
 class TempoTimeSigTest
 {
@@ -20,7 +19,7 @@ public:
         allPassed &= testTempoTrackAddRemoveEvents();
         allPassed &= testTempoTrackInterpolation();
         allPassed &= testTimeSignatureEvents();
-        allPassed &= testTimeSignatureBarBeat();
+        allPassed &= testTimeSignatureQuarterNotesPerBar();
 
         return allPassed;
     }
@@ -36,18 +35,12 @@ private:
         bool passed = (tempoTrack.getNumEvents() == 1);
 
         // Add events
-        TempoEvent e1;
-        e1.positionInSamples = 44100;
-        e1.bpm = 140.0;
-        e1.rampType = TempoRampType::Instant;
+        TempoEvent e1(44100, 140.0, TempoRampType::Instant);
         tempoTrack.addEvent(e1);
 
         passed &= (tempoTrack.getNumEvents() == 2);
 
-        TempoEvent e2;
-        e2.positionInSamples = 88200;
-        e2.bpm = 100.0;
-        e2.rampType = TempoRampType::Linear;
+        TempoEvent e2(88200, 100.0, TempoRampType::Linear);
         tempoTrack.addEvent(e2);
 
         passed &= (tempoTrack.getNumEvents() == 3);
@@ -66,15 +59,10 @@ private:
 
         TempoTrack tempoTrack;
 
-        // Set initial tempo to 120 BPM
-        auto& defaultEvent = tempoTrack.getEvent(0);
-        const_cast<TempoEvent&>(defaultEvent).bpm = 120.0;
+        // Set initial tempo to 120 BPM (default is already 120)
 
         // Add event at position 44100 with 180 BPM (instant)
-        TempoEvent e;
-        e.positionInSamples = 44100;
-        e.bpm = 180.0;
-        e.rampType = TempoRampType::Instant;
+        TempoEvent e(44100, 180.0, TempoRampType::Instant);
         tempoTrack.addEvent(e);
 
         // BPM at position 0 should be 120
@@ -103,42 +91,50 @@ private:
         bool passed = (tsTrack.getNumEvents() >= 1);
 
         // Add a 3/4 event
-        TimeSignatureEvent e;
-        e.positionInSamples = 44100;
-        e.numerator = 3;
-        e.denominator = 4;
+        TimeSignatureEvent e(44100, 3, 4);
         tsTrack.addEvent(e);
 
         passed &= (tsTrack.getNumEvents() >= 2);
 
         // Get time sig at position 0 (should be 4/4)
-        auto ts0 = tsTrack.getTimeSignatureAtPosition(0);
-        passed &= (ts0.numerator == 4 && ts0.denominator == 4);
+        int num0, den0;
+        tsTrack.getTimeSignatureAtPosition(0, num0, den0);
+        passed &= (num0 == 4 && den0 == 4);
 
         // Get time sig at position 44100 (should be 3/4)
-        auto ts1 = tsTrack.getTimeSignatureAtPosition(44100);
-        passed &= (ts1.numerator == 3 && ts1.denominator == 4);
+        int num1, den1;
+        tsTrack.getTimeSignatureAtPosition(44100, num1, den1);
+        passed &= (num1 == 3 && den1 == 4);
 
         DBG(juce::String("    ") + (passed ? "PASSED" : "FAILED"));
         return passed;
     }
 
-    static bool testTimeSignatureBarBeat()
+    static bool testTimeSignatureQuarterNotesPerBar()
     {
-        DBG("  Testing time signature bar/beat calculation...");
+        DBG("  Testing time signature quarter notes per bar...");
 
         TimeSignatureTrack tsTrack;
 
-        // Default 4/4 at position 0
-        // At 120 BPM, one beat = 22050 samples (at 44100 Hz)
-        // One bar (4/4) = 4 beats = 88200 samples
+        // Default 4/4: quarterNotesPerBar should be 4.0
+        double qnPerBar = tsTrack.getQuarterNotesPerBarAtPosition(0);
+        bool passed = (std::abs(qnPerBar - 4.0) < 0.01);
 
-        // Bar 1 starts at 0, Bar 2 starts at 88200, etc.
-        int barAt0 = tsTrack.getBarAtPosition(0, 120.0, 44100.0);
-        int barAt88200 = tsTrack.getBarAtPosition(88200, 120.0, 44100.0);
+        // Add 3/4 at position 44100
+        TimeSignatureEvent e(44100, 3, 4);
+        tsTrack.addEvent(e);
 
-        bool passed = (barAt0 == 1 || barAt0 == 0);  // Implementation dependent (0 or 1 based)
-        passed &= (barAt88200 == barAt0 + 1);  // Second bar should be one more
+        // 3/4: quarterNotesPerBar should be 3.0
+        double qnPerBar34 = tsTrack.getQuarterNotesPerBarAtPosition(44100);
+        passed &= (std::abs(qnPerBar34 - 3.0) < 0.01);
+
+        // Add 6/8 at position 88200
+        TimeSignatureEvent e2(88200, 6, 8);
+        tsTrack.addEvent(e2);
+
+        // 6/8: quarterNotesPerBar should be 3.0 (6 eighth notes = 3 quarter notes)
+        double qnPerBar68 = tsTrack.getQuarterNotesPerBarAtPosition(88200);
+        passed &= (std::abs(qnPerBar68 - 3.0) < 0.01);
 
         DBG(juce::String("    ") + (passed ? "PASSED" : "FAILED"));
         return passed;
