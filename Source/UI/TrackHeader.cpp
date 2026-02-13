@@ -310,6 +310,7 @@ void TrackHeader::showContextMenu(juce::Point<int> screenPosition)
     {
         bool frozen = trackPtr->isFrozen();
         menu.addItem(FreezeTrackId, frozen ? "Unfreeze Track" : "Freeze Track");
+        menu.addItem(SetColourId, "Set Colour...");
         menu.addSeparator();
     }
 
@@ -326,6 +327,10 @@ void TrackHeader::showContextMenu(juce::Point<int> screenPosition)
             {
                 if (onFreezeTrack)
                     onFreezeTrack(trackPtr);
+            }
+            else if (result == SetColourId && trackPtr != nullptr)
+            {
+                showPropertiesDialog();
             }
         });
 }

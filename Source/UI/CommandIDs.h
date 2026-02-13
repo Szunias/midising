@@ -58,4 +58,49 @@ namespace CommandIDs
 
     // Export commands
     static const int exportMidi        = 0x7001;
+
+    // Marker commands
+    static const int addMarker         = 0x8001;
+    static const int nextMarker        = 0x8002;
+    static const int prevMarker        = 0x8003;
+    static const int clearAllMarkers   = 0x8004;
+    static const int renameMarker      = 0x8005;
+    static const int deleteMarker      = 0x8006;
+
+    // Punch-in/out commands
+    static const int togglePunchIn     = 0x9001;
+    static const int togglePunchOut    = 0x9002;
+
+    // Audio region operations
+    static const int reverseRegion     = 0xA001;
+    static const int normalizeRegion   = 0xA002;
+    static const int consolidateRegions = 0xA003;
+    static const int editCrossfade     = 0xA004;
+
+    // MIDI improvements
+    static const int toggleArpeggiator = 0xB001;
+    static const int scaleQuantize     = 0xB002;
+    static const int extractGroove     = 0xB003;
+    static const int applyGroove       = 0xB004;
+
+    // Step sequencer
+    static const int openStepSequencer = 0xC001;
+
+    // Tempo track commands
+    static const int addTempoEvent     = 0xD001;
+    static const int editTempoEvent    = 0xD002;
+    static const int deleteTempoEvent  = 0xD003;
+
+    // Time signature track commands
+    static const int addTimeSigEvent   = 0xD011;
+    static const int editTimeSigEvent  = 0xD012;
+    static const int deleteTimeSigEvent = 0xD013;
+
+    // Track color and folder commands
+    static const int setTrackColour    = 0xE001;
+    static const int createTrackFolder = 0xE002;
+    static const int removeTrackFolder = 0xE003;
+
+    // Loudness meter
+    static const int toggleLoudnessMeter = 0xF001;
 }

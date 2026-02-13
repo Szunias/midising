@@ -263,6 +263,36 @@ public:
         return start + offset;
     }
 
+    // Punch-in/out recording
+    bool isPunchInEnabled() const { return punchInEnabled.load(); }
+    void setPunchInEnabled(bool enabled) { punchInEnabled.store(enabled); }
+    bool isPunchOutEnabled() const { return punchOutEnabled.load(); }
+    void setPunchOutEnabled(bool enabled) { punchOutEnabled.store(enabled); }
+    int64_t getPunchInPosition() const { return punchInPosition.load(); }
+    int64_t getPunchOutPosition() const { return punchOutPosition.load(); }
+    void setPunchRange(int64_t start, int64_t end)
+    {
+        punchInPosition.store(start);
+        punchOutPosition.store(end);
+    }
+    void clearPunchRange()
+    {
+        punchInEnabled.store(false);
+        punchOutEnabled.store(false);
+        punchInPosition.store(0);
+        punchOutPosition.store(0);
+    }
+    bool shouldRecordAtPosition(int64_t pos) const
+    {
+        if (state.load() != TransportState::Recording)
+            return false;
+        bool inOk = !punchInEnabled.load() || pos >= punchInPosition.load();
+        bool outOk = !punchOutEnabled.load() || pos < punchOutPosition.load();
+        return inOk && outOk;
+    }
+    int getPreRollBeats() const { return preRollBeats.load(); }
+    void setPreRollBeats(int beats) { preRollBeats.store(beats > 0 ? beats : 0); }
+
     // Tempo
     void setBPM(double newBpm) { bpm.store(newBpm); }
     double getBPM() const { return bpm.load(); }
@@ -406,6 +436,13 @@ private:
     std::atomic<double> bpm { 120.0 };
     std::atomic<double> sampleRate { 44100.0 };
     const TempoTrack* tempoTrack { nullptr };
+
+    // Punch-in/out state
+    std::atomic<bool> punchInEnabled { false };
+    std::atomic<bool> punchOutEnabled { false };
+    std::atomic<int64_t> punchInPosition { 0 };
+    std::atomic<int64_t> punchOutPosition { 0 };
+    std::atomic<int> preRollBeats { 0 };
 };
 
 //==============================================================================

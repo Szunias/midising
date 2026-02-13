@@ -3,6 +3,8 @@
 #include "Track.h"
 #include "TempoTrack.h"
 #include "TimeSignatureTrack.h"
+#include "MarkerTrack.h"
+#include "TrackFolder.h"
 #include "../Utils/TimeConversion.h"
 #include "../Audio/MixGroup.h"
 #include <juce_core/juce_core.h>
@@ -533,6 +535,43 @@ public:
      */
     const TimeSignatureTrack* getTimeSignatureTrackPtr() const { return &timeSignatureTrack; }
 
+    //==========================================================================
+    // Marker Track Management
+    //==========================================================================
+
+    MarkerTrack& getMarkerTrack() { return markerTrack; }
+    const MarkerTrack& getMarkerTrack() const { return markerTrack; }
+
+    //==========================================================================
+    // Track Folder Management
+    //==========================================================================
+
+    int getNumTrackFolders() const { return static_cast<int>(trackFolders.size()); }
+
+    TrackFolder& getTrackFolder(int index) { return trackFolders[static_cast<size_t>(index)]; }
+    const TrackFolder& getTrackFolder(int index) const { return trackFolders[static_cast<size_t>(index)]; }
+
+    void addTrackFolder(const TrackFolder& folder) { trackFolders.push_back(folder); }
+
+    void removeTrackFolder(int index)
+    {
+        if (index >= 0 && index < static_cast<int>(trackFolders.size()))
+            trackFolders.erase(trackFolders.begin() + index);
+    }
+
+    std::vector<TrackFolder>& getTrackFolders() { return trackFolders; }
+    const std::vector<TrackFolder>& getTrackFolders() const { return trackFolders; }
+
+    void clearTrackFolders() { trackFolders.clear(); }
+
+    int findTrackFolder(int trackIndex) const
+    {
+        for (size_t i = 0; i < trackFolders.size(); ++i)
+            if (trackFolders[i].containsTrack(trackIndex))
+                return static_cast<int>(i);
+        return -1;
+    }
+
 private:
     mutable juce::CriticalSection trackLock;
     juce::OwnedArray<Track> tracks;
@@ -541,6 +580,8 @@ private:
     juce::OwnedArray<MixGroup> mixGroups;    // Mix groups for linked faders
     TempoTrack tempoTrack;                   // Tempo track for tempo changes
     TimeSignatureTrack timeSignatureTrack;   // Time signature track for meter changes
+    MarkerTrack markerTrack;                 // Marker track for locators
+    std::vector<TrackFolder> trackFolders;   // Track folders for organizing tracks
     double bpm = 120.0;
     int beatsPerBar = 4;
     int beatNoteValue = 4;                   // Note value that gets one beat (denominator)

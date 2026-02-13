@@ -34,9 +34,13 @@ public:
 
     std::function<void(bool)> onMetronomeToggle;
     std::function<void(double)> onMetronomeVolumeChange;
+    std::function<void(bool)> onPunchInToggle;
+    std::function<void(bool)> onPunchOutToggle;
 
     void setMetronomeEnabled(bool enabled);
     void setLoopEnabled(bool enabled);
+    void setPunchInEnabled(bool enabled);
+    void setPunchOutEnabled(bool enabled);
 
 private:
     void updateButtonStates();
@@ -51,6 +55,10 @@ private:
     juce::Slider bpmSlider;
     juce::Label bpmLabel { {}, "BPM:" };
     juce::Label positionLabel { {}, "0:00:00" };
+
+    // Punch-in/out controls
+    juce::TextButton punchInButton{ "P.In" };
+    juce::TextButton punchOutButton{ "P.Out" };
 
     // Metronome controls
     juce::TextButton metronomeButton{ "Click" };

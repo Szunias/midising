@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(MidiSing VERSION 1.1.0 LANGUAGES CXX)
+project(MidiSing VERSION 1.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,9 +47,16 @@ target_sources(MidiSing
         Source/Timeline/AutomationLane.h
         Source/Timeline/AutomationLane.cpp
         Source/Timeline/TempoTrack.h
+        Source/Timeline/TimeSignatureTrack.h
+        Source/Timeline/Marker.h
+        Source/Timeline/MarkerTrack.h
+        Source/Timeline/MarkerTrack.cpp
+        Source/Timeline/CrossfadeManager.h
+        Source/Timeline/TrackFolder.h
         # Audio
         Source/Audio/Transport.h
         Source/Audio/Mixer.h
+        Source/Audio/LoudnessMeter.h
         Source/Audio/SendReturn.h
         Source/Audio/SendReturn.cpp
         Source/Audio/GroupBus.h
@@ -64,6 +71,8 @@ target_sources(MidiSing
         Source/Audio/Metronome.cpp
         Source/Audio/TrackFreezer.h
         Source/Audio/TrackFreezer.cpp
+        Source/Audio/RegionProcessor.h
+        Source/Audio/RegionProcessor.cpp
         # MIDI
         Source/MIDI/SimpleSynthSound.h
         Source/MIDI/SimpleSynthVoice.h
@@ -74,6 +83,13 @@ target_sources(MidiSing
         Source/MIDI/MidiImporter.cpp
         Source/MIDI/PluginHost.h
         Source/MIDI/PluginHost.cpp
+        Source/MIDI/MidiEffect.h
+        Source/MIDI/Arpeggiator.h
+        Source/MIDI/Arpeggiator.cpp
+        Source/MIDI/ScaleQuantize.h
+        Source/MIDI/ScaleQuantize.cpp
+        Source/MIDI/GrooveTemplate.h
+        Source/MIDI/GrooveTemplate.cpp
         # Plugins (VST3 hosting)
         Source/Plugins/PluginInstance.h
         Source/Plugins/PluginInstance.cpp
@@ -108,6 +124,20 @@ target_sources(MidiSing
         Source/UI/SpectrumDisplay.cpp
         Source/UI/AutomationLaneView.h
         Source/UI/AutomationLaneView.cpp
+        Source/UI/MarkerTrackView.h
+        Source/UI/MarkerTrackView.cpp
+        Source/UI/TempoTrackView.h
+        Source/UI/TempoTrackView.cpp
+        Source/UI/TimeSignatureTrackView.h
+        Source/UI/TimeSignatureTrackView.cpp
+        Source/UI/TrackFolderHeader.h
+        Source/UI/TrackFolderHeader.cpp
+        Source/UI/CrossfadeEditor.h
+        Source/UI/CrossfadeEditor.cpp
+        Source/UI/StepSequencer.h
+        Source/UI/StepSequencer.cpp
+        Source/UI/LoudnessDisplay.h
+        Source/UI/LoudnessDisplay.cpp
         Source/Audio/SpectrumAnalyzer.h
         Source/Audio/SpectrumAnalyzer.cpp
         Source/Audio/TimeStretch.h
@@ -134,6 +164,12 @@ target_sources(MidiSing
         Source/Actions/TrackActions.h
         Source/Actions/MixerActions.h
         Source/Actions/PianoRollActions.h
+        Source/Actions/MarkerActions.h
+        Source/Actions/RegionProcessActions.h
+        Source/Actions/ScaleQuantizeAction.h
+        Source/Actions/GrooveActions.h
+        Source/Actions/TempoActions.h
+        Source/Actions/TimeSignatureActions.h
         # Effects
         Source/Effects/Effect.h
         Source/Effects/EffectChain.h
@@ -157,6 +193,12 @@ target_sources(MidiSing
         Source/Effects/ChorusFlanger.cpp
         Source/Effects/Saturation.h
         Source/Effects/Saturation.cpp
+        Source/Effects/Phaser.h
+        Source/Effects/Phaser.cpp
+        Source/Effects/MultibandCompressor.h
+        Source/Effects/MultibandCompressor.cpp
+        Source/Effects/DeEsser.h
+        Source/Effects/DeEsser.cpp
         Source/UI/EffectRackUI.h
         Source/UI/EffectRackUI.cpp
         Source/UI/PluginSlot.h
@@ -171,6 +213,7 @@ target_sources(MidiSing
         # Tests (headers only - included for IDE navigation)
         Source/Tests/TimeConversionTest.h
         Source/Tests/TimelineTest.h
+        Source/Tests/TempoTimeSigTest.h
         Source/Tests/TestRunner.h
 )
 
@@ -232,8 +275,15 @@ target_sources(MidiSingTests
         Source/Timeline/AutomationLane.h
         Source/Timeline/AutomationLane.cpp
         Source/Timeline/TempoTrack.h
+        Source/Timeline/TimeSignatureTrack.h
+        Source/Timeline/Marker.h
+        Source/Timeline/MarkerTrack.h
+        Source/Timeline/MarkerTrack.cpp
+        Source/Timeline/CrossfadeManager.h
+        Source/Timeline/TrackFolder.h
         Source/Audio/Transport.h
         Source/Audio/Mixer.h
+        Source/Audio/LoudnessMeter.h
         Source/Audio/SendReturn.h
         Source/Audio/SendReturn.cpp
         Source/Audio/GroupBus.h
@@ -248,6 +298,8 @@ target_sources(MidiSingTests
         Source/Audio/Metronome.cpp
         Source/Audio/TrackFreezer.h
         Source/Audio/TrackFreezer.cpp
+        Source/Audio/RegionProcessor.h
+        Source/Audio/RegionProcessor.cpp
         Source/MIDI/SimpleSynthSound.h
         Source/MIDI/SimpleSynthVoice.h
         Source/MIDI/MidiEngine.h
@@ -257,6 +309,13 @@ target_sources(MidiSingTests
         Source/MIDI/MidiImporter.cpp
         Source/MIDI/PluginHost.h
         Source/MIDI/PluginHost.cpp
+        Source/MIDI/MidiEffect.h
+        Source/MIDI/Arpeggiator.h
+        Source/MIDI/Arpeggiator.cpp
+        Source/MIDI/ScaleQuantize.h
+        Source/MIDI/ScaleQuantize.cpp
+        Source/MIDI/GrooveTemplate.h
+        Source/MIDI/GrooveTemplate.cpp
         Source/Plugins/PluginInstance.h
         Source/Plugins/PluginInstance.cpp
         Source/Plugins/PluginManager.h
@@ -285,6 +344,12 @@ target_sources(MidiSingTests
         Source/Actions/TrackActions.h
         Source/Actions/MixerActions.h
         Source/Actions/PianoRollActions.h
+        Source/Actions/MarkerActions.h
+        Source/Actions/RegionProcessActions.h
+        Source/Actions/ScaleQuantizeAction.h
+        Source/Actions/GrooveActions.h
+        Source/Actions/TempoActions.h
+        Source/Actions/TimeSignatureActions.h
         Source/Effects/Effect.h
         Source/Effects/EffectChain.h
         Source/Effects/EffectChain.cpp
@@ -307,6 +372,12 @@ target_sources(MidiSingTests
         Source/Effects/ChorusFlanger.cpp
         Source/Effects/Saturation.h
         Source/Effects/Saturation.cpp
+        Source/Effects/Phaser.h
+        Source/Effects/Phaser.cpp
+        Source/Effects/MultibandCompressor.h
+        Source/Effects/MultibandCompressor.cpp
+        Source/Effects/DeEsser.h
+        Source/Effects/DeEsser.cpp
         # UI files needed by tests
         Source/UI/PianoRoll.h
         Source/UI/PianoRoll.cpp
@@ -331,6 +402,7 @@ target_sources(MidiSingTests
         Source/Tests/UndoRedoE2ETest.h
         Source/Tests/TimeStretchE2ETest.h
         Source/Tests/PerformanceVerificationTest.h
+        Source/Tests/TempoTimeSigTest.h
 )
 
 target_compile_definitions(MidiSingTests

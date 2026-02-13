@@ -100,6 +100,28 @@ TransportBar::TransportBar()
     positionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(positionLabel);
 
+    // Punch-in button
+    punchInButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    punchInButton.setTooltip("Toggle Punch In (I)");
+    punchInButton.setClickingTogglesState(true);
+    punchInButton.onClick = [this]()
+    {
+        if (onPunchInToggle)
+            onPunchInToggle(punchInButton.getToggleState());
+    };
+    addAndMakeVisible(punchInButton);
+
+    // Punch-out button
+    punchOutButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
+    punchOutButton.setTooltip("Toggle Punch Out (O)");
+    punchOutButton.setClickingTogglesState(true);
+    punchOutButton.onClick = [this]()
+    {
+        if (onPunchOutToggle)
+            onPunchOutToggle(punchOutButton.getToggleState());
+    };
+    addAndMakeVisible(punchOutButton);
+
     // Metronome button
     metronomeButton.setColour(juce::TextButton::buttonColourId, MidiSingLookAndFeel::buttonBackground);
     metronomeButton.setTooltip("Toggle Metronome");
@@ -170,6 +192,12 @@ void TransportBar::resized()
     x += buttonWidth + buttonSpacing;
 
     loopButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + buttonSpacing;
+
+    punchInButton.setBounds(x, y, buttonWidth, buttonHeight);
+    x += buttonWidth + buttonSpacing;
+
+    punchOutButton.setBounds(x, y, buttonWidth, buttonHeight);
     x += buttonWidth + sectionSpacing;
 
     // Project buttons - fixed 40x30px
@@ -221,6 +249,22 @@ void TransportBar::setLoopEnabled(bool enabled)
     loopButton.setColour(juce::TextButton::buttonColourId,
                          enabled ? MidiSingLookAndFeel::accentColour
                                  : MidiSingLookAndFeel::buttonBackground);
+}
+
+void TransportBar::setPunchInEnabled(bool enabled)
+{
+    punchInButton.setToggleState(enabled, juce::dontSendNotification);
+    punchInButton.setColour(juce::TextButton::buttonColourId,
+                            enabled ? juce::Colour(0xffcc3333)
+                                    : MidiSingLookAndFeel::buttonBackground);
+}
+
+void TransportBar::setPunchOutEnabled(bool enabled)
+{
+    punchOutButton.setToggleState(enabled, juce::dontSendNotification);
+    punchOutButton.setColour(juce::TextButton::buttonColourId,
+                             enabled ? juce::Colour(0xffcc3333)
+                                     : MidiSingLookAndFeel::buttonBackground);
 }
 
 void TransportBar::timerCallback()

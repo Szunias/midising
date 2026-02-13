@@ -3,6 +3,7 @@
 #include "../MIDI/MidiTrack.h"
 #include "../Audio/AudioImporter.h"
 #include "../Timeline/AutomationLane.h"
+#include "../Timeline/MarkerTrack.h"
 
 //==============================================================================
 // Legacy single-file format (for backwards compatibility)
@@ -136,6 +137,14 @@ bool ProjectSerializer::loadProjectBundle(Timeline& timeline, Transport& transpo
     transport.setLooping(looping);
     transport.setLoopRange(loopStart, loopEnd);
 
+    // Load punch state
+    transport.setPunchInEnabled(xml->getBoolAttribute("punchInEnabled", false));
+    transport.setPunchOutEnabled(xml->getBoolAttribute("punchOutEnabled", false));
+    transport.setPunchRange(
+        static_cast<int64_t>(xml->getDoubleAttribute("punchInPosition", 0.0)),
+        static_cast<int64_t>(xml->getDoubleAttribute("punchOutPosition", 0.0)));
+    transport.setPreRollBeats(xml->getIntAttribute("preRollBeats", 0));
+
     // Check if this is a bundle format (version 2.0+) or legacy
     juce::String version = xml->getStringAttribute("version", "1.0");
     bool isBundleFormat = xml->getBoolAttribute("bundleFormat", false);
@@ -171,10 +180,94 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createTimelineXmlForBundle(
     xml->setAttribute("looping", transport.isLooping());
     xml->setAttribute("loopStart", static_cast<double>(transport.getLoopStart()));
     xml->setAttribute("loopEnd", static_cast<double>(transport.getLoopEnd()));
+    xml->setAttribute("punchInEnabled", transport.isPunchInEnabled());
+    xml->setAttribute("punchOutEnabled", transport.isPunchOutEnabled());
+    xml->setAttribute("punchInPosition", static_cast<double>(transport.getPunchInPosition()));
+    xml->setAttribute("punchOutPosition", static_cast<double>(transport.getPunchOutPosition()));
+    xml->setAttribute("preRollBeats", transport.getPreRollBeats());
 
     for (int i = 0; i < timeline.getNumTracks(); ++i)
     {
         xml->addChildElement(createTrackXmlForBundle(*timeline.getTrack(i), projectFolder).release());
+    }
+
+    // Save tempo track events
+    const auto& tempoTrackB = timeline.getTempoTrack();
+    if (tempoTrackB.getNumEvents() > 0)
+    {
+        auto tempoXml = std::make_unique<juce::XmlElement>("TEMPO_TRACK");
+        tempoXml->setAttribute("initialBpm", tempoTrackB.getInitialBpm());
+        tempoXml->setAttribute("enabled", tempoTrackB.isEnabled());
+        for (size_t ti = 0; ti < tempoTrackB.getNumEvents(); ++ti)
+        {
+            const auto& e = tempoTrackB.getEvent(ti);
+            auto eXml = std::make_unique<juce::XmlElement>("TEMPO_EVENT");
+            eXml->setAttribute("position", static_cast<double>(e.position));
+            eXml->setAttribute("bpm", e.bpm);
+            eXml->setAttribute("rampType", static_cast<int>(e.rampType));
+            tempoXml->addChildElement(eXml.release());
+        }
+        xml->addChildElement(tempoXml.release());
+    }
+
+    // Save time signature track events
+    const auto& timeSigTrackB = timeline.getTimeSignatureTrack();
+    if (timeSigTrackB.getNumEvents() > 0)
+    {
+        auto tsXml = std::make_unique<juce::XmlElement>("TIME_SIG_TRACK");
+        tsXml->setAttribute("initialNumerator", timeSigTrackB.getInitialNumerator());
+        tsXml->setAttribute("initialDenominator", timeSigTrackB.getInitialDenominator());
+        tsXml->setAttribute("enabled", timeSigTrackB.isEnabled());
+        for (size_t ti = 0; ti < timeSigTrackB.getNumEvents(); ++ti)
+        {
+            const auto& e = timeSigTrackB.getEvent(ti);
+            auto eXml = std::make_unique<juce::XmlElement>("TIME_SIG_EVENT");
+            eXml->setAttribute("position", static_cast<double>(e.position));
+            eXml->setAttribute("numerator", e.numerator);
+            eXml->setAttribute("denominator", e.denominator);
+            tsXml->addChildElement(eXml.release());
+        }
+        xml->addChildElement(tsXml.release());
+    }
+
+    // Save track folders
+    const auto& folders = timeline.getTrackFolders();
+    if (!folders.empty())
+    {
+        auto foldersXml = std::make_unique<juce::XmlElement>("TRACK_FOLDERS");
+        for (const auto& folder : folders)
+        {
+            auto folderXml = std::make_unique<juce::XmlElement>("FOLDER");
+            folderXml->setAttribute("name", folder.name);
+            folderXml->setAttribute("colour", folder.colour.toString());
+            folderXml->setAttribute("collapsed", folder.collapsed);
+            for (int idx : folder.trackIndices)
+            {
+                auto refXml = std::make_unique<juce::XmlElement>("TRACK_REF");
+                refXml->setAttribute("index", idx);
+                folderXml->addChildElement(refXml.release());
+            }
+            foldersXml->addChildElement(folderXml.release());
+        }
+        xml->addChildElement(foldersXml.release());
+    }
+
+    // Save markers
+    const auto& markerTrack = timeline.getMarkerTrack();
+    if (markerTrack.getNumMarkers() > 0)
+    {
+        auto markersXml = std::make_unique<juce::XmlElement>("MARKERS");
+        for (int i = 0; i < markerTrack.getNumMarkers(); ++i)
+        {
+            const auto& m = markerTrack.getMarker(i);
+            auto mXml = std::make_unique<juce::XmlElement>("MARKER");
+            mXml->setAttribute("name", m.name);
+            mXml->setAttribute("position", static_cast<double>(m.position));
+            mXml->setAttribute("colour", m.colour.toString());
+            mXml->setAttribute("type", static_cast<int>(m.type));
+            markersXml->addChildElement(mXml.release());
+        }
+        xml->addChildElement(markersXml.release());
     }
 
     return xml;
@@ -254,6 +347,18 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createTrackXmlForBundle(con
             {
                 xml->addChildElement(createRegionXml(*midiTrack->getRegion(i)).release());
             }
+
+            // Save MIDI effects (arpeggiator etc.)
+            for (int i = 0; i < midiTrack->getNumMidiEffects(); ++i)
+            {
+                auto* effect = midiTrack->getMidiEffect(i);
+                if (effect != nullptr)
+                {
+                    auto effectXml = effect->createXml();
+                    if (effectXml != nullptr)
+                        xml->addChildElement(effectXml.release());
+                }
+            }
         }
     }
 
@@ -295,6 +400,12 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createRegionXmlForBundle(co
                 xml->setAttribute("relativePath", false);
             }
         }
+
+        xml->setAttribute("crossfadeCurveType", audioRegion->getCrossfadeCurveType());
+        xml->setAttribute("isReversed", audioRegion->getIsReversed());
+        xml->setAttribute("stretchRatio", static_cast<double>(audioRegion->getStretchRatio()));
+        xml->setAttribute("pitchSemitones", audioRegion->getPitchSemitones());
+        xml->setAttribute("pitchCents", audioRegion->getPitchCents());
     }
     else if (auto* midiRegion = dynamic_cast<const MidiRegion*>(&region))
     {
@@ -324,6 +435,79 @@ void ProjectSerializer::restoreTimelineFromXmlBundle(Timeline& timeline, const j
         if (child->hasTagName("TRACK"))
         {
             restoreTrackFromXmlBundle(timeline, *child, midiEngine, projectFolder);
+        }
+        else if (child->hasTagName("TEMPO_TRACK"))
+        {
+            auto& tempoTrack = timeline.getTempoTrack();
+            tempoTrack.clearAllEvents();
+            tempoTrack.setInitialBpm(child->getDoubleAttribute("initialBpm", 120.0));
+            tempoTrack.setEnabled(child->getBoolAttribute("enabled", true));
+            for (auto* eXml : child->getChildIterator())
+            {
+                if (eXml->hasTagName("TEMPO_EVENT"))
+                {
+                    int64_t pos = static_cast<int64_t>(eXml->getDoubleAttribute("position", 0.0));
+                    double bpm = eXml->getDoubleAttribute("bpm", 120.0);
+                    auto rampType = static_cast<TempoRampType>(eXml->getIntAttribute("rampType", 0));
+                    tempoTrack.addEvent(TempoEvent(pos, bpm, rampType));
+                }
+            }
+        }
+        else if (child->hasTagName("TIME_SIG_TRACK"))
+        {
+            auto& timeSigTrack = timeline.getTimeSignatureTrack();
+            timeSigTrack.clearAllEvents();
+            timeSigTrack.setInitialTimeSignature(
+                child->getIntAttribute("initialNumerator", 4),
+                child->getIntAttribute("initialDenominator", 4));
+            timeSigTrack.setEnabled(child->getBoolAttribute("enabled", true));
+            for (auto* eXml : child->getChildIterator())
+            {
+                if (eXml->hasTagName("TIME_SIG_EVENT"))
+                {
+                    int64_t pos = static_cast<int64_t>(eXml->getDoubleAttribute("position", 0.0));
+                    int num = eXml->getIntAttribute("numerator", 4);
+                    int denom = eXml->getIntAttribute("denominator", 4);
+                    timeSigTrack.addEvent(TimeSignatureEvent(pos, num, denom));
+                }
+            }
+        }
+        else if (child->hasTagName("TRACK_FOLDERS"))
+        {
+            timeline.clearTrackFolders();
+            for (auto* folderXml : child->getChildIterator())
+            {
+                if (folderXml->hasTagName("FOLDER"))
+                {
+                    TrackFolder folder;
+                    folder.name = folderXml->getStringAttribute("name", "Folder");
+                    folder.colour = juce::Colour::fromString(folderXml->getStringAttribute("colour", "ff808080"));
+                    folder.collapsed = folderXml->getBoolAttribute("collapsed", false);
+                    for (auto* refXml : folderXml->getChildIterator())
+                    {
+                        if (refXml->hasTagName("TRACK_REF"))
+                            folder.trackIndices.push_back(refXml->getIntAttribute("index"));
+                    }
+                    timeline.addTrackFolder(folder);
+                }
+            }
+        }
+        else if (child->hasTagName("MARKERS"))
+        {
+            auto& markerTrack = timeline.getMarkerTrack();
+            markerTrack.clearAllMarkers();
+            for (auto* mXml : child->getChildIterator())
+            {
+                if (mXml->hasTagName("MARKER"))
+                {
+                    Marker m;
+                    m.name = mXml->getStringAttribute("name", "Marker");
+                    m.position = static_cast<int64_t>(mXml->getDoubleAttribute("position", 0.0));
+                    m.colour = juce::Colour::fromString(mXml->getStringAttribute("colour", "ffffa500"));
+                    m.type = static_cast<MarkerType>(mXml->getIntAttribute("type", 0));
+                    markerTrack.addMarker(m);
+                }
+            }
         }
     }
 }
@@ -451,6 +635,11 @@ void ProjectSerializer::restoreRegionFromXmlBundle(Track& track, const juce::Xml
                 region->setFilePath(audioFile.getFullPathName());
                 region->setFadeInLength(fadeIn);
                 region->setFadeOutLength(fadeOut);
+                region->setCrossfadeCurveType(xml.getIntAttribute("crossfadeCurveType", 1));
+                region->setIsReversed(xml.getBoolAttribute("isReversed", false));
+                region->setStretchRatio(static_cast<float>(xml.getDoubleAttribute("stretchRatio", 1.0)));
+                region->setPitchSemitones(xml.getIntAttribute("pitchSemitones", 0));
+                region->setPitchCents(xml.getIntAttribute("pitchCents", 0));
 
                 audioTrack->addRegion(std::move(region));
             }
@@ -612,6 +801,14 @@ void ProjectSerializer::loadProject(Timeline& timeline, Transport& transport, Mi
         transport.setLooping(looping);
         transport.setLoopRange(loopStart, loopEnd);
 
+        // Load punch state
+        transport.setPunchInEnabled(xml->getBoolAttribute("punchInEnabled", false));
+        transport.setPunchOutEnabled(xml->getBoolAttribute("punchOutEnabled", false));
+        transport.setPunchRange(
+            static_cast<int64_t>(xml->getDoubleAttribute("punchInPosition", 0.0)),
+            static_cast<int64_t>(xml->getDoubleAttribute("punchOutPosition", 0.0)));
+        transport.setPreRollBeats(xml->getIntAttribute("preRollBeats", 0));
+
         restoreTimelineFromXml(timeline, *xml, midiEngine);
     }
 }
@@ -628,10 +825,72 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createTimelineXml(const Tim
     xml->setAttribute("looping", transport.isLooping());
     xml->setAttribute("loopStart", static_cast<double>(transport.getLoopStart()));
     xml->setAttribute("loopEnd", static_cast<double>(transport.getLoopEnd()));
+    xml->setAttribute("punchInEnabled", transport.isPunchInEnabled());
+    xml->setAttribute("punchOutEnabled", transport.isPunchOutEnabled());
+    xml->setAttribute("punchInPosition", static_cast<double>(transport.getPunchInPosition()));
+    xml->setAttribute("punchOutPosition", static_cast<double>(transport.getPunchOutPosition()));
+    xml->setAttribute("preRollBeats", transport.getPreRollBeats());
 
     for (int i = 0; i < timeline.getNumTracks(); ++i)
     {
         xml->addChildElement(createTrackXml(*timeline.getTrack(i)).release());
+    }
+
+    // Save tempo track events
+    const auto& tempoTrackL = timeline.getTempoTrack();
+    if (tempoTrackL.getNumEvents() > 0)
+    {
+        auto tempoXml = std::make_unique<juce::XmlElement>("TEMPO_TRACK");
+        tempoXml->setAttribute("initialBpm", tempoTrackL.getInitialBpm());
+        tempoXml->setAttribute("enabled", tempoTrackL.isEnabled());
+        for (size_t ti = 0; ti < tempoTrackL.getNumEvents(); ++ti)
+        {
+            const auto& e = tempoTrackL.getEvent(ti);
+            auto eXml = std::make_unique<juce::XmlElement>("TEMPO_EVENT");
+            eXml->setAttribute("position", static_cast<double>(e.position));
+            eXml->setAttribute("bpm", e.bpm);
+            eXml->setAttribute("rampType", static_cast<int>(e.rampType));
+            tempoXml->addChildElement(eXml.release());
+        }
+        xml->addChildElement(tempoXml.release());
+    }
+
+    // Save time signature track events
+    const auto& timeSigTrackL = timeline.getTimeSignatureTrack();
+    if (timeSigTrackL.getNumEvents() > 0)
+    {
+        auto tsXml = std::make_unique<juce::XmlElement>("TIME_SIG_TRACK");
+        tsXml->setAttribute("initialNumerator", timeSigTrackL.getInitialNumerator());
+        tsXml->setAttribute("initialDenominator", timeSigTrackL.getInitialDenominator());
+        tsXml->setAttribute("enabled", timeSigTrackL.isEnabled());
+        for (size_t ti = 0; ti < timeSigTrackL.getNumEvents(); ++ti)
+        {
+            const auto& e = timeSigTrackL.getEvent(ti);
+            auto eXml = std::make_unique<juce::XmlElement>("TIME_SIG_EVENT");
+            eXml->setAttribute("position", static_cast<double>(e.position));
+            eXml->setAttribute("numerator", e.numerator);
+            eXml->setAttribute("denominator", e.denominator);
+            tsXml->addChildElement(eXml.release());
+        }
+        xml->addChildElement(tsXml.release());
+    }
+
+    // Save markers
+    const auto& markerTrack = timeline.getMarkerTrack();
+    if (markerTrack.getNumMarkers() > 0)
+    {
+        auto markersXml = std::make_unique<juce::XmlElement>("MARKERS");
+        for (int i = 0; i < markerTrack.getNumMarkers(); ++i)
+        {
+            const auto& m = markerTrack.getMarker(i);
+            auto mXml = std::make_unique<juce::XmlElement>("MARKER");
+            mXml->setAttribute("name", m.name);
+            mXml->setAttribute("position", static_cast<double>(m.position));
+            mXml->setAttribute("colour", m.colour.toString());
+            mXml->setAttribute("type", static_cast<int>(m.type));
+            markersXml->addChildElement(mXml.release());
+        }
+        xml->addChildElement(markersXml.release());
     }
 
     return xml;
@@ -711,6 +970,18 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createTrackXml(const Track&
             {
                 xml->addChildElement(createRegionXml(*midiTrack->getRegion(i)).release());
             }
+
+            // Save MIDI effects (arpeggiator etc.)
+            for (int i = 0; i < midiTrack->getNumMidiEffects(); ++i)
+            {
+                auto* effect = midiTrack->getMidiEffect(i);
+                if (effect != nullptr)
+                {
+                    auto effectXml = effect->createXml();
+                    if (effectXml != nullptr)
+                        xml->addChildElement(effectXml.release());
+                }
+            }
         }
     }
 
@@ -728,8 +999,12 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createRegionXml(const Regio
     if (auto* audioRegion = dynamic_cast<const AudioRegion*>(&region))
     {
         // Store source file path
-        // We use absolute path for simplicity now. Relative paths would be better for portability.
         xml->setAttribute("file", audioRegion->getFilePath());
+        xml->setAttribute("crossfadeCurveType", audioRegion->getCrossfadeCurveType());
+        xml->setAttribute("isReversed", audioRegion->getIsReversed());
+        xml->setAttribute("stretchRatio", static_cast<double>(audioRegion->getStretchRatio()));
+        xml->setAttribute("pitchSemitones", audioRegion->getPitchSemitones());
+        xml->setAttribute("pitchCents", audioRegion->getPitchCents());
     }
     else if (auto* midiRegion = dynamic_cast<const MidiRegion*>(&region))
     {
@@ -744,7 +1019,7 @@ std::unique_ptr<juce::XmlElement> ProjectSerializer::createRegionXml(const Regio
             xml->addChildElement(msgXml.release());
         }
     }
-    
+
     return xml;
 }
 
@@ -755,6 +1030,59 @@ void ProjectSerializer::restoreTimelineFromXml(Timeline& timeline, const juce::X
         if (child->hasTagName("TRACK"))
         {
             restoreTrackFromXml(timeline, *child, midiEngine);
+        }
+        else if (child->hasTagName("TEMPO_TRACK"))
+        {
+            auto& tempoTrack = timeline.getTempoTrack();
+            tempoTrack.clearAllEvents();
+            tempoTrack.setInitialBpm(child->getDoubleAttribute("initialBpm", 120.0));
+            tempoTrack.setEnabled(child->getBoolAttribute("enabled", true));
+            for (auto* eXml : child->getChildIterator())
+            {
+                if (eXml->hasTagName("TEMPO_EVENT"))
+                {
+                    int64_t pos = static_cast<int64_t>(eXml->getDoubleAttribute("position", 0.0));
+                    double bpm = eXml->getDoubleAttribute("bpm", 120.0);
+                    auto rampType = static_cast<TempoRampType>(eXml->getIntAttribute("rampType", 0));
+                    tempoTrack.addEvent(TempoEvent(pos, bpm, rampType));
+                }
+            }
+        }
+        else if (child->hasTagName("TIME_SIG_TRACK"))
+        {
+            auto& timeSigTrack = timeline.getTimeSignatureTrack();
+            timeSigTrack.clearAllEvents();
+            timeSigTrack.setInitialTimeSignature(
+                child->getIntAttribute("initialNumerator", 4),
+                child->getIntAttribute("initialDenominator", 4));
+            timeSigTrack.setEnabled(child->getBoolAttribute("enabled", true));
+            for (auto* eXml : child->getChildIterator())
+            {
+                if (eXml->hasTagName("TIME_SIG_EVENT"))
+                {
+                    int64_t pos = static_cast<int64_t>(eXml->getDoubleAttribute("position", 0.0));
+                    int num = eXml->getIntAttribute("numerator", 4);
+                    int denom = eXml->getIntAttribute("denominator", 4);
+                    timeSigTrack.addEvent(TimeSignatureEvent(pos, num, denom));
+                }
+            }
+        }
+        else if (child->hasTagName("MARKERS"))
+        {
+            auto& markerTrack = timeline.getMarkerTrack();
+            markerTrack.clearAllMarkers();
+            for (auto* mXml : child->getChildIterator())
+            {
+                if (mXml->hasTagName("MARKER"))
+                {
+                    Marker m;
+                    m.name = mXml->getStringAttribute("name", "Marker");
+                    m.position = static_cast<int64_t>(mXml->getDoubleAttribute("position", 0.0));
+                    m.colour = juce::Colour::fromString(mXml->getStringAttribute("colour", "ffffa500"));
+                    m.type = static_cast<MarkerType>(mXml->getIntAttribute("type", 0));
+                    markerTrack.addMarker(m);
+                }
+            }
         }
     }
 }
@@ -872,6 +1200,11 @@ void ProjectSerializer::restoreRegionFromXml(Track& track, const juce::XmlElemen
                 region->setOffset(offset);
                 region->setName(name);
                 region->setFilePath(filePath);
+                region->setCrossfadeCurveType(xml.getIntAttribute("crossfadeCurveType", 1));
+                region->setIsReversed(xml.getBoolAttribute("isReversed", false));
+                region->setStretchRatio(static_cast<float>(xml.getDoubleAttribute("stretchRatio", 1.0)));
+                region->setPitchSemitones(xml.getIntAttribute("pitchSemitones", 0));
+                region->setPitchCents(xml.getIntAttribute("pitchCents", 0));
 
                 audioTrack->addRegion(std::move(region));
             }

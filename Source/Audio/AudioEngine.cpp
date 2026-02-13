@@ -235,7 +235,19 @@ void AudioEngine::recordInputBlock(const juce::AudioBuffer<float>& inputBuffer)
     // This ensures we record the raw input signal
     if (recorder.isRecording() && inputBuffer.getNumChannels() > 0)
     {
-        recorder.writeAudioBlock(inputBuffer);
+        // Gate recording through punch-in/out if enabled
+        int64_t playheadPos = transport.getPlayheadPosition();
+        if (transport.shouldRecordAtPosition(playheadPos))
+        {
+            recorder.writeAudioBlock(inputBuffer);
+        }
+
+        // Auto-stop recording when punch-out position is reached
+        if (transport.isPunchOutEnabled() && playheadPos >= transport.getPunchOutPosition())
+        {
+            // Signal to stop recording on next block
+            transport.pause();
+        }
     }
 }
 

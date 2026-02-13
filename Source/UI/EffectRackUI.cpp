@@ -45,21 +45,41 @@ EffectRackUI::EffectRackUI(EffectChain& chain) : effectChain(chain)
     addEffectCombo.addItem("Gain", 1);
     addEffectCombo.addItem("Simple EQ", 2);
     addEffectCombo.addItem("Reverb", 3);
+    addEffectCombo.addItem("Parametric EQ", 4);
+    addEffectCombo.addItem("Compressor", 5);
+    addEffectCombo.addItem("Stereo Delay", 6);
+    addEffectCombo.addItem("Noise Gate", 7);
+    addEffectCombo.addItem("Limiter", 8);
+    addEffectCombo.addItem("Chorus/Flanger", 9);
+    addEffectCombo.addItem("Saturation", 10);
+    addEffectCombo.addItem("Phaser", 11);
+    addEffectCombo.addItem("Multiband Comp", 12);
+    addEffectCombo.addItem("De-Esser", 13);
     addEffectCombo.setTextWhenNothingSelected("Add Effect...");
-    
+
     addAndMakeVisible(addButton);
     addButton.onClick = [this]()
     {
         int id = addEffectCombo.getSelectedId();
         std::unique_ptr<Effect> newEffect;
-        
+
         switch (id)
         {
-            case 1: newEffect = std::make_unique<GainEffect>(); break;
-            case 2: newEffect = std::make_unique<SimpleEQEffect>(); break;
-            case 3: newEffect = std::make_unique<ReverbEffect>(); break;
+            case 1:  newEffect = std::make_unique<GainEffect>(); break;
+            case 2:  newEffect = std::make_unique<SimpleEQEffect>(); break;
+            case 3:  newEffect = std::make_unique<ReverbEffect>(); break;
+            case 4:  newEffect = std::make_unique<ParametricEQ>(); break;
+            case 5:  newEffect = std::make_unique<VCACompressor>(); break;
+            case 6:  newEffect = std::make_unique<StereoDelay>(); break;
+            case 7:  newEffect = std::make_unique<NoiseGate>(); break;
+            case 8:  newEffect = std::make_unique<Limiter>(); break;
+            case 9:  newEffect = std::make_unique<ChorusFlanger>(); break;
+            case 10: newEffect = std::make_unique<Saturation>(); break;
+            case 11: newEffect = std::make_unique<Phaser>(); break;
+            case 12: newEffect = std::make_unique<MultibandCompressor>(); break;
+            case 13: newEffect = std::make_unique<DeEsser>(); break;
         }
-        
+
         if (newEffect)
         {
             effectChain.addEffect(std::move(newEffect));

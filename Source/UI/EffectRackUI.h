@@ -4,6 +4,16 @@
 #include "../Effects/GainEffect.h"
 #include "../Effects/SimpleEQEffect.h"
 #include "../Effects/ReverbEffect.h"
+#include "../Effects/ParametricEQ.h"
+#include "../Effects/VCACompressor.h"
+#include "../Effects/StereoDelay.h"
+#include "../Effects/NoiseGate.h"
+#include "../Effects/Limiter.h"
+#include "../Effects/ChorusFlanger.h"
+#include "../Effects/Saturation.h"
+#include "../Effects/Phaser.h"
+#include "../Effects/MultibandCompressor.h"
+#include "../Effects/DeEsser.h"
 #include "LookAndFeel.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 

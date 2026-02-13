@@ -65,6 +65,7 @@ private:
     {
         DeleteTrackId = 1,
         FreezeTrackId = 2,
+        SetColourId = 3,
         ShowVolumeAutomationId = 10,
         ShowPanAutomationId = 11
     };

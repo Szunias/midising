@@ -15,6 +15,7 @@
 #include "UndoRedoE2ETest.h"
 #include "TimeStretchE2ETest.h"
 #include "PerformanceVerificationTest.h"
+#include "TempoTimeSigTest.h"
 #include <juce_core/juce_core.h>
 
 /**
@@ -165,6 +166,15 @@ public:
             passedTests += 8;
         }
         totalTests += 8;
+        juce::Logger::writeToLog("");
+
+        // Tempo/TimeSig tests
+        juce::Logger::writeToLog("--- Tempo & Time Signature Tests ---");
+        if (TempoTimeSigTest::runAllTests())
+        {
+            passedTests += 4;
+        }
+        totalTests += 4;
         juce::Logger::writeToLog("");
 
         // Summary

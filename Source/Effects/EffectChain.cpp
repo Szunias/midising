@@ -77,6 +77,9 @@ std::unique_ptr<juce::XmlElement> EffectChain::createXml() const
 #include "Limiter.h"
 #include "ChorusFlanger.h"
 #include "Saturation.h"
+#include "Phaser.h"
+#include "MultibandCompressor.h"
+#include "DeEsser.h"
 
 void EffectChain::loadFromXml(const juce::XmlElement& xml)
 {
@@ -109,6 +112,12 @@ void EffectChain::loadFromXml(const juce::XmlElement& xml)
                 effect = std::make_unique<ChorusFlanger>();
             else if (type == "Saturation")
                 effect = std::make_unique<Saturation>();
+            else if (type == "Phaser")
+                effect = std::make_unique<Phaser>();
+            else if (type == "MultibandCompressor")
+                effect = std::make_unique<MultibandCompressor>();
+            else if (type == "DeEsser")
+                effect = std::make_unique<DeEsser>();
 
             if (effect != nullptr)
             {

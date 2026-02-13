@@ -5,6 +5,7 @@
 #include "MIDI/MidiTrack.h"
 #include "MIDI/MidiImporter.h"
 #include "Actions/TrackActions.h"
+#include "Actions/MarkerActions.h"
 #include "UI/CommandIDs.h"
 #include "UI/SettingsPanel.h"
 #include "Export/AudioExporter.h"
@@ -241,14 +242,14 @@ void MainComponent::resized()
 
     // Bottom panel splitter and panels
     bool hasBottomPanel = (pianoRollVisible && pianoRollPanel != nullptr) ||
-                          (mixerVisible && mixerPanel != nullptr);
+                          (mixerVisible && mixerPanel != nullptr) ||
+                          (stepSequencerVisible && stepSequencerPanel != nullptr);
 
     if (hasBottomPanel && bottomSplitter != nullptr)
     {
-        // Piano roll panel at bottom (if visible) - takes priority over mixer
+        // Piano roll panel at bottom (if visible) - takes priority
         if (pianoRollVisible && pianoRollPanel != nullptr)
         {
-            // Remove space for panel and splitter from bottom
             auto panelBounds = bounds.removeFromBottom(pianoRollPanelHeight);
             auto splitterBounds = bounds.removeFromBottom(bottomSplitter->getThickness());
 
@@ -256,10 +257,19 @@ void MainComponent::resized()
             bottomSplitter->setBounds(splitterBounds);
             bottomSplitter->setVisible(true);
         }
-        // Mixer panel at bottom (if visible and piano roll is not)
+        // Step sequencer panel at bottom
+        else if (stepSequencerVisible && stepSequencerPanel != nullptr)
+        {
+            auto panelBounds = bounds.removeFromBottom(stepSequencerPanelHeight);
+            auto splitterBounds = bounds.removeFromBottom(bottomSplitter->getThickness());
+
+            stepSequencerPanel->setBounds(panelBounds);
+            bottomSplitter->setBounds(splitterBounds);
+            bottomSplitter->setVisible(true);
+        }
+        // Mixer panel at bottom (if visible and others are not)
         else if (mixerVisible && mixerPanel != nullptr)
         {
-            // Remove space for panel and splitter from bottom
             auto panelBounds = bounds.removeFromBottom(mixerPanelHeight);
             auto splitterBounds = bounds.removeFromBottom(bottomSplitter->getThickness());
 
@@ -320,6 +330,30 @@ void MainComponent::setupTransportCallbacks()
         audioEngine.getMetronome().setVolume(volume);
     };
     
+    transportBar.onPunchInToggle = [this](bool enabled)
+    {
+        audioEngine.getTransport().setPunchInEnabled(enabled);
+        if (enabled)
+        {
+            // Set punch-in position to current playhead
+            audioEngine.getTransport().setPunchRange(
+                audioEngine.getTransport().getPlayheadPosition(),
+                audioEngine.getTransport().getPunchOutPosition());
+        }
+    };
+
+    transportBar.onPunchOutToggle = [this](bool enabled)
+    {
+        audioEngine.getTransport().setPunchOutEnabled(enabled);
+        if (enabled)
+        {
+            // Set punch-out position to current playhead
+            audioEngine.getTransport().setPunchRange(
+                audioEngine.getTransport().getPunchInPosition(),
+                audioEngine.getTransport().getPlayheadPosition());
+        }
+    };
+
     // Initialize metronome UI state
     transportBar.setMetronomeEnabled(audioEngine.getMetronome().isEnabled());
 }
@@ -684,6 +718,30 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID>& commands)
 
     // Export commands
     commands.add(CommandIDs::exportMidi);
+
+    // Marker commands
+    commands.add(CommandIDs::addMarker);
+    commands.add(CommandIDs::nextMarker);
+    commands.add(CommandIDs::prevMarker);
+    commands.add(CommandIDs::clearAllMarkers);
+
+    // Punch commands
+    commands.add(CommandIDs::togglePunchIn);
+    commands.add(CommandIDs::togglePunchOut);
+
+    // Region operations
+    commands.add(CommandIDs::reverseRegion);
+    commands.add(CommandIDs::normalizeRegion);
+    commands.add(CommandIDs::consolidateRegions);
+
+    // Step sequencer
+    commands.add(CommandIDs::openStepSequencer);
+
+    // Track folders
+    commands.add(CommandIDs::createTrackFolder);
+
+    // Loudness meter
+    commands.add(CommandIDs::toggleLoudnessMeter);
 }
 
 void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -863,6 +921,60 @@ void MainComponent::getCommandInfo(juce::CommandID commandID, juce::ApplicationC
     // Export commands
     case CommandIDs::exportMidi:
         result.setInfo("Export MIDI...", "Export MIDI tracks to a .mid file", "Project", 0);
+        break;
+
+    // Marker commands
+    case CommandIDs::addMarker:
+        result.setInfo("Add Marker", "Add a marker at the playhead position", "Marker", 0);
+        result.addDefaultKeypress('m', 0);
+        break;
+    case CommandIDs::nextMarker:
+        result.setInfo("Next Marker", "Jump to the next marker", "Marker", 0);
+        result.addDefaultKeypress(juce::KeyPress::rightKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+        break;
+    case CommandIDs::prevMarker:
+        result.setInfo("Previous Marker", "Jump to the previous marker", "Marker", 0);
+        result.addDefaultKeypress(juce::KeyPress::leftKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+        break;
+    case CommandIDs::clearAllMarkers:
+        result.setInfo("Clear All Markers", "Remove all markers", "Marker", 0);
+        break;
+
+    // Punch commands
+    case CommandIDs::togglePunchIn:
+        result.setInfo("Toggle Punch In", "Toggle punch-in recording", "Transport", 0);
+        result.addDefaultKeypress('i', 0);
+        break;
+    case CommandIDs::togglePunchOut:
+        result.setInfo("Toggle Punch Out", "Toggle punch-out recording", "Transport", 0);
+        result.addDefaultKeypress('o', 0);
+        break;
+
+    // Region operations
+    case CommandIDs::reverseRegion:
+        result.setInfo("Reverse Region", "Reverse the selected audio region", "Edit", 0);
+        break;
+    case CommandIDs::normalizeRegion:
+        result.setInfo("Normalize Region", "Normalize the selected audio region", "Edit", 0);
+        break;
+    case CommandIDs::consolidateRegions:
+        result.setInfo("Consolidate Selection", "Consolidate selected regions into one", "Edit", 0);
+        break;
+
+    // Step sequencer
+    case CommandIDs::openStepSequencer:
+        result.setInfo("Step Sequencer", "Open the step sequencer", "View", 0);
+        result.addDefaultKeypress('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+        break;
+
+    // Track folders
+    case CommandIDs::createTrackFolder:
+        result.setInfo("Create Track Folder", "Create a new track folder", "Track", 0);
+        break;
+
+    // Loudness meter
+    case CommandIDs::toggleLoudnessMeter:
+        result.setInfo("Loudness Meter", "Toggle LUFS loudness meter display", "View", 0);
         break;
 
     default:
@@ -1084,6 +1196,85 @@ bool MainComponent::perform(const InvocationInfo& info)
         }
         return true;
 
+    // Marker commands
+    case CommandIDs::addMarker:
+        {
+            auto& markerTrack = audioEngine.getTimeline().getMarkerTrack();
+            Marker m;
+            m.name = "Marker " + juce::String(markerTrack.getNumMarkers() + 1);
+            m.position = audioEngine.getTransport().getPlayheadPosition();
+            m.colour = juce::Colours::orange;
+            undoManager.perform(new AddMarkerAction(markerTrack, m));
+            timelineView.getMarkerTrackView().repaint();
+            setHasUnsavedChanges(true);
+        }
+        return true;
+    case CommandIDs::nextMarker:
+        {
+            auto& markerTrack = audioEngine.getTimeline().getMarkerTrack();
+            int idx = markerTrack.findNextMarker(audioEngine.getTransport().getPlayheadPosition());
+            if (idx >= 0)
+                audioEngine.getTransport().setPlayheadPosition(markerTrack.getMarker(idx).position);
+        }
+        return true;
+    case CommandIDs::prevMarker:
+        {
+            auto& markerTrack = audioEngine.getTimeline().getMarkerTrack();
+            int idx = markerTrack.findPrevMarker(audioEngine.getTransport().getPlayheadPosition());
+            if (idx >= 0)
+                audioEngine.getTransport().setPlayheadPosition(markerTrack.getMarker(idx).position);
+        }
+        return true;
+    case CommandIDs::clearAllMarkers:
+        {
+            audioEngine.getTimeline().getMarkerTrack().clearAllMarkers();
+            timelineView.getMarkerTrackView().repaint();
+            setHasUnsavedChanges(true);
+        }
+        return true;
+
+    // Punch commands
+    case CommandIDs::togglePunchIn:
+        {
+            auto& transport = audioEngine.getTransport();
+            transport.setPunchInEnabled(!transport.isPunchInEnabled());
+        }
+        return true;
+    case CommandIDs::togglePunchOut:
+        {
+            auto& transport = audioEngine.getTransport();
+            transport.setPunchOutEnabled(!transport.isPunchOutEnabled());
+        }
+        return true;
+
+    // Step sequencer
+    case CommandIDs::openStepSequencer:
+        toggleStepSequencerPanel();
+        return true;
+
+    // Track folders
+    case CommandIDs::createTrackFolder:
+        {
+            auto& timeline = audioEngine.getTimeline();
+            TrackFolder folder;
+            folder.name = "Folder " + juce::String(timeline.getNumTrackFolders() + 1);
+            folder.colour = juce::Colour::fromHSV(juce::Random::getSystemRandom().nextFloat(), 0.4f, 0.7f, 1.0f);
+            timeline.addTrackFolder(folder);
+            timelineView.resized();
+            timelineView.repaint();
+            setHasUnsavedChanges(true);
+        }
+        return true;
+
+    // Loudness meter
+    case CommandIDs::toggleLoudnessMeter:
+        {
+            auto& display = statusBar.getLoudnessDisplay();
+            display.setCompactMode(!display.isCompactMode());
+            statusBar.resized();
+        }
+        return true;
+
     default:
         return false;
     }
@@ -1093,7 +1284,7 @@ bool MainComponent::perform(const InvocationInfo& info)
 // MenuBarModel implementation
 juce::StringArray MainComponent::getMenuBarNames()
 {
-    return { "File", "Edit", "View", "Track", "Help" };
+    return { "File", "Edit", "View", "Track", "Transport", "Help" };
 }
 
 juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName)
@@ -1163,6 +1354,10 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addCommandItem(&commandManager, CommandIDs::zoomIn);
         menu.addCommandItem(&commandManager, CommandIDs::zoomOut);
         menu.addCommandItem(&commandManager, CommandIDs::zoomToFit);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::openStepSequencer);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::toggleLoudnessMeter);
     }
     else if (topLevelMenuIndex == 3)  // Track menu
     {
@@ -1173,8 +1368,20 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addSeparator();
         menu.addCommandItem(&commandManager, CommandIDs::createGroupBus);
         menu.addCommandItem(&commandManager, CommandIDs::createAuxTrack);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::createTrackFolder);
     }
-    else if (topLevelMenuIndex == 4)  // Help menu
+    else if (topLevelMenuIndex == 4)  // Transport menu
+    {
+        menu.addCommandItem(&commandManager, CommandIDs::addMarker);
+        menu.addCommandItem(&commandManager, CommandIDs::nextMarker);
+        menu.addCommandItem(&commandManager, CommandIDs::prevMarker);
+        menu.addCommandItem(&commandManager, CommandIDs::clearAllMarkers);
+        menu.addSeparator();
+        menu.addCommandItem(&commandManager, CommandIDs::togglePunchIn);
+        menu.addCommandItem(&commandManager, CommandIDs::togglePunchOut);
+    }
+    else if (topLevelMenuIndex == 5)  // Help menu
     {
         menu.addCommandItem(&commandManager, CommandIDs::keyboardShortcuts);
         menu.addSeparator();
@@ -1547,10 +1754,18 @@ void MainComponent::setupCollapsiblePanels()
     // Start hidden
     pianoRollPanel->setVisible(false);
 
+    // Create Step Sequencer panel
+    stepSequencerContent = std::make_unique<StepSequencer>();
+    stepSequencerPanel = std::make_unique<CollapsiblePanel>("Step Sequencer", CollapsiblePanel::Position::Bottom);
+    stepSequencerPanel->setContent(stepSequencerContent.get());
+    stepSequencerPanel->onCollapse = [this]() { toggleStepSequencerPanel(); };
+    stepSequencerPanel->setVisible(false);
+
     // Add panels to component (order matters for z-order)
     addChildComponent(browserPanel.get());
     addChildComponent(mixerPanel.get());
     addChildComponent(pianoRollPanel.get());
+    addChildComponent(stepSequencerPanel.get());
 }
 
 void MainComponent::toggleBrowserPanel()
@@ -1616,6 +1831,36 @@ void MainComponent::togglePianoRollPanel()
     resized();
 
     // Update menu checkmarks
+    commandManager.commandStatusChanged();
+}
+
+void MainComponent::toggleStepSequencerPanel()
+{
+    stepSequencerVisible = !stepSequencerVisible;
+
+    if (stepSequencerPanel != nullptr)
+    {
+        stepSequencerPanel->setVisible(stepSequencerVisible);
+    }
+
+    // If showing step sequencer and other bottom panels are visible, hide them
+    if (stepSequencerVisible)
+    {
+        if (pianoRollVisible)
+        {
+            pianoRollVisible = false;
+            if (pianoRollPanel != nullptr)
+                pianoRollPanel->setVisible(false);
+        }
+        if (mixerVisible)
+        {
+            mixerVisible = false;
+            if (mixerPanel != nullptr)
+                mixerPanel->setVisible(false);
+        }
+    }
+
+    resized();
     commandManager.commandStatusChanged();
 }
 
@@ -1925,14 +2170,22 @@ void MainComponent::exportAudio()
 void MainComponent::showAboutDialog()
 {
     juce::String message;
-    message << "MidiSing v1.1.0\n\n"
+    message << "MidiSing v1.3.0\n\n"
             << "A digital audio workstation built with JUCE.\n\n"
             << "Features:\n"
             << "  - Multi-track audio and MIDI recording\n"
             << "  - VST3 plugin hosting\n"
-            << "  - Built-in effects (EQ, Reverb, Compressor, Delay)\n"
-            << "  - Automation, Undo/Redo, Project Save/Load\n\n"
-            << "Copyright (c) 2025 MidiSing\n"
+            << "  - Built-in effects (EQ, Reverb, Compressor, Delay,\n"
+            << "    Phaser, Multiband Compressor, De-Esser, and more)\n"
+            << "  - Tempo Track and Time Signature Track editors\n"
+            << "  - Marker/Locator system, Punch-In/Out recording\n"
+            << "  - Crossfade editor, Region processing (Reverse/Normalize)\n"
+            << "  - Arpeggiator, Scale Quantize, Groove Templates\n"
+            << "  - Step Sequencer, Automation, Undo/Redo\n"
+            << "  - Track colors, Track folders\n"
+            << "  - LUFS loudness metering (ITU-R BS.1770)\n"
+            << "  - CC lane enhancements (Volume, Brightness)\n\n"
+            << "Copyright (c) 2025-2026 MidiSing\n"
             << "Licensed under the MIT License\n\n"
             << "Built with JUCE " << juce::SystemStats::getJUCEVersion();
 
@@ -1960,7 +2213,9 @@ void MainComponent::showKeyboardShortcuts()
     juce::String text;
     text << "=== Transport ===\n"
          << "Space            Play / Stop\n"
-         << "R                Toggle Record\n\n"
+         << "R                Toggle Record\n"
+         << "I                Toggle Punch In\n"
+         << "O                Toggle Punch Out\n\n"
          << "=== File ===\n"
          << "Ctrl+N           New Project\n"
          << "Ctrl+O           Open Project\n"
@@ -1980,10 +2235,15 @@ void MainComponent::showKeyboardShortcuts()
          << "Ctrl+Shift+B     Split at Playhead\n"
          << "Ctrl+Left        Nudge Left\n"
          << "Ctrl+Right       Nudge Right\n\n"
+         << "=== Markers ===\n"
+         << "M                Add Marker\n"
+         << "Ctrl+Shift+Right Next Marker\n"
+         << "Ctrl+Shift+Left  Previous Marker\n\n"
          << "=== View ===\n"
          << "Ctrl+B           Toggle Browser\n"
          << "Ctrl+M           Toggle Mixer\n"
          << "Ctrl+P           Toggle Piano Roll\n"
+         << "Ctrl+Shift+S     Step Sequencer\n"
          << "Ctrl+=           Zoom In\n"
          << "Ctrl+-           Zoom Out\n"
          << "Ctrl+0           Zoom to Fit\n\n"
@@ -1991,11 +2251,14 @@ void MainComponent::showKeyboardShortcuts()
          << "V                Select Tool\n"
          << "D                Draw Tool\n"
          << "S                Split Tool\n"
-         << "E                Erase Tool\n"
-         << "M                Mute Tool\n\n"
+         << "E                Erase Tool\n\n"
          << "=== Track ===\n"
          << "Ctrl+T           Add Audio Track\n"
-         << "Ctrl+Shift+T     Add MIDI Track\n";
+         << "Ctrl+Shift+T     Add MIDI Track\n\n"
+         << "=== Timeline Lanes ===\n"
+         << "Double-click     Add tempo/time sig/marker event\n"
+         << "Right-click      Edit/delete event\n"
+         << "Drag             Move tempo event\n";
 
     dialogContent->setText(text);
     dialogContent->setSize(400, 500);

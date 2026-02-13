@@ -235,6 +235,18 @@ public:
      */
     bool needsProcessing() const { return isTimeStretched() || isPitchShifted(); }
 
+    //==============================================================================
+    // Crossfade Curve Type
+
+    int getCrossfadeCurveType() const { return crossfadeCurveType; }
+    void setCrossfadeCurveType(int curveType) { crossfadeCurveType = juce::jlimit(0, 3, curveType); }
+
+    //==============================================================================
+    // Reversed flag (for visual indication)
+
+    bool getIsReversed() const { return isReversed; }
+    void setIsReversed(bool reversed) { isReversed = reversed; }
+
 private:
     juce::AudioBuffer<float> audioBuffer;
     int64_t thumbnailHash = 0;
@@ -245,6 +257,10 @@ private:
     int pitchSemitones = 0;         // Pitch shift in semitones (-24 to +24)
     int pitchCents = 0;             // Fine pitch adjustment in cents (-100 to +100)
     bool formantPreserve = false;   // Preserve formants during pitch shift
+
+    // Crossfade curve type: 0=Linear, 1=EqualPower, 2=SCurve, 3=Logarithmic
+    int crossfadeCurveType = 1;     // Default: EqualPower
+    bool isReversed = false;        // Visual flag for reversed regions
 };
 
 /**

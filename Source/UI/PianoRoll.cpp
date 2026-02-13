@@ -1,5 +1,9 @@
 #include "PianoRoll.h"
 #include "../Actions/PianoRollActions.h"
+#include "../Actions/ScaleQuantizeAction.h"
+#include "../Actions/GrooveActions.h"
+#include "../MIDI/ScaleQuantize.h"
+#include "../MIDI/GrooveTemplate.h"
 #include <algorithm>
 #include <vector>
 #include <map>
@@ -58,6 +62,78 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e)
     if (isPointInCCLane(e.x, e.y))
     {
         handleCCLaneMouseDown(e);
+        return;
+    }
+
+    // Right-click context menu for MIDI operations
+    if (e.mods.isPopupMenu() && e.x > KEYBOARD_WIDTH)
+    {
+        juce::PopupMenu menu;
+
+        enum MidiMenuIDs
+        {
+            ScaleQuantizeItem = 100,
+            ExtractGrooveItem,
+            ApplyGrooveItem
+        };
+
+        menu.addSectionHeader("MIDI Operations");
+        menu.addItem(ScaleQuantizeItem, "Scale Quantize...", midiRegion != nullptr);
+        menu.addItem(ExtractGrooveItem, "Extract Groove", midiRegion != nullptr);
+        menu.addItem(ApplyGrooveItem, "Apply Groove...", midiRegion != nullptr);
+
+        auto screenPos = e.getScreenPosition();
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(juce::Rectangle<int>(screenPos, screenPos)),
+            [this](int result)
+            {
+                if (result == ScaleQuantizeItem && midiRegion != nullptr)
+                {
+                    // Show scale quantize dialog
+                    auto* dialog = new juce::AlertWindow("Scale Quantize", "Select scale and root note:", juce::MessageBoxIconType::QuestionIcon);
+                    dialog->addComboBox("scale", { "Major", "Minor", "Harmonic Minor", "Pentatonic", "Blues", "Chromatic" }, "Scale:");
+                    dialog->addComboBox("root", { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, "Root:");
+                    dialog->addButton("Apply", 1, juce::KeyPress(juce::KeyPress::returnKey));
+                    dialog->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+                    MidiRegion* regionPtr = midiRegion;
+                    DAWUndoManager* um = undoManager;
+
+                    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+                        [dialog, regionPtr, um](int result)
+                        {
+                            if (result == 1 && regionPtr != nullptr)
+                            {
+                                int scaleIdx = dialog->getComboBoxComponent("scale")->getSelectedItemIndex();
+                                int rootNote = dialog->getComboBoxComponent("root")->getSelectedItemIndex();
+
+                                ScaleType scaleType = static_cast<ScaleType>(scaleIdx);
+
+                                if (um != nullptr)
+                                    um->perform(new ScaleQuantizeAction(*regionPtr, rootNote, scaleType));
+                                else
+                                    ScaleQuantize::applyToRegion(*regionPtr, rootNote, scaleType);
+                            }
+                            delete dialog;
+                        }), true);
+                }
+                else if (result == ExtractGrooveItem && midiRegion != nullptr)
+                {
+                    // Extract groove from current region
+                    auto groove = std::make_shared<GrooveTemplate>();
+                    groove->extractFromRegion(*midiRegion, 480.0, 120.0, 44100.0);
+                    groove->setName("Extracted Groove");
+                    // Store in a static for later use
+                    lastExtractedGroove = std::move(groove);
+                }
+                else if (result == ApplyGrooveItem && midiRegion != nullptr && lastExtractedGroove != nullptr)
+                {
+                    if (undoManager != nullptr)
+                        undoManager->perform(new ApplyGrooveAction(*midiRegion, *lastExtractedGroove, 0.5f, 120.0, 44100.0));
+                    else
+                        lastExtractedGroove->applyToRegion(*midiRegion, 0.5f, 120.0, 44100.0);
+                    repaint();
+                }
+            });
         return;
     }
 
@@ -1952,7 +2028,7 @@ void PianoRoll::drawQuantizeGrid(juce::Graphics& g, juce::Rectangle<int> bounds)
 void PianoRoll::setCCLaneVisible(CCLaneType laneType, bool visible)
 {
     int index = static_cast<int>(laneType);
-    if (index >= 0 && index < 4)
+    if (index >= 0 && index < 6)
     {
         ccLaneVisible[index] = visible;
         repaint();
@@ -1962,7 +2038,7 @@ void PianoRoll::setCCLaneVisible(CCLaneType laneType, bool visible)
 bool PianoRoll::isCCLaneVisible(CCLaneType laneType) const
 {
     int index = static_cast<int>(laneType);
-    if (index >= 0 && index < 4)
+    if (index >= 0 && index < 6)
     {
         return ccLaneVisible[index];
     }
@@ -1977,7 +2053,7 @@ void PianoRoll::toggleCCLane(CCLaneType laneType)
 int PianoRoll::getNumVisibleCCLanes() const
 {
     int count = 0;
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 6; ++i)
     {
         if (ccLaneVisible[i])
             ++count;
@@ -1993,6 +2069,8 @@ int PianoRoll::getCCNumberForLaneType(CCLaneType laneType)
         case CCLaneType::Sustain:    return 64;  // CC64 - Sustain pedal
         case CCLaneType::PitchBend:  return -1;  // Special: pitch bend is not a CC
         case CCLaneType::Expression: return 11;  // CC11 - Expression
+        case CCLaneType::Volume:     return 7;   // CC7 - Volume
+        case CCLaneType::Brightness: return 74;  // CC74 - Brightness
         default:                     return -1;
     }
 }
@@ -2005,6 +2083,8 @@ juce::String PianoRoll::getCCLaneName(CCLaneType laneType)
         case CCLaneType::Sustain:    return "Sustain";
         case CCLaneType::PitchBend:  return "Pitch Bend";
         case CCLaneType::Expression: return "Expression";
+        case CCLaneType::Volume:     return "Volume";
+        case CCLaneType::Brightness: return "Brightness";
         default:                     return "Unknown";
     }
 }
@@ -2243,7 +2323,7 @@ int PianoRoll::getCCLaneAtY(int y) const
 PianoRoll::CCLaneType PianoRoll::getCCLaneTypeAtIndex(int index) const
 {
     int currentIndex = 0;
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 6; ++i)
     {
         if (ccLaneVisible[i])
         {

@@ -13,6 +13,10 @@
 #include "TrackHeader.h"
 #include "ToolBar.h"
 #include "AutomationLaneView.h"
+#include "MarkerTrackView.h"
+#include "TempoTrackView.h"
+#include "TimeSignatureTrackView.h"
+#include "TrackFolderHeader.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <vector>
 #include <memory>
@@ -137,9 +141,20 @@ public:
     // Callback for double-click on MIDI region (to open Piano Roll)
     std::function<void(MidiRegion*)> onMidiRegionDoubleClicked;
 
+    // Marker track view
+    MarkerTrackView& getMarkerTrackView() { return markerTrackView; }
+
+    // Tempo and time signature track views
+    TempoTrackView& getTempoTrackView() { return tempoTrackView; }
+    TimeSignatureTrackView& getTimeSigTrackView() { return timeSigTrackView; }
+
     // Track header width and layout constants
     static constexpr int HEADER_WIDTH = 150;
     static constexpr int RULER_HEIGHT = 30;
+    static constexpr int TEMPO_LANE_HEIGHT = 30;
+    static constexpr int TIME_SIG_LANE_HEIGHT = 24;
+    static constexpr int MARKER_LANE_HEIGHT = 24;
+    static constexpr int TRACK_CONTENT_TOP = RULER_HEIGHT + TEMPO_LANE_HEIGHT + TIME_SIG_LANE_HEIGHT + MARKER_LANE_HEIGHT;
     static constexpr int AUTOMATION_LANE_HEIGHT = 60;  // Height of each automation lane
     static constexpr int AUTOMATION_POINT_RADIUS = 5;  // Radius for automation point handles
 
@@ -212,6 +227,10 @@ private:
     bool isDraggingFile = false;
     
     MidiEngine* midiEnginePtr = nullptr;
+    MarkerTrackView markerTrackView;
+    TempoTrackView tempoTrackView;
+    TimeSignatureTrackView timeSigTrackView;
+    std::vector<std::unique_ptr<TrackFolderHeader>> folderHeaders;
 
     // Region selection/hover state
     Region* selectedRegion = nullptr;

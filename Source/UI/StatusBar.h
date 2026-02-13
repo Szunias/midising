@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include "LookAndFeel.h"
+#include "LoudnessDisplay.h"
 
 // Forward declaration
 class AudioEngine;
@@ -36,6 +37,9 @@ public:
     /** Show a brief auto-save indicator message */
     void showAutoSaveIndicator();
 
+    /** Access the loudness display component */
+    LoudnessDisplay& getLoudnessDisplay() { return loudnessDisplay; }
+
 private:
     juce::AudioDeviceManager& audioDeviceManager;
     AudioEngine* audioEngine = nullptr;
@@ -57,6 +61,9 @@ private:
     juce::Label memoryLabel;
     juce::Label midiActivityLabel;
     juce::Label autoSaveLabel;
+
+    // Loudness meter display
+    LoudnessDisplay loudnessDisplay;
 
     // MIDI activity indicator
     int midiActivityCounter = 0;   // Countdown for MIDI dot display

@@ -3,6 +3,7 @@
 #include "../Timeline/Track.h"
 #include "../Timeline/Region.h"
 #include "MidiEngine.h"
+#include "MidiEffect.h"
 #include "PluginHost.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -142,6 +143,35 @@ public:
      */
     void clearPendingPlugin();
 
+    // ========== MIDI Effects Chain ==========
+
+    void addMidiEffect(std::unique_ptr<MidiEffect> effect)
+    {
+        midiEffects.push_back(std::move(effect));
+    }
+
+    void removeMidiEffect(int index)
+    {
+        if (index >= 0 && index < static_cast<int>(midiEffects.size()))
+            midiEffects.erase(midiEffects.begin() + index);
+    }
+
+    MidiEffect* getMidiEffect(int index)
+    {
+        if (index >= 0 && index < static_cast<int>(midiEffects.size()))
+            return midiEffects[static_cast<size_t>(index)].get();
+        return nullptr;
+    }
+
+    const MidiEffect* getMidiEffect(int index) const
+    {
+        if (index >= 0 && index < static_cast<int>(midiEffects.size()))
+            return midiEffects[static_cast<size_t>(index)].get();
+        return nullptr;
+    }
+
+    int getNumMidiEffects() const { return static_cast<int>(midiEffects.size()); }
+
     // Region management
     void addRegion(std::unique_ptr<MidiRegion> region);
     void removeRegion(int index);
@@ -217,6 +247,9 @@ private:
     // Deferred plugin loading (for project restoration)
     juce::PluginDescription pendingPluginDescription;
     juce::MemoryBlock pendingPluginState;
+
+    // MIDI effects chain
+    std::vector<std::unique_ptr<MidiEffect>> midiEffects;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiTrack)
 };

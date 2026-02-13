@@ -3,6 +3,8 @@
 #include "../Utils/TimeConversion.h"
 #include "../Utils/UndoManager.h"
 #include "../Actions/RegionActions.h"
+#include "../Actions/RegionProcessActions.h"
+#include "../Audio/RegionProcessor.h"
 #include <algorithm>
 #include <cmath>
 
@@ -10,6 +12,33 @@ TimelineView::TimelineView()
 {
     startTimer(30); // ~30 FPS for playhead updates
     setWantsKeyboardFocus(true); // Enable keyboard focus for shortcuts
+
+    // Setup tempo track view
+    addAndMakeVisible(tempoTrackView);
+    tempoTrackView.setHeaderWidth(HEADER_WIDTH);
+    tempoTrackView.onJumpToPosition = [this](int64_t pos)
+    {
+        if (transportPtr != nullptr)
+            transportPtr->setPlayheadPosition(pos);
+    };
+
+    // Setup time signature track view
+    addAndMakeVisible(timeSigTrackView);
+    timeSigTrackView.setHeaderWidth(HEADER_WIDTH);
+    timeSigTrackView.onJumpToPosition = [this](int64_t pos)
+    {
+        if (transportPtr != nullptr)
+            transportPtr->setPlayheadPosition(pos);
+    };
+
+    // Setup marker track view
+    addAndMakeVisible(markerTrackView);
+    markerTrackView.setHeaderWidth(HEADER_WIDTH);
+    markerTrackView.onJumpToPosition = [this](int64_t pos)
+    {
+        if (transportPtr != nullptr)
+            transportPtr->setPlayheadPosition(pos);
+    };
 }
 
 TimelineView::~TimelineView()
@@ -30,6 +59,9 @@ void TimelineView::paint(juce::Graphics& g)
     auto rulerBounds = bounds.removeFromTop(RULER_HEIGHT);
     rulerBounds.removeFromLeft(HEADER_WIDTH);
     drawTimeRuler(g, rulerBounds);
+
+    // Skip tempo lane, time sig lane, and marker lane (they are child components)
+    bounds.removeFromTop(TEMPO_LANE_HEIGHT + TIME_SIG_LANE_HEIGHT + MARKER_LANE_HEIGHT);
 
     // Draw track lanes with automation lanes
     for (int i = 0; i < timelinePtr->getNumTracks(); ++i)
@@ -73,6 +105,26 @@ void TimelineView::paint(juce::Graphics& g)
 
 void TimelineView::resized()
 {
+    // Position tempo track view below the ruler
+    tempoTrackView.setBounds(0, RULER_HEIGHT, getWidth(), TEMPO_LANE_HEIGHT);
+
+    // Position time signature track view below the tempo track
+    timeSigTrackView.setBounds(0, RULER_HEIGHT + TEMPO_LANE_HEIGHT, getWidth(), TIME_SIG_LANE_HEIGHT);
+
+    // Position marker track view below the time sig track
+    markerTrackView.setBounds(0, RULER_HEIGHT + TEMPO_LANE_HEIGHT + TIME_SIG_LANE_HEIGHT, getWidth(), MARKER_LANE_HEIGHT);
+
+    // Wire tracks to timeline if available
+    if (timelinePtr != nullptr)
+    {
+        tempoTrackView.setTempoTrack(&timelinePtr->getTempoTrack());
+        tempoTrackView.setTransport(transportPtr);
+        timeSigTrackView.setTimeSignatureTrack(&timelinePtr->getTimeSignatureTrack());
+        timeSigTrackView.setTransport(transportPtr);
+        markerTrackView.setMarkerTrack(&timelinePtr->getMarkerTrack());
+        markerTrackView.setTransport(transportPtr);
+    }
+
     updateTrackHeaders();
     updateAutomationLaneViews();
 }
@@ -170,7 +222,7 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
                     drawTrackIndex = trackIdx;
 
                     // Initialize ghost preview bounds at click position
-                    int trackY = RULER_HEIGHT;
+                    int trackY = TRACK_CONTENT_TOP;
                     for (int i = 0; i < trackIdx; ++i)
                     {
                         trackY += getTotalTrackHeight(i);
@@ -534,7 +586,7 @@ void TimelineView::mouseDrag(const juce::MouseEvent& e)
             endSample = startSample + minLength;
 
         // Calculate track Y position
-        int trackY = RULER_HEIGHT;
+        int trackY = TRACK_CONTENT_TOP;
         for (int i = 0; i < drawTrackIndex; ++i)
         {
             trackY += getTotalTrackHeight(i);
@@ -986,9 +1038,17 @@ void TimelineView::drawTrackLane(juce::Graphics& g, juce::Rectangle<int> bounds,
     if (track == nullptr)
         return;
 
-    // Track background
+    // Track background with colour tint
     g.setColour(MidiSingLookAndFeel::backgroundLight);
     g.fillRect(bounds);
+
+    // Tint lane background with track colour
+    auto trackColour = track->getColour();
+    if (trackColour != juce::Colour())
+    {
+        g.setColour(trackColour.withAlpha(0.05f));
+        g.fillRect(bounds);
+    }
 
     // Draw beat grid
     drawBeatGrid(g, bounds);
@@ -1525,6 +1585,21 @@ void TimelineView::updateAutomationLaneViews()
 
 void TimelineView::syncAutomationLaneViewSettings()
 {
+    // Sync tempo track view settings
+    tempoTrackView.setPixelsPerBeat(pixelsPerBeat);
+    tempoTrackView.setHorizontalScrollOffset(horizontalScrollOffset);
+    tempoTrackView.setSampleRate(sampleRate);
+
+    // Sync time signature track view settings
+    timeSigTrackView.setPixelsPerBeat(pixelsPerBeat);
+    timeSigTrackView.setHorizontalScrollOffset(horizontalScrollOffset);
+    timeSigTrackView.setSampleRate(sampleRate);
+
+    // Sync marker track view settings
+    markerTrackView.setPixelsPerBeat(pixelsPerBeat);
+    markerTrackView.setHorizontalScrollOffset(horizontalScrollOffset);
+    markerTrackView.setSampleRate(sampleRate);
+
     // Sync settings to all automation lane views without recreating them
     for (auto& view : automationLaneViews)
     {
@@ -1620,10 +1695,10 @@ void TimelineView::fileDragExit(const juce::StringArray& /*files*/)
 
 int TimelineView::getTrackIndexAtY(int y) const
 {
-    if (timelinePtr == nullptr || y < RULER_HEIGHT)
+    if (timelinePtr == nullptr || y < TRACK_CONTENT_TOP)
         return -1;
 
-    int trackY = RULER_HEIGHT;
+    int trackY = TRACK_CONTENT_TOP;
     for (int i = 0; i < timelinePtr->getNumTracks(); ++i)
     {
         int totalHeight = getTotalTrackHeight(i);
@@ -1811,7 +1886,7 @@ juce::Rectangle<int> TimelineView::getRegionBounds(Region* region, int trackInde
     int w = x2 - x1;
 
     // Calculate y coordinates (accounting for automation lanes)
-    int trackY = RULER_HEIGHT;
+    int trackY = TRACK_CONTENT_TOP;
     for (int i = 0; i < trackIndex; ++i)
     {
         trackY += getTotalTrackHeight(i);
@@ -2080,7 +2155,7 @@ void TimelineView::drawStretchGhost(juce::Graphics& g)
     int w = x2 - x1;
 
     // Calculate track Y position accounting for automation lanes
-    int trackY = RULER_HEIGHT;
+    int trackY = TRACK_CONTENT_TOP;
     for (int i = 0; i < selectedTrackIndex; ++i)
     {
         trackY += getTotalTrackHeight(i);
@@ -2463,6 +2538,9 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
         PasteRegion,
         DeleteRegion,
         SplitRegion,
+        ReverseRegion,
+        NormalizeRegion,
+        ConsolidateRegions,
         AddAudioTrack,
         AddMidiTrack,
         ImportAudio,
@@ -2480,6 +2558,9 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
     bool hasTrackAtPosition = (clickedTrackIndex >= 0 && timelinePtr != nullptr &&
                                clickedTrackIndex < timelinePtr->getNumTracks());
 
+    // Check if selected region is audio (for region operations)
+    bool isAudioRegion = (selectedRegion != nullptr && dynamic_cast<AudioRegion*>(selectedRegion) != nullptr);
+
     // Region operations section
     menu.addItem(CutRegion, "Cut", hasSelection);
     menu.addItem(CopyRegion, "Copy", hasSelection);
@@ -2487,6 +2568,16 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
     menu.addSeparator();
     menu.addItem(DeleteRegion, "Delete Region", hasSelection);
     menu.addItem(SplitRegion, "Split Region", hasSelection);
+
+    // Audio region processing
+    if (isAudioRegion)
+    {
+        menu.addSeparator();
+        menu.addSectionHeader("Region Processing");
+        menu.addItem(ReverseRegion, "Reverse", hasSelection);
+        menu.addItem(NormalizeRegion, "Normalize", hasSelection);
+        menu.addItem(ConsolidateRegions, "Consolidate Selection", hasSelection);
+    }
 
     // Track operations section
     menu.addSeparator();
@@ -2542,6 +2633,48 @@ void TimelineView::showContextMenu(const juce::MouseEvent& e)
                 break;
             case DuplicateTrack:
                 duplicateTrack(contextMenuTrackIndex);
+                break;
+            case ReverseRegion:
+                if (selectedRegion != nullptr)
+                {
+                    if (auto* audioReg = dynamic_cast<AudioRegion*>(selectedRegion))
+                    {
+                        if (undoManagerPtr != nullptr)
+                            undoManagerPtr->perform(new ReverseRegionAction(audioReg));
+                        else
+                            RegionProcessor::reverseRegion(*audioReg);
+                        audioReg->setIsReversed(!audioReg->getIsReversed());
+                        repaint();
+                    }
+                }
+                break;
+            case NormalizeRegion:
+                if (selectedRegion != nullptr)
+                {
+                    if (auto* audioReg = dynamic_cast<AudioRegion*>(selectedRegion))
+                    {
+                        if (undoManagerPtr != nullptr)
+                            undoManagerPtr->perform(new NormalizeRegionAction(audioReg));
+                        else
+                            RegionProcessor::normalizeRegion(*audioReg);
+                        repaint();
+                    }
+                }
+                break;
+            case ConsolidateRegions:
+                if (selectedRegion != nullptr && selectedTrackIndex >= 0 && timelinePtr != nullptr)
+                {
+                    auto* track = dynamic_cast<AudioTrack*>(timelinePtr->getTrack(selectedTrackIndex));
+                    if (track != nullptr)
+                    {
+                        int64_t start = selectedRegion->getStartPosition();
+                        int64_t end = selectedRegion->getEndPosition();
+                        if (undoManagerPtr != nullptr)
+                            undoManagerPtr->perform(new ConsolidateRegionsAction(*track, start, end, 44100.0));
+                        selectedRegion = nullptr;
+                        repaint();
+                    }
+                }
                 break;
             default:
                 break;
@@ -3267,7 +3400,7 @@ int TimelineView::getAutomationLaneAtY(int y, int trackIndex) const
         return -1;
 
     // Calculate Y position for the track
-    int trackY = RULER_HEIGHT;
+    int trackY = TRACK_CONTENT_TOP;
     for (int i = 0; i < trackIndex; ++i)
     {
         trackY += getTotalTrackHeight(i);

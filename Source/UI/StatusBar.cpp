@@ -47,6 +47,9 @@ StatusBar::StatusBar(juce::AudioDeviceManager& deviceManager)
     autoSaveLabel.setJustificationType(juce::Justification::centred);
     autoSaveLabel.setColour(juce::Label::textColourId, MidiSingLookAndFeel::playColour);
 
+    // Loudness display
+    addAndMakeVisible(loudnessDisplay);
+
     // Update immediately
     timerCallback();
 
@@ -133,6 +136,9 @@ void StatusBar::resized()
 
     // Auto-save indicator
     autoSaveLabel.setBounds(area.removeFromLeft(80));
+
+    // Loudness display on the right side
+    loudnessDisplay.setBounds(area.removeFromRight(loudnessDisplay.getPreferredWidth()));
 
     // Dropout indicator on the right side, before device info
     dropoutLabel.setBounds(area.removeFromRight(100));
@@ -282,6 +288,7 @@ void StatusBar::setInputLevel(float left, float right)
 void StatusBar::setAudioEngine(AudioEngine* engine)
 {
     audioEngine = engine;
+    loudnessDisplay.setAudioEngine(engine);
 
     // Reset dropout tracking state
     lastDropoutCount = 0;

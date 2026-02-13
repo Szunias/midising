@@ -25,6 +25,7 @@
 #include "UI/MixerPanel.h"
 #include "UI/PianoRoll.h"
 #include "UI/ResizableSplitter.h"
+#include "UI/StepSequencer.h"
 #include "Utils/UndoManager.h"
 #include "Utils/RecentFilesManager.h"
 
@@ -119,6 +120,7 @@ private:
     void toggleBrowserPanel();
     void toggleMixerPanel();
     void togglePianoRollPanel();
+    void toggleStepSequencerPanel();
     void showPianoRollWithRegion(MidiRegion* region);
     void updatePanelLayout();
 
@@ -161,6 +163,12 @@ private:
     std::unique_ptr<FileBrowser> browserContent;
     std::unique_ptr<MixerPanel> mixerContent;
     std::unique_ptr<PianoRoll> pianoRollContent;
+
+    // Step sequencer panel
+    std::unique_ptr<CollapsiblePanel> stepSequencerPanel;
+    std::unique_ptr<StepSequencer> stepSequencerContent;
+    bool stepSequencerVisible = false;
+    int stepSequencerPanelHeight = 250;
 
     // Panel visibility state
     bool browserVisible = false;

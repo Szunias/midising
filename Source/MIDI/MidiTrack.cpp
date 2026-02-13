@@ -69,6 +69,13 @@ void MidiTrack::processBlock(juce::AudioBuffer<float>& buffer, int startSample, 
         }
     }
 
+    // Apply MIDI effects chain
+    for (auto& effect : midiEffects)
+    {
+        if (effect != nullptr && !effect->isBypassed())
+            effect->processMidi(midiBuffer, numSamples, currentSampleRate, 120.0);
+    }
+
     // Render MIDI to audio
     if (hasPluginLoaded)
     {

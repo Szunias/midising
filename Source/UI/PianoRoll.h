@@ -1,12 +1,14 @@
 #pragma once
 
 #include "../Timeline/Region.h"
+#include "../MIDI/GrooveTemplate.h"
 #include "../Utils/UndoManager.h"
 #include "LookAndFeel.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <set>
 #include <vector>
+#include <memory>
 
 /**
  * PianoRoll is an editor for MIDI notes.
@@ -45,7 +47,9 @@ public:
         ModWheel,       // CC1 - Modulation wheel
         Sustain,        // CC64 - Sustain pedal
         PitchBend,      // Pitch bend (not a CC, but a separate MIDI message type)
-        Expression      // CC11 - Expression controller
+        Expression,     // CC11 - Expression controller
+        Volume,         // CC7 - Volume
+        Brightness      // CC74 - Brightness / Filter cutoff
     };
 
     PianoRoll();
@@ -300,8 +304,11 @@ private:
     bool swingEnabled = false;  // Swing disabled by default
     float swingAmount = 0.5f;   // Swing amount (0.0 = straight, 0.5 = moderate groove, 1.0 = max swing)
 
-    // CC Lane visibility state (ModWheel, Sustain, PitchBend, Expression)
-    bool ccLaneVisible[4] = { false, false, false, false };
+    // CC Lane visibility state (ModWheel, Sustain, PitchBend, Expression, Volume, Brightness)
+    bool ccLaneVisible[6] = { false, false, false, false, false, false };
+
+    // Last extracted groove template (shared across piano roll instances)
+    static inline std::shared_ptr<GrooveTemplate> lastExtractedGroove;
 
     // CC editing state
     bool isEditingCC = false;
